@@ -1,3 +1,5 @@
+mod tui;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use npkill_core::{annotate_workspace_roots, delete, group_by_workspace, scan, DeleteMode, Entry, ScanOptions};
@@ -81,12 +83,30 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
-    match cli.command.unwrap_or(Command::Scan { min_mb: 0, grouped: false }) {
-        Command::Scan { min_mb, grouped } => cmd_scan(&cli.root, cli.json, min_mb, grouped),
-        Command::Delete { paths, mode, yes, dry_run } => {
+    match cli.command {
+        None => {
+            // Default UX: interactive TUI when attached to a real terminal
+            // (matches npkill's default behavior). Falls back to a headless
+            // scan when piped/redirected or when --json is requested, so
+            // `npkill-rs > out.json` or `npkill-rs --json` still work without
+            // needing the explicit `scan` subcommand.
+            if cli.json || !atty_stdout() {
+                cmd_scan(&cli.root, cli.json, 0, false)
+            } else {
+                tui::run(cli.root)?;
+                Ok(ExitCode::SUCCESS)
+            }
+        }
+        Some(Command::Scan { min_mb, grouped }) => cmd_scan(&cli.root, cli.json, min_mb, grouped),
+        Some(Command::Delete { paths, mode, yes, dry_run }) => {
             cmd_delete(paths, mode.into(), yes, dry_run, cli.json)
         }
     }
+}
+
+fn atty_stdout() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal()
 }
 
 fn cmd_scan(root: &PathBuf, json: bool, min_mb: u64, grouped: bool) -> Result<ExitCode> {
