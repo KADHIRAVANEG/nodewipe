@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    npkill_gui_lib::run();
+    nodewipe_gui_lib::run();
 }

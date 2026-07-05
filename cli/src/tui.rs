@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
-use npkill_core::{annotate_workspace_roots, delete, scan, DeleteMode, Entry, ScanOptions};
+use nodewipe_core::{annotate_workspace_roots, delete, scan, DeleteMode, Entry, ScanOptions};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
@@ -226,7 +226,7 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(format!(" npkill-rs — {} ", app.root.display())),
+            .title(format!(" nodewipe — {} ", app.root.display())),
     );
     f.render_widget(list, chunks[0]);
 

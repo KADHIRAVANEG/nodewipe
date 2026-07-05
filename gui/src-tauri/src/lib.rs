@@ -1,11 +1,11 @@
-use npkill_core::{annotate_workspace_roots, delete as core_delete, scan as core_scan, DeleteMode, Entry, ScanOptions};
+use nodewipe_core::{annotate_workspace_roots, delete as core_delete, scan as core_scan, DeleteMode, Entry, ScanOptions};
 use std::path::PathBuf;
 
 /// Scans `root` and returns every discovered `node_modules` directory,
 /// annotated with its workspace/monorepo root (if any).
 ///
 /// This is a thin wrapper: all scanning/exclude-list logic lives in
-/// `npkill-core`, so the GUI and CLI can never drift out of sync.
+/// `nodewipe-core`, so the GUI and CLI can never drift out of sync.
 #[tauri::command]
 fn scan_command(root: String) -> Result<Vec<Entry>, String> {
     let opts = ScanOptions {
@@ -82,5 +82,5 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![scan_command, delete_command, home_dir_command])
         .run(tauri::generate_context!())
-        .expect("error while running npkill-rs GUI");
+        .expect("error while running nodewipe GUI");
 }

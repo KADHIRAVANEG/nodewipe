@@ -2,12 +2,12 @@ mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use npkill_core::{annotate_workspace_roots, delete, group_by_workspace, scan, DeleteMode, Entry, ScanOptions};
+use nodewipe_core::{annotate_workspace_roots, delete, group_by_workspace, scan, DeleteMode, Entry, ScanOptions};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "npkill-rs", version, about = "Find and reclaim disk space from stray node_modules directories")]
+#[command(name = "nodewipe", version, about = "Find and reclaim disk space from stray node_modules directories")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -88,7 +88,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             // Default UX: interactive TUI when attached to a real terminal
             // (matches npkill's default behavior). Falls back to a headless
             // scan when piped/redirected or when --json is requested, so
-            // `npkill-rs > out.json` or `npkill-rs --json` still work without
+            // `nodewipe > out.json` or `nodewipe --json` still work without
             // needing the explicit `scan` subcommand.
             if cli.json || !atty_stdout() {
                 cmd_scan(&cli.root, cli.json, 0, false)
