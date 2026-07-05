@@ -5,7 +5,7 @@ use crossterm::ExecutableCommand;
 use npkill_core::{annotate_workspace_roots, delete, scan, DeleteMode, Entry, ScanOptions};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Terminal;
