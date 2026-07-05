@@ -2050,20 +2050,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
-name = "npkill-cli"
+name = "nodewipe-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "crossterm",
- "npkill-core",
+ "nodewipe-core",
  "ratatui",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "npkill-core"
+name = "nodewipe-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2077,10 +2077,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "npkill-gui"
+name = "nodewipe-gui"
 version = "0.1.0"
 dependencies = [
- "npkill-core",
+ "nodewipe-core",
  "serde",
  "serde_json",
  "tauri",
