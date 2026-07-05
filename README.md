@@ -9,14 +9,15 @@ below.
 What's implemented right now:
 - **`core`**: parallel directory scanner, monorepo/workspace grouping,
   package-manager detection, three delete modes (trash / archive / permanent).
-- **`cli`**: `scan` and `delete` subcommands, both with a human-readable and
-  a `--json` (headless/scriptable) output mode.
+- **`cli`**: interactive TUI (default when run in a terminal — `↑/↓` move,
+  `space` select, `d` trash, `a` archive, `p` permanent w/ confirmation,
+  `r` rescan, `q` quit), plus `scan`/`delete` subcommands with a
+  human-readable and a `--json` (headless/scriptable) output mode.
 
 What's *not* built yet (next steps, see Roadmap):
-- Interactive TUI (npkill's current default UX) — planned with `ratatui`.
 - GUI (planned with Tauri, reusing `npkill-core` unchanged).
 - `.npkillignore` / exclude-pattern config file.
-- Progress reporting during long scans/deletes for the interactive UI.
+- Progress bar during long scans (current TUI blocks until the initial scan finishes).
 
 ## Building
 
@@ -70,8 +71,8 @@ npkill-rs delete ./apps/foo/node_modules --dry-run
 
 ## Roadmap
 
-1. ✅ Core scanning + deletion engine, scriptable CLI (this scaffold)
-2. Interactive terminal UI with `ratatui`, multi-select, live progress
+1. ✅ Core scanning + deletion engine, scriptable CLI
+2. ✅ Interactive terminal UI with `ratatui`, multi-select, trash/archive/permanent
 3. `.npkillignore` config file + `--exclude` glob support
 4. Tauri GUI wrapping `npkill-core` (no engine code duplicated)
 5. Packaging: prebuilt binaries via GitHub Actions for macOS/Linux/Windows
