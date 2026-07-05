@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>npkill-rs</title>
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>npkill-rs</h1>
+    <div class="root-picker">
+      <input id="root-input" type="text" placeholder="/home/you" />
+      <button id="scan-btn">Scan</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="summary" class="summary">Enter a folder and click Scan.</div>
+    <table id="results">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Size</th>
+          <th>Package manager</th>
+          <th>Path</th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+  </main>
+
+  <footer>
+    <button id="trash-btn" class="danger-safe" disabled>Move to Trash</button>
+    <button id="archive-btn" disabled>Archive then Delete</button>
+    <button id="permanent-btn" class="danger" disabled>Delete Permanently</button>
+    <span id="status"></span>
+  </footer>
+
+  <script src="src/main.js"></script>
+</body>
+</html>
