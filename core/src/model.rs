@@ -39,7 +39,23 @@ impl Default for ScanOptions {
         Self {
             root: PathBuf::from("."),
             follow_symlinks: false,
-            exclude_dirs: vec![".git".into(), ".cache".into()],
+            exclude_dirs: vec![
+                ".git".into(),
+                ".cache".into(),
+                // OS trash locations: no point surfacing node_modules that
+                // are already trashed. Matches the XDG trash dir name used
+                // on Linux (~/.local/share/Trash) and common equivalents.
+                "Trash".into(),
+                "$Recycle.Bin".into(), // Windows
+                ".Trash".into(),       // some macOS/Linux variants
+                // Package-manager-owned cache/store directories: these aren't
+                // "your" node_modules to reclaim, they're managed internally
+                // by the tool and showing them is just noise.
+                ".npm".into(),
+                ".bun".into(),
+                ".pnpm-store".into(),
+                ".yarn".into(),
+            ],
             compute_sizes: true,
         }
     }
