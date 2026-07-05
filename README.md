@@ -1,5 +1,13 @@
 # nodewipe
 
+ _   _           _    __        ___            
+| \ | | ___   __| | __\ \      / (_)_ __   ___ 
+|  \| |/ _ \ / _` |/ _ \ \ /\ / /| | '_ \ / _ \
+| |\  | (_) | (_| |  __/\ V  V / | | |_) |  __/
+|_| \_|\___/ \__,_|\___| \_/\_/  |_| .__/ \___|
+                                   |_|
+
+
 A Rust reimagining of [npkill](https://github.com/voidcosmos/npkill), built to
 directly address the issues open on that repo. See the issue-to-fix mapping
 below.
