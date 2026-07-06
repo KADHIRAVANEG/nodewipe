@@ -6,7 +6,7 @@
 |  \| |/ _ \ / _` |/ _ \ \ /\ / /| | '_ \ / _ \
 | |\  | (_) | (_| |  __/\ V  V / | | |_) |  __/
 |_| \_|\___/ \__,_|\___| \_/\_/  |_| .__/ \___|
-                                   |_|
+                                   |_|         
 ```
 
 A Rust reimagining of [npkill](https://github.com/voidcosmos/npkill), built to
@@ -22,17 +22,59 @@ What's implemented right now:
   `space` select, `d` trash, `a` archive, `p` permanent w/ confirmation,
   `r` rescan, `q` quit), plus `scan`/`delete` subcommands with a
   human-readable and a `--json` (headless/scriptable) output mode.
-- **`gui`**: Tauri desktop app (npkill#186) — same `nodewipe-core` engine, a
-  plain HTML/JS/CSS frontend (no bundler needed), table view with
-  checkboxes, and Trash/Archive/Permanent delete buttons.
+- **`gui`**: Tauri desktop app (npkill#186) — search/filter, flat and
+  collapsible grouped (monorepo) views, sortable columns, select-all,
+  colored package-manager badges, a real confirmation modal for permanent
+  delete, and toast notifications. Same `nodewipe-core` engine as the CLI.
+- **Distribution scaffolding**: GitHub Actions release workflow, an
+  `install.sh` that asks CLI-only vs CLI+GUI, and an `npm-package/` shim so
+  `npx nodewipe` works like `npx npkill` — see "Installing" below. Not yet
+  live: needs a real GitHub repo + first tagged release.
 
 What's *not* built yet (next steps, see Roadmap):
 - `.nodewipeignore` / exclude-pattern config file.
 - Progress bar during long scans (current TUI/GUI block until the initial scan finishes).
-- Custom app icons for GUI bundling (placeholders in place for now; fine for
-  `tauri dev`, worth swapping before a real `tauri build` release).
+- Custom app icons for GUI bundling (placeholders in place for now).
 
-## Building the CLI
+## Installing (once releases exist)
+
+Three ways to get `nodewipe`, from simplest to most manual:
+
+```bash
+# 1. npm (works like `npx npkill` today) — downloads the right native binary,
+#    no Rust/Node build step for the end user
+npx nodewipe
+# or: npm install -g nodewipe
+
+# 2. Shell installer — asks CLI-only vs CLI+GUI
+curl -fsSL https://raw.githubusercontent.com/your-username/nodewipe/main/scripts/install.sh | bash
+
+# 3. Manual — grab the binary for your platform from GitHub Releases
+```
+
+None of these compile anything locally — `.github/workflows/release.yml` builds
+native binaries for Linux/macOS/Windows on every version tag and attaches them
+to a GitHub Release; the npm package and `install.sh` just fetch the matching
+one. **This only works once a tagged release has actually been pushed and
+built** — see "Publishing a release" below. Until then, build from source
+(next section).
+
+### Publishing a release
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+This triggers the GitHub Actions workflow to build and attach binaries.
+Before your first real release, update the placeholder `your-username/nodewipe`
+repo references in `scripts/install.sh` and `npm-package/scripts/download-binary.js`
+to your actual GitHub username, then publish the npm shim once:
+```bash
+cd npm-package
+npm publish
+```
+
+## Building from source
 
 ```bash
 cd nodewipe
@@ -113,33 +155,4 @@ nodewipe/
 ├── core/     # nodewipe-core: engine, no I/O with the user — reusable by CLI and GUI
 ├── cli/      # nodewipe-cli: binary, argument parsing, output formatting, TUI
 └── gui/      # nodewipe-gui: Tauri desktop app (src-tauri/ = Rust backend, rest = frontend)
-```
-## Chart 
-
-```mermaid
-flowchart TD
-    %% Styling Definitions
-    classDef entry fill:#2c3e50,stroke:#34495e,stroke-width:2px,color:#fff;
-    classDef logic fill:#2980b9,stroke:#fff,color:#fff;
-    classDef action fill:#27ae60,stroke:#fff,color:#fff;
-    classDef config fill:#f1c40f,stroke:#f39c12,stroke-width:2px,color:#000;
-
-    %% Entry Point
-    CLI[User Execution: nodewipe]:::entry
-    
-    %% Input/Discovery Phase
-    CLI --> Discovery{Search for Targets}
-    Discovery --> FileTree[Traverse Directory Tree]:::logic
-    FileTree --> Match{Is node_modules?}:::logic
-    
-    %% Processing Phase
-    Match -- Yes --> Action[Delete/Purge Directory]:::action
-    Match -- No --> Skip[Ignore]
-    
-    %% Result/Reporting
-    Action --> Stats[Collect Deletion Stats]:::logic
-    Stats --> Report[Print Summary Report]:::action
-
-    %% Config Handling
-    Config[Configuration/CLI Flags]:::config -.-> Discovery
 ```
