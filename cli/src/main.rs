@@ -6,8 +6,22 @@ use nodewipe_core::{annotate_workspace_roots, delete, group_by_workspace, scan, 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+const BANNER: &str = r#"
+ _   _           _    __        ___            
+| \ | | ___   __| | __\ \      / (_)_ __   ___ 
+|  \| |/ _ \ / _` |/ _ \ \ /\ / /| | '_ \ / _ \
+| |\  | (_) | (_| |  __/\ V  V / | | |_) |  __/
+|_| \_|\___/ \__,_|\___| \_/\_/  |_| .__/ \___|
+                                   |_|         
+"#;
+
 #[derive(Parser)]
-#[command(name = "nodewipe", version, about = "Find and reclaim disk space from stray node_modules directories")]
+#[command(
+    name = "nodewipe",
+    version,
+    about = "Find and reclaim disk space from stray node_modules directories",
+    before_help = BANNER
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
