@@ -1,5 +1,5 @@
 {
-  "name": "nodewipe",
+  "name": "@joker53/nodewipe",
   "version": "0.1.0",
   "description": "Find and reclaim disk space from stray node_modules directories (Rust engine, npm shim)",
   "bin": {
@@ -15,7 +15,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/nodewipe.git"
+    "url": "https://github.com/KADHIRAVANEG/nodewipe.git"
   },
   "engines": {
     "node": ">=16"
