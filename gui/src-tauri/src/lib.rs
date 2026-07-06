@@ -1,4 +1,4 @@
-use nodewipe_core::{annotate_workspace_roots, delete as core_delete, scan as core_scan, DeleteMode, Entry, ScanOptions};
+use nodewipe_core::{annotate_workspace_roots, delete as core_delete, group_by_workspace, scan as core_scan, DeleteMode, Entry, ScanOptions, WorkspaceGroup};
 use std::path::PathBuf;
 
 /// Scans `root` and returns every discovered `node_modules` directory,
@@ -17,6 +17,27 @@ fn scan_command(root: String) -> Result<Vec<Entry>, String> {
     annotate_workspace_roots(&mut entries, &opts.root);
     entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
     Ok(entries)
+}
+
+/// Same as `scan_command`, but pre-grouped by monorepo/workspace root for the
+/// GUI's collapsible group view (fixes npkill#104 in the GUI too).
+#[tauri::command]
+fn scan_grouped_command(root: String) -> Result<Vec<WorkspaceGroup>, String> {
+    let opts = ScanOptions {
+        root: PathBuf::from(root),
+        ..Default::default()
+    };
+
+    let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
+    annotate_workspace_roots(&mut entries, &opts.root);
+
+    let groups = group_by_workspace(entries);
+    let mut groups: Vec<WorkspaceGroup> = groups.into_values().collect();
+    groups.sort_by(|a, b| b.total_size_bytes.cmp(&a.total_size_bytes));
+    for g in &mut groups {
+        g.entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+    }
+    Ok(groups)
 }
 
 #[derive(serde::Serialize)]
@@ -80,7 +101,7 @@ fn dirs_home() -> Option<String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![scan_command, delete_command, home_dir_command])
+        .invoke_handler(tauri::generate_handler![scan_command, scan_grouped_command, delete_command, home_dir_command])
         .run(tauri::generate_context!())
         .expect("error while running nodewipe GUI");
 }
