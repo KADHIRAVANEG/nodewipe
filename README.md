@@ -156,3 +156,31 @@ nodewipe/
 ├── cli/      # nodewipe-cli: binary, argument parsing, output formatting, TUI
 └── gui/      # nodewipe-gui: Tauri desktop app (src-tauri/ = Rust backend, rest = frontend)
 ```
+## Chart
+```mermaid
+flowchart TD
+    %% Styling Definitions
+    classDef entry fill:#2c3e50,stroke:#34495e,stroke-width:2px,color:#fff;
+    classDef logic fill:#2980b9,stroke:#fff,color:#fff;
+    classDef action fill:#27ae60,stroke:#fff,color:#fff;
+    classDef config fill:#f1c40f,stroke:#f39c12,stroke-width:2px,color:#000;
+
+    %% Entry Point
+    CLI[User Execution: nodewipe]:::entry
+    
+    %% Input/Discovery Phase
+    CLI --> Discovery{Search for Targets}
+    Discovery --> FileTree[Traverse Directory Tree]:::logic
+    FileTree --> Match{Is node_modules?}:::logic
+    
+    %% Processing Phase
+    Match -- Yes --> Action[Delete/Purge Directory]:::action
+    Match -- No --> Skip[Ignore]
+    
+    %% Result/Reporting
+    Action --> Stats[Collect Deletion Stats]:::logic
+    Stats --> Report[Print Summary Report]:::action
+
+    %% Config Handling
+    Config[Configuration/CLI Flags]:::config -.-> Discovery
+```
