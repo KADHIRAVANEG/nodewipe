@@ -27,51 +27,56 @@ What's implemented right now:
   colored package-manager badges, a real confirmation modal for permanent
   delete, and toast notifications. Same `nodewipe-core` engine as the CLI.
 - **Distribution scaffolding**: GitHub Actions release workflow, an
-  `install.sh` that asks CLI-only vs CLI+GUI, and an `npm-package/` shim so
-  `npx nodewipe` works like `npx npkill` — see "Installing" below. Not yet
-  live: needs a real GitHub repo + first tagged release.
+  `install.sh` that asks CLI-only vs CLI+GUI, and an npm shim published as
+  [`@joker53/nodewipe`](https://www.npmjs.com/package/@joker53/nodewipe) — see
+  "Installing" below. The npm package is live; it just has nothing to
+  download yet until the first GitHub Release with built binaries exists.
 
 What's *not* built yet (next steps, see Roadmap):
 - `.nodewipeignore` / exclude-pattern config file.
 - Progress bar during long scans (current TUI/GUI block until the initial scan finishes).
 - Custom app icons for GUI bundling (placeholders in place for now).
 
-## Installing (once releases exist)
+## Installing
 
-Three ways to get `nodewipe`, from simplest to most manual:
+The npm shim is already published as [`@joker53/nodewipe`](https://www.npmjs.com/package/@joker53/nodewipe)
+(scoped under a personal npm username — a plain `nodewipe` name was blocked by
+npm's collision check against an existing similarly-named package). Three ways
+to get it, from simplest to most manual:
 
 ```bash
-# 1. npm (works like `npx npkill` today) — downloads the right native binary,
+# 1. npm — downloads the right native binary via postinstall,
 #    no Rust/Node build step for the end user
-npx nodewipe
-# or: npm install -g nodewipe
+npx @joker53/nodewipe
+# or: npm install -g @joker53/nodewipe
 
 # 2. Shell installer — asks CLI-only vs CLI+GUI
-curl -fsSL https://raw.githubusercontent.com/your-username/nodewipe/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/scripts/install.sh | bash
 
 # 3. Manual — grab the binary for your platform from GitHub Releases
+#    https://github.com/KADHIRAVANEG/nodewipe/releases
 ```
 
 None of these compile anything locally — `.github/workflows/release.yml` builds
 native binaries for Linux/macOS/Windows on every version tag and attaches them
 to a GitHub Release; the npm package and `install.sh` just fetch the matching
 one. **This only works once a tagged release has actually been pushed and
-built** — see "Publishing a release" below. Until then, build from source
+built.** Until then (or if a build fails for your platform), build from source
 (next section).
 
-### Publishing a release
+### Publishing a new release
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
-This triggers the GitHub Actions workflow to build and attach binaries.
-Before your first real release, update the placeholder `your-username/nodewipe`
-repo references in `scripts/install.sh` and `npm-package/scripts/download-binary.js`
-to your actual GitHub username, then publish the npm shim once:
+This triggers the GitHub Actions workflow to build and attach binaries — check
+progress at https://github.com/KADHIRAVANEG/nodewipe/actions. The npm shim only
+needs re-publishing when its own code changes (not on every binary release):
 ```bash
 cd npm-package
-npm publish
+npm version patch   # or minor/major
+npm publish --access=public
 ```
 
 ## Building from source
@@ -156,6 +161,7 @@ nodewipe/
 ├── cli/      # nodewipe-cli: binary, argument parsing, output formatting, TUI
 └── gui/      # nodewipe-gui: Tauri desktop app (src-tauri/ = Rust backend, rest = frontend)
 ```
+
 ## Chart
 ```mermaid
 flowchart TD
