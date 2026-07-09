@@ -152,26 +152,11 @@ fn atty_stdout() -> bool {
 
 fn cmd_types() -> Result<ExitCode> {
     println!("Supported artifact types:\n");
-    for kind in ALL_KINDS {
+    for kind in ArtifactKind::ALL {
         println!("  {:<14} {}", kind.slug(), kind.label());
     }
     Ok(ExitCode::SUCCESS)
 }
-
-const ALL_KINDS: &[ArtifactKind] = &[
-    ArtifactKind::NodeModules,
-    ArtifactKind::PythonVenv,
-    ArtifactKind::PythonPycache,
-    ArtifactKind::PythonPytestCache,
-    ArtifactKind::PythonMypyCache,
-    ArtifactKind::PythonRuffCache,
-    ArtifactKind::RustTarget,
-    ArtifactKind::JavaMavenTarget,
-    ArtifactKind::JavaGradleBuild,
-    ArtifactKind::NextCache,
-    ArtifactKind::TurboCache,
-    ArtifactKind::GenericDist,
-];
 
 fn cmd_scan(root: &PathBuf, json: bool, min_mb: u64, grouped: bool, exclude_kinds: Vec<ArtifactKind>) -> Result<ExitCode> {
     let opts = ScanOptions {
