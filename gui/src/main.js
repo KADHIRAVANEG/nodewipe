@@ -8,6 +8,7 @@ let sortDir = "desc";
 let filterText = "";
 const selected = new Set();
 const collapsedGroups = new Set();
+const excludedKinds = new Set();
 
 const rootInput = document.getElementById("root-input");
 const searchInput = document.getElementById("search-input");
@@ -29,6 +30,23 @@ const modalBody = document.getElementById("modal-body");
 const modalCancel = document.getElementById("modal-cancel");
 const modalConfirm = document.getElementById("modal-confirm");
 const toastStack = document.getElementById("toast-stack");
+const typeChips = document.getElementById("type-chips");
+
+function renderChips() {
+  typeChips.innerHTML = "";
+  Object.entries(KIND_LABELS).forEach(([kind, label]) => {
+    const chip = document.createElement("button");
+    chip.className = `chip ${excludedKinds.has(kind) ? "" : "active"}`;
+    chip.textContent = label;
+    chip.addEventListener("click", () => {
+      if (excludedKinds.has(kind)) excludedKinds.delete(kind);
+      else excludedKinds.add(kind);
+      renderChips();
+      render();
+    });
+    typeChips.appendChild(chip);
+  });
+}
 
 function humanSize(bytes) {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -41,9 +59,44 @@ function humanSize(bytes) {
   return `${size.toFixed(2)} ${units[unit]}`;
 }
 
-function badgeFor(pm) {
-  const cls = { Npm: "badge-npm", Yarn: "badge-yarn", Pnpm: "badge-pnpm" }[pm] || "badge-unknown";
-  return `<span class="badge ${cls}">${pm}</span>`;
+const KIND_LABELS = {
+  node_modules: "node_modules",
+  python_venv: "Python venv",
+  python_pycache: "__pycache__",
+  python_pytest_cache: ".pytest_cache",
+  python_mypy_cache: ".mypy_cache",
+  python_ruff_cache: ".ruff_cache",
+  rust_target: "Cargo target",
+  java_maven_target: "Maven target",
+  java_gradle_build: "Gradle build",
+  next_cache: "Next.js cache",
+  turbo_cache: "Turborepo cache",
+  generic_dist: "dist/",
+};
+
+const KIND_BADGE_CLASS = {
+  node_modules: "badge-npm",
+  python_venv: "badge-pnpm",
+  python_pycache: "badge-pnpm",
+  python_pytest_cache: "badge-pnpm",
+  python_mypy_cache: "badge-pnpm",
+  python_ruff_cache: "badge-pnpm",
+  rust_target: "badge-yarn",
+  java_maven_target: "badge-unknown",
+  java_gradle_build: "badge-unknown",
+  next_cache: "badge-npm",
+  turbo_cache: "badge-npm",
+  generic_dist: "badge-unknown",
+};
+
+function badgeFor(entry) {
+  const label = KIND_LABELS[entry.kind] || entry.kind;
+  const cls = KIND_BADGE_CLASS[entry.kind] || "badge-unknown";
+  let html = `<span class="badge ${cls}">${label}</span>`;
+  if (entry.kind === "node_modules" && entry.package_manager) {
+    html += ` <span class="group-meta">${entry.package_manager}</span>`;
+  }
+  return html;
 }
 
 function showToast(message, kind = "info") {
@@ -70,6 +123,7 @@ function allVisibleEntries() {
 }
 
 function matchesFilter(entry) {
+  if (excludedKinds.has(entry.kind)) return false;
   if (!filterText) return true;
   return entry.path.toLowerCase().includes(filterText.toLowerCase());
 }
@@ -79,7 +133,7 @@ function filteredSorted(list) {
   const dir = sortDir === "asc" ? 1 : -1;
   filtered.sort((a, b) => {
     if (sortKey === "size") return (a.size_bytes - b.size_bytes) * dir;
-    if (sortKey === "pm") return a.package_manager.localeCompare(b.package_manager) * dir;
+    if (sortKey === "pm") return (KIND_LABELS[a.kind] || a.kind).localeCompare(KIND_LABELS[b.kind] || b.kind) * dir;
     return a.path.localeCompare(b.path) * dir;
   });
   return filtered;
@@ -109,7 +163,7 @@ function renderRow(entry) {
   sizeCell.textContent = humanSize(entry.size_bytes);
 
   const pmCell = document.createElement("td");
-  pmCell.innerHTML = badgeFor(entry.package_manager);
+  pmCell.innerHTML = badgeFor(entry);
 
   const pathCell = document.createElement("td");
   pathCell.textContent = entry.path;
@@ -163,7 +217,7 @@ function render() {
     });
   }
 
-  summary.textContent = `${shownCount} node_modules found · ${humanSize(total)} total`;
+  summary.textContent = `${shownCount} artifacts found · ${humanSize(total)} total`;
   emptyState.classList.toggle("hidden", shownCount !== 0);
   resultsTable.classList.toggle("hidden", shownCount === 0);
 
@@ -316,3 +370,6 @@ modalBackdrop.addEventListener("click", (e) => {
 invoke("home_dir_command").then((home) => {
   rootInput.value = home;
 });
+
+// Build the type-filter chip row now that KIND_LABELS exists.
+renderChips();

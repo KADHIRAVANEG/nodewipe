@@ -1,40 +1,111 @@
-use crate::model::{Entry, PackageManager, ScanOptions};
+use crate::model::{ArtifactKind, Entry, PackageManager, ScanOptions};
 use anyhow::Result;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
 
-/// Walks `opts.root` and returns every `node_modules` directory found.
+/// How a directory name is confirmed to actually be the artifact kind it
+/// looks like, to avoid false positives (a folder literally named `build`
+/// or `target` isn't always a build artifact).
+enum Marker {
+    /// Name alone is enough (e.g. `node_modules`, `__pycache__`).
+    None,
+    /// At least one of these files must exist in the *parent* directory.
+    ParentHasAny(&'static [&'static str]),
+    /// At least one of these files must exist *inside* the matched directory
+    /// itself (used to confirm a `venv`/`.venv` folder is a real virtualenv).
+    SelfHasAny(&'static [&'static str]),
+}
+
+struct Rule {
+    name: &'static str,
+    kind: ArtifactKind,
+    marker: Marker,
+}
+
+/// The full set of known disposable-artifact patterns. Adding support for a
+/// new ecosystem/tool is just adding a row here — no other scanner changes
+/// needed. Order matters when multiple rules share a directory name (e.g.
+/// `target` for Rust vs. Maven): the first rule whose marker is satisfied wins.
+const RULES: &[Rule] = &[
+    Rule { name: "node_modules", kind: ArtifactKind::NodeModules, marker: Marker::None },
+    Rule { name: "venv", kind: ArtifactKind::PythonVenv, marker: Marker::SelfHasAny(&["pyvenv.cfg"]) },
+    Rule { name: ".venv", kind: ArtifactKind::PythonVenv, marker: Marker::SelfHasAny(&["pyvenv.cfg"]) },
+    Rule { name: "__pycache__", kind: ArtifactKind::PythonPycache, marker: Marker::None },
+    Rule { name: ".pytest_cache", kind: ArtifactKind::PythonPytestCache, marker: Marker::None },
+    Rule { name: ".mypy_cache", kind: ArtifactKind::PythonMypyCache, marker: Marker::None },
+    Rule { name: ".ruff_cache", kind: ArtifactKind::PythonRuffCache, marker: Marker::None },
+    Rule {
+        name: "target",
+        kind: ArtifactKind::RustTarget,
+        marker: Marker::ParentHasAny(&["Cargo.toml"]),
+    },
+    Rule {
+        name: "target",
+        kind: ArtifactKind::JavaMavenTarget,
+        marker: Marker::ParentHasAny(&["pom.xml"]),
+    },
+    Rule {
+        name: "build",
+        kind: ArtifactKind::JavaGradleBuild,
+        marker: Marker::ParentHasAny(&["build.gradle", "build.gradle.kts"]),
+    },
+    Rule { name: ".next", kind: ArtifactKind::NextCache, marker: Marker::None },
+    Rule { name: ".turbo", kind: ArtifactKind::TurboCache, marker: Marker::None },
+    Rule {
+        name: "dist",
+        kind: ArtifactKind::GenericDist,
+        marker: Marker::ParentHasAny(&["package.json"]),
+    },
+];
+
+fn classify(entry: &DirEntry) -> Option<ArtifactKind> {
+    let name = entry.file_name().to_str()?;
+    for rule in RULES {
+        if rule.name != name {
+            continue;
+        }
+        let satisfied = match rule.marker {
+            Marker::None => true,
+            Marker::ParentHasAny(files) => entry
+                .path()
+                .parent()
+                .map(|p| files.iter().any(|f| p.join(f).exists()))
+                .unwrap_or(false),
+            Marker::SelfHasAny(files) => files.iter().any(|f| entry.path().join(f).exists()),
+        };
+        if satisfied {
+            return Some(rule.kind);
+        }
+    }
+    None
+}
+
+/// Walks `opts.root` and returns every discovered disposable artifact
+/// directory (node_modules, venvs, build outputs, caches, ...).
 ///
 /// Correctness notes (these are the specific bugs this fixes vs. npkill):
 ///
-/// 1. Once a directory named `node_modules` is found, we DO NOT recurse into it.
-///    That's a huge perf win (npkill#172/#121) and also avoids ever reporting a
-///    "node_modules inside node_modules" as if it were a separate deletable unit
-///    (pnpm's internal `.pnpm` store lives inside node_modules and should be
-///    treated as part of the same unit, not a nested result).
+/// 1. Once a directory is classified as an artifact, we DO NOT recurse into
+///    it (`WalkDir::skip_current_dir`). Big perf win (npkill#172/#121), and
+///    avoids ever reporting something *inside* an artifact (e.g. pnpm's
+///    internal `.pnpm` store inside `node_modules`) as if it were a separate
+///    deletable unit.
 ///
-/// 2. Skipping recursion into a matched `node_modules` does NOT stop the walk
-///    from continuing into *sibling* directories. This is what fixes npkill#199/#191:
-///    excluding/skipping one node_modules must never cause nested project
-///    directories elsewhere (e.g. `apps/*/node_modules` in a monorepo) to be missed.
-///    `walkdir`'s `filter_entry` only prunes the branch it's called on, so siblings
-///    are unaffected by construction.
+/// 2. Skipping recursion into a matched directory does NOT stop the walk
+///    from continuing into *sibling* directories — this is what fixes
+///    npkill#199/#191: excluding/skipping one artifact must never cause
+///    nested project directories elsewhere (e.g. `apps/*/node_modules` in a
+///    monorepo) to be missed.
 ///
-/// 3. Symlinks are not followed by default (`opts.follow_symlinks = false`), which
-///    avoids infinite loops and double-counted sizes — a source of the "scan hangs"
-///    complaints in npkill#121.
+/// 3. Symlinks are not followed by default, avoiding infinite loops and
+///    double-counted sizes.
 pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
     let exclude = opts.exclude_dirs.clone();
+    let mut matches: Vec<(ArtifactKind, PathBuf)> = Vec::new();
 
-    let walker = WalkDir::new(&opts.root)
-        .follow_links(opts.follow_symlinks)
-        .into_iter()
-        .filter_entry(move |e| !is_excluded(e, &exclude));
+    let mut it = WalkDir::new(&opts.root).follow_links(opts.follow_symlinks).into_iter();
 
-    let mut node_modules_dirs: Vec<PathBuf> = Vec::new();
-
-    let mut it = walker;
     while let Some(res) = it.next() {
         let entry = match res {
             Ok(e) => e,
@@ -42,63 +113,61 @@ pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
             Err(_) => continue,
         };
 
-        if entry.file_type().is_dir() && entry.file_name() == "node_modules" {
-            node_modules_dirs.push(entry.path().to_path_buf());
-            // Prune: don't descend into this node_modules. `WalkDir` doesn't
-            // expose skip-subtree directly on the iterator here, so we rely on
-            // `filter_entry` for the general exclude list; for node_modules we
-            // instead just never `push` its children by checking ancestry when
-            // building the final list (cheap given the shallow depth of hits).
+        if !entry.file_type().is_dir() {
+            continue;
+        }
+
+        if is_excluded(&entry, &exclude) {
+            it.skip_current_dir();
+            continue;
+        }
+
+        if let Some(kind) = classify(&entry) {
+            if !opts.exclude_kinds.contains(&kind) {
+                matches.push((kind, entry.path().to_path_buf()));
+            }
+            it.skip_current_dir();
         }
     }
 
-    // Remove any accidental duplicates where a matched dir is itself inside
-    // another matched dir (defensive; shouldn't normally occur since node_modules
-    // dirs aren't recursed into, but nested `node_modules/node_modules` from a
-    // vendored/bundled package is a real thing on npm and should count once).
-    node_modules_dirs.sort();
-    let top_level_dirs: Vec<PathBuf> = node_modules_dirs
-        .iter()
-        .filter(|p| !node_modules_dirs.iter().any(|other| other != *p && p.starts_with(other)))
-        .cloned()
-        .collect();
-
-    // Parallel size computation (fixes the "scanning takes forever" complaints —
-    // each node_modules is sized independently and concurrently).
-    let entries: Vec<Entry> = top_level_dirs
+    // Parallel size computation — each matched directory is sized
+    // independently and concurrently.
+    let entries: Vec<Entry> = matches
         .par_iter()
-        .map(|path| build_entry(path, opts.compute_sizes))
+        .map(|(kind, path)| build_entry(path, *kind, opts.compute_sizes))
         .collect();
 
     Ok(entries)
 }
 
 fn is_excluded(entry: &DirEntry, exclude_dirs: &[String]) -> bool {
-    if !entry.file_type().is_dir() {
-        return false;
-    }
     match entry.file_name().to_str() {
         Some(name) => exclude_dirs.iter().any(|ex| ex == name),
         None => false,
     }
 }
 
-fn build_entry(path: &Path, compute_sizes: bool) -> Entry {
+fn build_entry(path: &Path, kind: ArtifactKind, compute_sizes: bool) -> Entry {
     let size_bytes = if compute_sizes { dir_size(path) } else { 0 };
     let last_modified = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
-    let package_manager = detect_package_manager(path);
+    let package_manager = if kind == ArtifactKind::NodeModules {
+        Some(detect_package_manager(path))
+    } else {
+        None
+    };
 
     Entry {
         path: path.to_path_buf(),
         size_bytes,
+        kind,
         package_manager,
         last_modified,
-        workspace_root: None, // filled in by `workspace::group_by_workspace`
+        workspace_root: None, // filled in by `workspace::annotate_workspace_roots`
     }
 }
 
-/// Sums file sizes under `path` in parallel. Symlinks inside node_modules
-/// (common with npm/pnpm linking) are not followed, to avoid double-counting.
+/// Sums file sizes under `path` in parallel. Symlinks are not followed, to
+/// avoid double-counting.
 fn dir_size(path: &Path) -> u64 {
     WalkDir::new(path)
         .follow_links(false)
