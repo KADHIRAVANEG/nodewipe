@@ -48,7 +48,7 @@ impl App {
         self.entries = entries;
         self.cursor = 0;
         self.selected.clear();
-        self.status = format!("{} node_modules found", self.entries.len());
+        self.status = format!("{} artifacts found", self.entries.len());
         Ok(())
     }
 
@@ -210,8 +210,9 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
             let checked = if app.selected.contains(&i) { "[x]" } else { "[ ]" };
             let cursor_marker = if i == app.cursor { "> " } else { "  " };
             let line = format!(
-                "{cursor_marker}{checked} {:>10}  {}",
+                "{cursor_marker}{checked} {:>10}  {:<14} {}",
                 human_size(e.size_bytes),
+                e.kind.label(),
                 e.path.display()
             );
             let style = if i == app.cursor {

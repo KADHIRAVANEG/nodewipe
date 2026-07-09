@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 const WORKSPACE_MARKERS: &[&str] = &["pnpm-workspace.yaml", "lerna.json"];
 
-/// For each entry, walk up its ancestors (starting from the node_modules'
+/// For each entry, walk up its ancestors (starting from the artifact's
 /// parent) looking for a monorepo marker file, or a `package.json` containing
 /// a `"workspaces"` field. The nearest match becomes `workspace_root`.
 ///
@@ -17,8 +17,8 @@ pub fn annotate_workspace_roots(entries: &mut [Entry], scan_root: &Path) {
     }
 }
 
-fn find_workspace_root(node_modules_path: &Path, scan_root: &Path) -> Option<PathBuf> {
-    let mut dir = node_modules_path.parent()?;
+fn find_workspace_root(artifact_path: &Path, scan_root: &Path) -> Option<PathBuf> {
+    let mut dir = artifact_path.parent()?;
 
     loop {
         if WORKSPACE_MARKERS.iter().any(|m| dir.join(m).exists()) {
