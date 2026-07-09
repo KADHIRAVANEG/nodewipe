@@ -89,6 +89,11 @@ const KIND_BADGE_CLASS = {
   generic_dist: "badge-unknown",
 };
 
+const KIND_RISK_NOTES = {
+  python_venv:
+    "This is a Python virtual environment, not just a cache. If nothing has a requirements.txt/poetry.lock recording its exact packages, deleting it loses that environment for good — and if any running process, service, or script currently points at this venv's interpreter, it will break the moment this is gone.",
+};
+
 function badgeFor(entry) {
   const label = KIND_LABELS[entry.kind] || entry.kind;
   const cls = KIND_BADGE_CLASS[entry.kind] || "badge-unknown";
@@ -297,10 +302,54 @@ async function performDelete(mode) {
   }
 }
 
-function openPermanentConfirm() {
-  const count = selected.size;
-  modalBody.textContent = `Permanently delete ${count} folder${count === 1 ? "" : "s"}? This cannot be undone.`;
-  modalBackdrop.classList.remove("hidden");
+function riskyNotesFor(targets) {
+  const seen = new Set();
+  const notes = [];
+  for (const e of targets) {
+    const note = KIND_RISK_NOTES[e.kind];
+    if (note && !seen.has(e.kind)) {
+      seen.add(e.kind);
+      notes.push(`${KIND_LABELS[e.kind] || e.kind}: ${note}`);
+    }
+  }
+  return notes;
+}
+
+/// Gate before any delete button acts. Permanent always confirms via the
+/// modal. Trash/Archive normally proceed immediately (Trash is recoverable,
+/// Archive keeps a backup) — but if the selection includes a risky kind
+/// (e.g. a Python venv), they route through the same modal first, since
+/// "recoverable in the OS trash" doesn't help a process that breaks the
+/// instant the venv disappears from disk.
+let pendingMode = null;
+
+function requestDelete(mode) {
+  const targets = selectedEntryObjects();
+  if (targets.length === 0) return;
+
+  const risky = riskyNotesFor(targets);
+
+  if (mode === "permanent") {
+    pendingMode = "permanent";
+    const count = targets.length;
+    let body = `Permanently delete ${count} folder${count === 1 ? "" : "s"}? This cannot be undone.`;
+    if (risky.length) body += `\n\n⚠ ${risky.join("\n\n⚠ ")}`;
+    modalBody.textContent = body;
+    modalConfirm.textContent = "Delete permanently";
+    modalBackdrop.classList.remove("hidden");
+    return;
+  }
+
+  if (risky.length) {
+    pendingMode = mode;
+    const label = mode === "trash" ? "move to trash" : "archive then delete";
+    modalBody.textContent = `⚠ ${risky.join("\n\n⚠ ")}\n\nProceed to ${label}?`;
+    modalConfirm.textContent = mode === "trash" ? "Move to trash" : "Archive then delete";
+    modalBackdrop.classList.remove("hidden");
+    return;
+  }
+
+  performDelete(mode);
 }
 
 function closeModal() {
@@ -354,13 +403,14 @@ viewGroupedBtn.addEventListener("click", () => {
   render();
 });
 
-trashBtn.addEventListener("click", () => performDelete("trash"));
-archiveBtn.addEventListener("click", () => performDelete("archive"));
-permanentBtn.addEventListener("click", openPermanentConfirm);
+trashBtn.addEventListener("click", () => requestDelete("trash"));
+archiveBtn.addEventListener("click", () => requestDelete("archive"));
+permanentBtn.addEventListener("click", () => requestDelete("permanent"));
 modalCancel.addEventListener("click", closeModal);
 modalConfirm.addEventListener("click", () => {
+  const mode = pendingMode;
   closeModal();
-  performDelete("permanent");
+  if (mode) performDelete(mode);
 });
 modalBackdrop.addEventListener("click", (e) => {
   if (e.target === modalBackdrop) closeModal();

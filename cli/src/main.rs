@@ -31,7 +31,15 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Root directory to scan.
+    /// Directory to scan, given directly (ncdu-style): `nodewipe /`,
+    /// `nodewipe ~`, `nodewipe ../some-project`. Takes priority over --root
+    /// if both are given.
+    #[arg(value_name = "PATH")]
+    path: Option<PathBuf>,
+
+    /// Root directory to scan. Prefer the positional form above for
+    /// everyday use; this flag mainly exists for scripts that build up
+    /// arguments explicitly.
     #[arg(long, global = true, default_value = ".")]
     root: PathBuf,
 
@@ -113,6 +121,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     let exclude_kinds = parse_exclude_types(&cli.exclude_types)?;
+    let root = cli.path.clone().unwrap_or_else(|| cli.root.clone());
 
     match cli.command {
         None => {
@@ -122,13 +131,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
             // `nodewipe > out.json` or `nodewipe --json` still work without
             // needing the explicit `scan` subcommand.
             if cli.json || !atty_stdout() {
-                cmd_scan(&cli.root, cli.json, 0, false, exclude_kinds)
+                cmd_scan(&root, cli.json, 0, false, exclude_kinds)
             } else {
-                tui::run(cli.root)?;
+                tui::run(root)?;
                 Ok(ExitCode::SUCCESS)
             }
         }
-        Some(Command::Scan { min_mb, grouped }) => cmd_scan(&cli.root, cli.json, min_mb, grouped, exclude_kinds),
+        Some(Command::Scan { min_mb, grouped }) => cmd_scan(&root, cli.json, min_mb, grouped, exclude_kinds),
         Some(Command::Delete { paths, mode, yes, dry_run }) => {
             cmd_delete(paths, mode.into(), yes, dry_run, cli.json)
         }
@@ -209,6 +218,8 @@ fn cmd_delete(
         return Ok(ExitCode::FAILURE);
     }
 
+    print_risk_warnings(&paths);
+
     if dry_run {
         for p in &paths {
             println!("would delete ({mode:?}): {}", p.display());
@@ -248,6 +259,16 @@ fn cmd_delete(
     }
 
     Ok(if had_error { ExitCode::FAILURE } else { ExitCode::SUCCESS })
+}
+
+fn print_risk_warnings(paths: &[PathBuf]) {
+    for p in paths {
+        if let Some(kind) = nodewipe_core::classify_path(p) {
+            if let Some(note) = kind.risk_note() {
+                eprintln!("⚠ WARNING [{}] {}\n  {}\n", kind.label(), p.display(), note);
+            }
+        }
+    }
 }
 
 fn dir_size_quick(path: &PathBuf) -> u64 {

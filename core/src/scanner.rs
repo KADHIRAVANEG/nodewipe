@@ -59,26 +59,34 @@ const RULES: &[Rule] = &[
     },
 ];
 
-fn classify(entry: &DirEntry) -> Option<ArtifactKind> {
-    let name = entry.file_name().to_str()?;
+/// Classifies a path by name + marker files, independent of any active
+/// directory walk. Used both by the scanner (via `classify_entry`) and
+/// externally — e.g. the CLI's `delete` command needs to know an artifact's
+/// kind (for risk warnings) even when given a raw path with no scan results
+/// to draw from.
+pub fn classify_path(path: &Path) -> Option<ArtifactKind> {
+    let name = path.file_name()?.to_str()?;
     for rule in RULES {
         if rule.name != name {
             continue;
         }
         let satisfied = match rule.marker {
             Marker::None => true,
-            Marker::ParentHasAny(files) => entry
-                .path()
+            Marker::ParentHasAny(files) => path
                 .parent()
                 .map(|p| files.iter().any(|f| p.join(f).exists()))
                 .unwrap_or(false),
-            Marker::SelfHasAny(files) => files.iter().any(|f| entry.path().join(f).exists()),
+            Marker::SelfHasAny(files) => files.iter().any(|f| path.join(f).exists()),
         };
         if satisfied {
             return Some(rule.kind);
         }
     }
     None
+}
+
+fn classify(entry: &DirEntry) -> Option<ArtifactKind> {
+    classify_path(entry.path())
 }
 
 /// Walks `opts.root` and returns every discovered disposable artifact
