@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 /// The kind of disposable dev artifact a directory represents. Each variant
 /// corresponds to a rule in `scanner::ARTIFACT_RULES`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     /// JS/TS dependency install (npm/yarn/pnpm).
@@ -35,6 +35,22 @@ pub enum ArtifactKind {
 }
 
 impl ArtifactKind {
+    /// Every known kind, in the order they should be listed in a UI.
+    pub const ALL: &'static [ArtifactKind] = &[
+        ArtifactKind::NodeModules,
+        ArtifactKind::PythonVenv,
+        ArtifactKind::PythonPycache,
+        ArtifactKind::PythonPytestCache,
+        ArtifactKind::PythonMypyCache,
+        ArtifactKind::PythonRuffCache,
+        ArtifactKind::RustTarget,
+        ArtifactKind::JavaMavenTarget,
+        ArtifactKind::JavaGradleBuild,
+        ArtifactKind::NextCache,
+        ArtifactKind::TurboCache,
+        ArtifactKind::GenericDist,
+    ];
+
     /// Short slug used in CLI flags (`--exclude-types venv,pycache`) and JSON.
     pub fn slug(&self) -> &'static str {
         match self {

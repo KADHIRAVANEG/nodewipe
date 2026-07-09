@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
-use nodewipe_core::{annotate_workspace_roots, delete, scan, DeleteMode, Entry, ScanOptions};
+use nodewipe_core::{annotate_workspace_roots, delete, scan, ArtifactKind, DeleteMode, Entry, ScanOptions};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
@@ -13,33 +13,51 @@ use std::collections::HashSet;
 use std::io::stdout;
 use std::path::PathBuf;
 
+/// Which screen is currently active. The flow is linear on first launch:
+/// Splash -> SelectTypes -> Results, and `t` from Results jumps back to
+/// SelectTypes to change the filter and rescan.
+#[derive(PartialEq)]
+enum Stage {
+    Splash,
+    SelectTypes,
+    Results,
+}
+
 struct App {
     root: PathBuf,
+    stage: Stage,
     entries: Vec<Entry>,
     cursor: usize,
     selected: HashSet<usize>,
     status: String,
     /// When Some, a permanent-delete confirmation is pending for these indices.
     confirm_permanent: Option<Vec<usize>>,
+    /// Artifact kinds currently excluded from scanning. Toggled on the
+    /// SelectTypes screen; everything is included (unchecked = excluded) by
+    /// default, matching "scan everything, opt out" from the CLI.
+    excluded_kinds: HashSet<ArtifactKind>,
+    filter_cursor: usize,
 }
 
 impl App {
-    fn new(root: PathBuf) -> Result<Self> {
-        let mut app = App {
+    fn new(root: PathBuf) -> Self {
+        App {
             root,
+            stage: Stage::Splash,
             entries: Vec::new(),
             cursor: 0,
             selected: HashSet::new(),
-            status: String::from("Scanning..."),
+            status: String::new(),
             confirm_permanent: None,
-        };
-        app.rescan()?;
-        Ok(app)
+            excluded_kinds: HashSet::new(),
+            filter_cursor: 0,
+        }
     }
 
     fn rescan(&mut self) -> Result<()> {
         let opts = ScanOptions {
             root: self.root.clone(),
+            exclude_kinds: self.excluded_kinds.iter().copied().collect(),
             ..Default::default()
         };
         let mut entries = scan(&opts)?;
@@ -50,6 +68,22 @@ impl App {
         self.selected.clear();
         self.status = format!("{} artifacts found", self.entries.len());
         Ok(())
+    }
+
+    fn toggle_filter_kind(&mut self) {
+        let kind = ArtifactKind::ALL[self.filter_cursor];
+        if self.excluded_kinds.contains(&kind) {
+            self.excluded_kinds.remove(&kind);
+        } else {
+            self.excluded_kinds.insert(kind);
+        }
+    }
+
+    fn move_filter_cursor(&mut self, delta: i32) {
+        let len = ArtifactKind::ALL.len() as i32;
+        let mut new_pos = self.filter_cursor as i32 + delta;
+        new_pos = new_pos.clamp(0, len - 1);
+        self.filter_cursor = new_pos as usize;
     }
 
     fn move_cursor(&mut self, delta: i32) {
@@ -86,7 +120,6 @@ impl App {
     fn delete_indices(&mut self, indices: &[usize], mode: DeleteMode) {
         let mut freed = 0u64;
         let mut errors = 0;
-        // Delete from highest index to lowest so removal doesn't shift the rest.
         let mut sorted = indices.to_vec();
         sorted.sort_unstable_by(|a, b| b.cmp(a));
 
@@ -128,7 +161,7 @@ pub fn run(root: PathBuf) -> Result<()> {
     let backend = CrosstermBackend::new(out);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(root)?;
+    let mut app = App::new(root);
     let result = event_loop(&mut terminal, &mut app);
 
     disable_raw_mode()?;
@@ -147,49 +180,87 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &
                 continue;
             }
 
-            // Confirmation gate for permanent delete.
-            if let Some(pending) = app.confirm_permanent.clone() {
-                match key.code {
-                    KeyCode::Char('y') | KeyCode::Char('Y') => {
-                        app.delete_indices(&pending, DeleteMode::Permanent);
-                        app.confirm_permanent = None;
+            match app.stage {
+                Stage::Splash => {
+                    // Any key advances to type selection.
+                    if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
+                        break;
                     }
-                    _ => {
-                        app.confirm_permanent = None;
-                        app.status = "Cancelled".into();
-                    }
+                    app.stage = Stage::SelectTypes;
+                    continue;
                 }
-                continue;
-            }
+                Stage::SelectTypes => {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Down | KeyCode::Char('j') => app.move_filter_cursor(1),
+                        KeyCode::Up | KeyCode::Char('k') => app.move_filter_cursor(-1),
+                        KeyCode::Char(' ') => app.toggle_filter_kind(),
+                        KeyCode::Char('a') => app.excluded_kinds.clear(), // select all
+                        KeyCode::Char('n') => {
+                            // select none
+                            app.excluded_kinds = ArtifactKind::ALL.iter().copied().collect();
+                        }
+                        KeyCode::Enter => {
+                            app.status = "Scanning...".into();
+                            app.rescan()?;
+                            app.stage = Stage::Results;
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                Stage::Results => {
+                    // Type-filter re-entry from Results.
+                    if key.code == KeyCode::Char('t') {
+                        app.stage = Stage::SelectTypes;
+                        continue;
+                    }
 
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => break,
-                KeyCode::Down | KeyCode::Char('j') => app.move_cursor(1),
-                KeyCode::Up | KeyCode::Char('k') => app.move_cursor(-1),
-                KeyCode::Char(' ') => app.toggle_selected(),
-                KeyCode::Char('r') => {
-                    app.status = "Rescanning...".into();
-                    app.rescan()?;
-                }
-                // Trash: safe, recoverable delete (npkill#60).
-                KeyCode::Char('d') => {
-                    let idx = app.selected_indices();
-                    app.delete_indices(&idx, DeleteMode::Trash);
-                }
-                // Archive: tar.gz backup then delete (npkill#46).
-                KeyCode::Char('a') => {
-                    let idx = app.selected_indices();
-                    app.delete_indices(&idx, DeleteMode::Archive);
-                }
-                // Permanent: requires confirmation.
-                KeyCode::Char('p') => {
-                    let idx = app.selected_indices();
-                    if !idx.is_empty() {
-                        app.confirm_permanent = Some(idx);
-                        app.status = "Permanently delete? y/n".into();
+                    // Confirmation gate for permanent delete.
+                    if let Some(pending) = app.confirm_permanent.clone() {
+                        match key.code {
+                            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                app.delete_indices(&pending, DeleteMode::Permanent);
+                                app.confirm_permanent = None;
+                            }
+                            _ => {
+                                app.confirm_permanent = None;
+                                app.status = "Cancelled".into();
+                            }
+                        }
+                        continue;
+                    }
+
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Down | KeyCode::Char('j') => app.move_cursor(1),
+                        KeyCode::Up | KeyCode::Char('k') => app.move_cursor(-1),
+                        KeyCode::Char(' ') => app.toggle_selected(),
+                        KeyCode::Char('r') => {
+                            app.status = "Rescanning...".into();
+                            app.rescan()?;
+                        }
+                        // Trash: safe, recoverable delete (npkill#60).
+                        KeyCode::Char('d') => {
+                            let idx = app.selected_indices();
+                            app.delete_indices(&idx, DeleteMode::Trash);
+                        }
+                        // Archive: tar.gz backup then delete (npkill#46).
+                        KeyCode::Char('a') => {
+                            let idx = app.selected_indices();
+                            app.delete_indices(&idx, DeleteMode::Archive);
+                        }
+                        // Permanent: requires confirmation.
+                        KeyCode::Char('p') => {
+                            let idx = app.selected_indices();
+                            if !idx.is_empty() {
+                                app.confirm_permanent = Some(idx);
+                                app.status = "Permanently delete? y/n".into();
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
             }
         }
     }
@@ -197,6 +268,78 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &
 }
 
 fn draw(f: &mut ratatui::Frame, app: &App) {
+    match app.stage {
+        Stage::Splash => draw_splash(f),
+        Stage::SelectTypes => draw_type_select(f, app),
+        Stage::Results => draw_results(f, app),
+    }
+}
+
+fn draw_splash(f: &mut ratatui::Frame) {
+    let area = f.area();
+    let banner_lines: Vec<Line> = crate::BANNER
+        .lines()
+        .map(|l| Line::from(Span::styled(l.to_string(), Style::default().fg(Color::Cyan))))
+        .collect();
+
+    let mut lines = banner_lines;
+    lines.push(Line::from(""));
+    lines.push(Line::from("Find and reclaim disk space from stray dev artifacts."));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Press any key to continue  ·  q to quit",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let block = Paragraph::new(lines)
+        .alignment(ratatui::layout::Alignment::Center)
+        .block(Block::default());
+
+    // Vertically center-ish by padding with a layout.
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(30), Constraint::Min(10), Constraint::Percentage(20)])
+        .split(area);
+    f.render_widget(block, chunks[1]);
+}
+
+fn draw_type_select(f: &mut ratatui::Frame, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(1)])
+        .split(f.area());
+
+    let items: Vec<ListItem> = ArtifactKind::ALL
+        .iter()
+        .enumerate()
+        .map(|(i, kind)| {
+            let enabled = !app.excluded_kinds.contains(kind);
+            let mark = if enabled { "[x]" } else { "[ ]" };
+            let cursor_marker = if i == app.filter_cursor { "> " } else { "  " };
+            let line = format!("{cursor_marker}{mark} {}", kind.label());
+            let style = if i == app.filter_cursor {
+                Style::default().fg(Color::Black).bg(Color::Yellow)
+            } else if enabled {
+                Style::default().fg(Color::White)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            ListItem::new(Line::from(Span::styled(line, style)))
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Select artifact types to scan for "),
+    );
+    f.render_widget(list, chunks[0]);
+
+    let help = "↑/↓ move · space toggle · a select all · n select none · enter scan · q quit";
+    f.render_widget(Paragraph::new(help), chunks[1]);
+}
+
+fn draw_results(f: &mut ratatui::Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(3), Constraint::Length(3), Constraint::Length(1)])
@@ -246,7 +389,7 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
         format!("{}  (y = confirm, any other key = cancel)", app.status)
     } else {
         format!(
-            "{}  |  ↑/↓ move · space select · d trash · a archive · p permanent · r rescan · q quit",
+            "{}  |  ↑/↓ move · space select · d trash · a archive · p permanent · t types · r rescan · q quit",
             app.status
         )
     };
