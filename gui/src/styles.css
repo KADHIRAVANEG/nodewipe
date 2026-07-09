@@ -152,6 +152,30 @@ button:disabled {
   color: white;
 }
 
+.type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chip {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 100px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 main {
   flex: 1;
   overflow-y: auto;
@@ -334,7 +358,8 @@ footer {
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 20px;
-  width: 340px;
+  width: 400px;
+  max-width: 90vw;
 }
 
 .modal h2 {
@@ -347,6 +372,7 @@ footer {
   font-size: 12.5px;
   line-height: 1.5;
   margin: 0 0 16px;
+  white-space: pre-line;
 }
 
 .modal-actions {
