@@ -9,22 +9,49 @@
                                    |_|         
 ```
 
-A Rust reimagining of [npkill](https://github.com/voidcosmos/npkill), built to
-directly address the issues open on that repo. See the issue-to-fix mapping
-below.
+A Rust dev-environment cleanup tool. Started as a reimagining of
+[npkill](https://github.com/voidcosmos/npkill) (see the issue-to-fix mapping
+below), but goes further: `node_modules` isn't the only thing that quietly
+eats disk space — Python virtualenvs, `__pycache__`, Rust `target/`, Java/Gradle
+build output, and JS bundler caches all have the exact same problem. nodewipe
+scans for all of them by default, through one shared engine.
+
+## Supported artifact types
+
+| Type | Slug | Detected by |
+|---|---|---|
+| `node_modules` | `node_modules` | directory name |
+| Python venv | `venv` | `venv`/`.venv` name + `pyvenv.cfg` inside |
+| Python bytecode cache | `pycache` | `__pycache__` |
+| pytest cache | `pytest_cache` | `.pytest_cache` |
+| mypy cache | `mypy_cache` | `.mypy_cache` |
+| ruff cache | `ruff_cache` | `.ruff_cache` |
+| Rust build output | `rust_target` | `target/` + sibling `Cargo.toml` |
+| Maven build output | `maven_target` | `target/` + sibling `pom.xml` |
+| Gradle build output | `gradle_build` | `build/` + sibling `build.gradle(.kts)` |
+| Next.js cache | `next_cache` | `.next` |
+| Turborepo cache | `turbo_cache` | `.turbo` |
+| JS bundler output | `dist` | `dist/` + sibling `package.json` |
+
+Everything is scanned by default (`nodewipe scan`); opt individual types out
+with `nodewipe --exclude-types venv,dist`, or list them all with `nodewipe types`.
+Ambiguous names like `target`/`build`/`dist` are only matched when a marker
+file confirms the ecosystem (e.g. `target/` next to `Cargo.toml`), so an
+unrelated folder that happens to share the name is never touched.
 
 ## Status: MVP scaffold
 
 What's implemented right now:
-- **`core`**: parallel directory scanner, monorepo/workspace grouping,
-  package-manager detection, three delete modes (trash / archive / permanent).
+- **`core`**: rule-based scanner covering all the artifact types above
+  (adding a new one is a one-line rule, not a rewrite), monorepo/workspace
+  grouping, three delete modes (trash / archive / permanent).
 - **`cli`**: interactive TUI (default when run in a terminal — `↑/↓` move,
   `space` select, `d` trash, `a` archive, `p` permanent w/ confirmation,
-  `r` rescan, `q` quit), plus `scan`/`delete` subcommands with a
-  human-readable and a `--json` (headless/scriptable) output mode.
-- **`gui`**: Tauri desktop app (npkill#186) — search/filter, flat and
-  collapsible grouped (monorepo) views, sortable columns, select-all,
-  colored package-manager badges, a real confirmation modal for permanent
+  `r` rescan, `q` quit), plus `scan`/`delete`/`types` subcommands, a
+  `--exclude-types` filter, and a `--json` (headless/scriptable) output mode.
+- **`gui`**: Tauri desktop app (npkill#186) — search/filter, per-type filter
+  chips, flat and collapsible grouped (monorepo) views, sortable columns,
+  select-all, colored type badges, a real confirmation modal for permanent
   delete, and toast notifications. Same `nodewipe-core` engine as the CLI.
 - **Distribution scaffolding**: GitHub Actions release workflow, an
   `install.sh` that asks CLI-only vs CLI+GUI, and an npm shim published as
@@ -109,14 +136,20 @@ npm run build    # produces a distributable bundle
 # Interactive TUI (default when run in a terminal)
 nodewipe
 
-# Human-readable scan of the current directory
+# Human-readable scan of the current directory (all artifact types)
 nodewipe scan
 
-# Only show node_modules >= 50MB
+# Only show artifacts >= 50MB
 nodewipe scan --min-mb 50
 
 # Group results by monorepo/workspace root
 nodewipe scan --grouped
+
+# Skip specific artifact types
+nodewipe scan --exclude-types venv,dist,rust_target
+
+# List every supported type and its slug
+nodewipe types
 
 # Scriptable / CI mode
 nodewipe scan --json > report.json
@@ -161,7 +194,6 @@ nodewipe/
 ├── cli/      # nodewipe-cli: binary, argument parsing, output formatting, TUI
 └── gui/      # nodewipe-gui: Tauri desktop app (src-tauri/ = Rust backend, rest = frontend)
 ```
-
 ## Chart
 ```mermaid
 flowchart TD

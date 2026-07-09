@@ -2,7 +2,7 @@ mod tui;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use nodewipe_core::{annotate_workspace_roots, delete, group_by_workspace, scan, DeleteMode, Entry, ScanOptions};
+use nodewipe_core::{annotate_workspace_roots, delete, group_by_workspace, scan, ArtifactKind, DeleteMode, Entry, ScanOptions};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -15,18 +15,31 @@ const BANNER: &str = r#"
                                    |_|         
 "#;
 
+/// Comma-separated list of type slugs, e.g. "venv,pycache,rust_target".
+/// Scanning covers every known kind by default; this is how you opt out.
+const TYPE_HELP: &str = "node_modules, venv, pycache, pytest_cache, mypy_cache, \
+ruff_cache, rust_target, maven_target, gradle_build, next_cache, turbo_cache, dist";
+
 #[derive(Parser)]
 #[command(
     name = "nodewipe",
     version,
-    about = "Find and reclaim disk space from stray node_modules directories",
+    about = "Find and reclaim disk space from stray dev-dependency and build-artifact directories",
     before_help = BANNER
 )]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Root directory to scan.
+    /// Directory to scan, given directly (ncdu-style): `nodewipe /`,
+    /// `nodewipe ~`, `nodewipe ../some-project`. Takes priority over --root
+    /// if both are given.
+    #[arg(value_name = "PATH")]
+    path: Option<PathBuf>,
+
+    /// Root directory to scan. Prefer the positional form above for
+    /// everyday use; this flag mainly exists for scripts that build up
+    /// arguments explicitly.
     #[arg(long, global = true, default_value = ".")]
     root: PathBuf,
 
@@ -34,11 +47,18 @@ struct Cli {
     /// This is the headless mode requested in npkill#188 — safe for scripts/CI.
     #[arg(long, global = true)]
     json: bool,
+
+    /// Comma-separated artifact types to skip. Everything is scanned by
+    /// default. Valid values: node_modules, venv, pycache, pytest_cache,
+    /// mypy_cache, ruff_cache, rust_target, maven_target, gradle_build,
+    /// next_cache, turbo_cache, dist.
+    #[arg(long, global = true, value_delimiter = ',')]
+    exclude_types: Vec<String>,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Scan for node_modules directories (default if no subcommand given).
+    /// Scan for disposable artifact directories (default if no subcommand given).
     Scan {
         /// Only show entries at least this many megabytes in size.
         #[arg(long, default_value_t = 0)]
@@ -48,9 +68,10 @@ enum Command {
         #[arg(long)]
         grouped: bool,
     },
-    /// Delete one or more node_modules directories.
+    /// Delete one or more artifact directories.
     Delete {
-        /// Path(s) to delete. Must be `node_modules` directories.
+        /// Path(s) to delete. Must be a recognized artifact directory
+        /// (node_modules, venv, __pycache__, target, build, dist, ...).
         paths: Vec<PathBuf>,
 
         /// How to delete: move to OS trash (recoverable), archive to .tar.gz
@@ -66,6 +87,8 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// List every supported artifact type and its slug (for --exclude-types).
+    Types,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -97,6 +120,9 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
+    let exclude_kinds = parse_exclude_types(&cli.exclude_types)?;
+    let root = cli.path.clone().unwrap_or_else(|| cli.root.clone());
+
     match cli.command {
         None => {
             // Default UX: interactive TUI when attached to a real terminal
@@ -105,17 +131,27 @@ fn run(cli: Cli) -> Result<ExitCode> {
             // `nodewipe > out.json` or `nodewipe --json` still work without
             // needing the explicit `scan` subcommand.
             if cli.json || !atty_stdout() {
-                cmd_scan(&cli.root, cli.json, 0, false)
+                cmd_scan(&root, cli.json, 0, false, exclude_kinds)
             } else {
-                tui::run(cli.root)?;
+                tui::run(root)?;
                 Ok(ExitCode::SUCCESS)
             }
         }
-        Some(Command::Scan { min_mb, grouped }) => cmd_scan(&cli.root, cli.json, min_mb, grouped),
+        Some(Command::Scan { min_mb, grouped }) => cmd_scan(&root, cli.json, min_mb, grouped, exclude_kinds),
         Some(Command::Delete { paths, mode, yes, dry_run }) => {
             cmd_delete(paths, mode.into(), yes, dry_run, cli.json)
         }
+        Some(Command::Types) => cmd_types(),
     }
+}
+
+fn parse_exclude_types(raw: &[String]) -> Result<Vec<ArtifactKind>> {
+    raw.iter()
+        .map(|s| {
+            ArtifactKind::from_slug(s.trim())
+                .ok_or_else(|| anyhow::anyhow!("unknown artifact type '{s}'. Valid types: {TYPE_HELP}"))
+        })
+        .collect()
 }
 
 fn atty_stdout() -> bool {
@@ -123,9 +159,18 @@ fn atty_stdout() -> bool {
     std::io::stdout().is_terminal()
 }
 
-fn cmd_scan(root: &PathBuf, json: bool, min_mb: u64, grouped: bool) -> Result<ExitCode> {
+fn cmd_types() -> Result<ExitCode> {
+    println!("Supported artifact types:\n");
+    for kind in ArtifactKind::ALL {
+        println!("  {:<14} {}", kind.slug(), kind.label());
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_scan(root: &PathBuf, json: bool, min_mb: u64, grouped: bool, exclude_kinds: Vec<ArtifactKind>) -> Result<ExitCode> {
     let opts = ScanOptions {
         root: root.clone(),
+        exclude_kinds,
         ..Default::default()
     };
 
@@ -144,7 +189,7 @@ fn cmd_scan(root: &PathBuf, json: bool, min_mb: u64, grouped: bool) -> Result<Ex
             for group in groups.values() {
                 println!("\n{} ({})", group.root.display(), human_size(group.total_size_bytes));
                 for e in &group.entries {
-                    println!("  {}  {}", human_size(e.size_bytes), e.path.display());
+                    println!("  {}  {}  {}", human_size(e.size_bytes), kind_display(e), e.path.display());
                 }
             }
         }
@@ -153,9 +198,9 @@ fn cmd_scan(root: &PathBuf, json: bool, min_mb: u64, grouped: bool) -> Result<Ex
     } else {
         let total: u64 = entries.iter().map(|e| e.size_bytes).sum();
         for e in &entries {
-            println!("{}  {:?}  {}", human_size(e.size_bytes), e.package_manager, e.path.display());
+            println!("{}  {}  {}", human_size(e.size_bytes), kind_display(e), e.path.display());
         }
-        println!("\n{} node_modules found, {} reclaimable", entries.len(), human_size(total));
+        println!("\n{} artifacts found, {} reclaimable", entries.len(), human_size(total));
     }
 
     Ok(ExitCode::SUCCESS)
@@ -172,6 +217,8 @@ fn cmd_delete(
         eprintln!("no paths given");
         return Ok(ExitCode::FAILURE);
     }
+
+    print_risk_warnings(&paths);
 
     if dry_run {
         for p in &paths {
@@ -214,6 +261,16 @@ fn cmd_delete(
     Ok(if had_error { ExitCode::FAILURE } else { ExitCode::SUCCESS })
 }
 
+fn print_risk_warnings(paths: &[PathBuf]) {
+    for p in paths {
+        if let Some(kind) = nodewipe_core::classify_path(p) {
+            if let Some(note) = kind.risk_note() {
+                eprintln!("⚠ WARNING [{}] {}\n  {}\n", kind.label(), p.display(), note);
+            }
+        }
+    }
+}
+
 fn dir_size_quick(path: &PathBuf) -> u64 {
     walkdir_size(path)
 }
@@ -237,6 +294,13 @@ fn walkdir_size(path: &PathBuf) -> u64 {
     let mut total = 0;
     walk(path, &mut total);
     total
+}
+
+fn kind_display(e: &Entry) -> String {
+    match &e.package_manager {
+        Some(pm) => format!("{:<14} ({pm:?})", e.kind.label()),
+        None => e.kind.label().to_string(),
+    }
 }
 
 fn human_size(bytes: u64) -> String {
