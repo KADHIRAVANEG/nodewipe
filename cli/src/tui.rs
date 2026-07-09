@@ -30,8 +30,10 @@ struct App {
     cursor: usize,
     selected: HashSet<usize>,
     status: String,
-    /// When Some, a permanent-delete confirmation is pending for these indices.
-    confirm_permanent: Option<Vec<usize>>,
+    /// When Some, a delete confirmation is pending — either because the
+    /// mode is Permanent (always confirmed) or because the selection
+    /// includes a risky kind (e.g. a Python venv) regardless of mode.
+    pending_action: Option<(Vec<usize>, DeleteMode)>,
     /// Artifact kinds currently excluded from scanning. Toggled on the
     /// SelectTypes screen; everything is included (unchecked = excluded) by
     /// default, matching "scan everything, opt out" from the CLI.
@@ -48,7 +50,7 @@ impl App {
             cursor: 0,
             selected: HashSet::new(),
             status: String::new(),
-            confirm_permanent: None,
+            pending_action: None,
             excluded_kinds: HashSet::new(),
             filter_cursor: 0,
         }
@@ -114,6 +116,37 @@ impl App {
             let mut v: Vec<usize> = self.selected.iter().copied().collect();
             v.sort_unstable();
             v
+        }
+    }
+
+    /// Distinct risk notes among the given entries, each prefixed with the
+    /// path it applies to. Empty if none of the selection needs a warning.
+    fn risk_warnings(&self, indices: &[usize]) -> Vec<String> {
+        indices
+            .iter()
+            .filter_map(|i| self.entries.get(*i))
+            .filter_map(|e| e.kind.risk_note().map(|note| format!("{}: {note}", e.path.display())))
+            .collect()
+    }
+
+    /// Starts a delete of `indices` via `mode`. Permanent deletes always
+    /// confirm; other modes confirm only when the selection includes a
+    /// risky kind (e.g. a Python venv) — Trash is recoverable, but the
+    /// person should still know what they're about to remove.
+    fn request_delete(&mut self, indices: Vec<usize>, mode: DeleteMode) {
+        if indices.is_empty() {
+            return;
+        }
+        let warnings = self.risk_warnings(&indices);
+        if mode == DeleteMode::Permanent || !warnings.is_empty() {
+            self.pending_action = Some((indices, mode));
+            self.status = if warnings.is_empty() {
+                "Permanently delete? y/n".to_string()
+            } else {
+                format!("{}  —  proceed with {mode:?}? y/n", warnings.join(" | "))
+            };
+        } else {
+            self.delete_indices(&indices, mode);
         }
     }
 
@@ -216,15 +249,16 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &
                         continue;
                     }
 
-                    // Confirmation gate for permanent delete.
-                    if let Some(pending) = app.confirm_permanent.clone() {
+                    // Confirmation gate: Permanent deletes, or any delete
+                    // involving a risky kind (e.g. a Python venv).
+                    if let Some((pending, mode)) = app.pending_action.clone() {
                         match key.code {
                             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                                app.delete_indices(&pending, DeleteMode::Permanent);
-                                app.confirm_permanent = None;
+                                app.delete_indices(&pending, mode);
+                                app.pending_action = None;
                             }
                             _ => {
-                                app.confirm_permanent = None;
+                                app.pending_action = None;
                                 app.status = "Cancelled".into();
                             }
                         }
@@ -240,23 +274,22 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &
                             app.status = "Rescanning...".into();
                             app.rescan()?;
                         }
-                        // Trash: safe, recoverable delete (npkill#60).
+                        // Trash: safe, recoverable delete (npkill#60) — still
+                        // confirms first if a risky kind is selected.
                         KeyCode::Char('d') => {
                             let idx = app.selected_indices();
-                            app.delete_indices(&idx, DeleteMode::Trash);
+                            app.request_delete(idx, DeleteMode::Trash);
                         }
-                        // Archive: tar.gz backup then delete (npkill#46).
+                        // Archive: tar.gz backup then delete (npkill#46) —
+                        // same risk-aware confirmation as Trash.
                         KeyCode::Char('a') => {
                             let idx = app.selected_indices();
-                            app.delete_indices(&idx, DeleteMode::Archive);
+                            app.request_delete(idx, DeleteMode::Archive);
                         }
-                        // Permanent: requires confirmation.
+                        // Permanent: always requires confirmation.
                         KeyCode::Char('p') => {
                             let idx = app.selected_indices();
-                            if !idx.is_empty() {
-                                app.confirm_permanent = Some(idx);
-                                app.status = "Permanently delete? y/n".into();
-                            }
+                            app.request_delete(idx, DeleteMode::Permanent);
                         }
                         _ => {}
                     }
@@ -385,7 +418,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     .block(Block::default().borders(Borders::ALL).title(" Summary "));
     f.render_widget(info, chunks[1]);
 
-    let help = if app.confirm_permanent.is_some() {
+    let help = if app.pending_action.is_some() {
         format!("{}  (y = confirm, any other key = cancel)", app.status)
     } else {
         format!(

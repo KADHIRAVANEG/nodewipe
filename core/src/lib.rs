@@ -5,5 +5,5 @@ pub mod workspace;
 
 pub use deleter::{delete, DeleteMode, DeleteResult};
 pub use model::{ArtifactKind, Entry, PackageManager, ScanOptions, WorkspaceGroup};
-pub use scanner::scan;
+pub use scanner::{classify_path, scan};
 pub use workspace::{annotate_workspace_roots, group_by_workspace};

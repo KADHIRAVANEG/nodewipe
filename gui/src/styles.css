@@ -358,7 +358,8 @@ footer {
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 20px;
-  width: 340px;
+  width: 400px;
+  max-width: 90vw;
 }
 
 .modal h2 {
@@ -371,6 +372,7 @@ footer {
   font-size: 12.5px;
   line-height: 1.5;
   margin: 0 0 16px;
+  white-space: pre-line;
 }
 
 .modal-actions {

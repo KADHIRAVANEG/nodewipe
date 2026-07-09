@@ -103,6 +103,31 @@ impl ArtifactKind {
             ArtifactKind::GenericDist => "dist/",
         }
     }
+
+    /// A caution message shown before deleting this kind, for artifact types
+    /// where recreation isn't as simple/lossless as re-running a standard
+    /// install command. `None` means no extra warning is needed beyond the
+    /// normal delete confirmation.
+    ///
+    /// node_modules is safe to warn-skip: it's fully reproducible from
+    /// package-lock.json/yarn.lock/pnpm-lock.yaml. A Python venv has no
+    /// equivalent lockfile by default — if the project has no
+    /// requirements.txt/poetry.lock, deleting it can lose exact installed
+    /// versions, and any currently-running process using that venv's
+    /// interpreter will break immediately (the same way removing a tool's
+    /// active runtime out from under it would).
+    pub fn risk_note(&self) -> Option<&'static str> {
+        match self {
+            ArtifactKind::PythonVenv => Some(
+                "This is a Python virtual environment, not just a cache. If nothing has \
+                 a requirements.txt/poetry.lock recording its exact packages, deleting it \
+                 loses that environment for good — and if any running process, service, or \
+                 script currently points at this venv's interpreter, it will break the moment \
+                 this is gone.",
+            ),
+            _ => None,
+        }
+    }
 }
 
 /// A single discovered disposable artifact directory.
