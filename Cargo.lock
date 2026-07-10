@@ -2051,7 +2051,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nodewipe-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2064,7 +2064,7 @@ dependencies = [
 
 [[package]]
 name = "nodewipe-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "flate2",
@@ -2078,7 +2078,7 @@ dependencies = [
 
 [[package]]
 name = "nodewipe-gui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nodewipe-core",
  "serde",
