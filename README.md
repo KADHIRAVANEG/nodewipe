@@ -151,6 +151,9 @@ nodewipe scan --exclude-types venv,dist,rust_target
 # List every supported type and its slug
 nodewipe types
 
+# Launch the desktop GUI (if installed alongside this CLI)
+nodewipe gui
+
 # Scriptable / CI mode
 nodewipe scan --json > report.json
 
@@ -194,6 +197,7 @@ nodewipe/
 ├── cli/      # nodewipe-cli: binary, argument parsing, output formatting, TUI
 └── gui/      # nodewipe-gui: Tauri desktop app (src-tauri/ = Rust backend, rest = frontend)
 ```
+
 ## Chart
 ```mermaid
 flowchart TD
