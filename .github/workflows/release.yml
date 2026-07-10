@@ -79,6 +79,16 @@ jobs:
 
       - name: Build GUI bundle
         working-directory: gui
+        env:
+          # linuxdeploy (used to build the AppImage) is itself an AppImage,
+          # which needs FUSE to run. CI runners commonly lack it; this env
+          # var makes it extract-and-run instead of mounting via FUSE.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          # linuxdeploy's bundled `strip` predates newer binutils/glibc ELF
+          # section types (e.g. .relr.dyn), causing spurious strip failures
+          # on newer toolchains. Skipping strip only affects binary size,
+          # not functionality.
+          NO_STRIP: true
         run: npm run build
 
       - name: Upload GUI bundle
