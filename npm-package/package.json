@@ -1,7 +1,19 @@
 {
   "name": "@joker53/nodewipe",
-  "version": "0.1.0",
-  "description": "Find and reclaim disk space from stray node_modules directories (Rust engine, npm shim)",
+  "version": "0.1.2",
+  "description": "Find and reclaim disk space from stray dev artifacts — node_modules, Python venvs, Rust target/, Java build output, and more (Rust engine, npm shim)",
+  "keywords": [
+    "node_modules",
+    "venv",
+    "virtualenv",
+    "disk-space",
+    "cleanup",
+    "cli",
+    "cargo",
+    "target",
+    "pycache",
+    "monorepo"
+  ],
   "bin": {
     "nodewipe": "bin/nodewipe.js"
   },
@@ -15,7 +27,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/KADHIRAVANEG/nodewipe.git"
+    "url": "git+https://github.com/KADHIRAVANEG/nodewipe.git"
   },
   "engines": {
     "node": ">=16"

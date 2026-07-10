@@ -1,6 +1,6 @@
 mod tui;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use nodewipe_core::{annotate_workspace_roots, delete, group_by_workspace, scan, ArtifactKind, DeleteMode, Entry, ScanOptions};
 use std::path::PathBuf;
@@ -89,6 +89,10 @@ enum Command {
     },
     /// List every supported artifact type and its slug (for --exclude-types).
     Types,
+    /// Launch the desktop GUI. Looks for a nodewipe-gui binary/AppImage
+    /// installed alongside this CLI (e.g. via install.sh's CLI+GUI option,
+    /// or a from-source `cargo build --release --workspace`).
+    Gui,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -142,6 +146,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             cmd_delete(paths, mode.into(), yes, dry_run, cli.json)
         }
         Some(Command::Types) => cmd_types(),
+        Some(Command::Gui) => cmd_gui(),
     }
 }
 
@@ -269,6 +274,43 @@ fn print_risk_warnings(paths: &[PathBuf]) {
             }
         }
     }
+}
+
+fn cmd_gui() -> Result<ExitCode> {
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+
+    if let Some(dir) = &exe_dir {
+        let gui_bin_name = if cfg!(windows) { "nodewipe-gui.exe" } else { "nodewipe-gui" };
+        let candidates = [dir.join(gui_bin_name), dir.join("nodewipe-gui.AppImage")];
+
+        for candidate in candidates {
+            if candidate.exists() {
+                println!("Launching nodewipe GUI...");
+                std::process::Command::new(&candidate)
+                    .spawn()
+                    .with_context(|| format!("failed to launch {}", candidate.display()))?;
+                return Ok(ExitCode::SUCCESS);
+            }
+        }
+    }
+
+    // macOS: fall back to the installed .app bundle, if any.
+    if cfg!(target_os = "macos") {
+        let launched = std::process::Command::new("open").arg("-a").arg("nodewipe").status();
+        if matches!(launched, Ok(status) if status.success()) {
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
+
+    eprintln!("nodewipe GUI isn't installed alongside this CLI.");
+    eprintln!();
+    eprintln!("Install both with:");
+    eprintln!("  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/scripts/install.sh | bash");
+    eprintln!("  (choose option 2: CLI + GUI)");
+    eprintln!();
+    eprintln!("Or from source:");
+    eprintln!("  cargo build --release --workspace   # builds nodewipe-gui alongside this CLI");
+    Ok(ExitCode::FAILURE)
 }
 
 fn dir_size_quick(path: &PathBuf) -> u64 {
