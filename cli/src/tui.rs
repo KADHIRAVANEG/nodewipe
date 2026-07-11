@@ -2,12 +2,12 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
-use nodewipe_core::{annotate_workspace_roots, delete, scan, ArtifactKind, DeleteMode, Entry, ScanOptions};
+use nodewipe_core::{annotate_workspace_roots, delete, load_config, load_ignore_patterns, scan, ArtifactKind, DeleteMode, Entry, ScanOptions};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Terminal;
 use std::collections::HashSet;
 use std::io::stdout;
@@ -39,10 +39,24 @@ struct App {
     /// default, matching "scan everything, opt out" from the CLI.
     excluded_kinds: HashSet<ArtifactKind>,
     filter_cursor: usize,
+    ignore_patterns: Vec<String>,
 }
 
 impl App {
     fn new(root: PathBuf) -> Self {
+        let ignore_patterns = load_ignore_patterns(&root);
+
+        // Config file's default_exclude_types becomes the initial state of
+        // the type-select screen — still fully overridable there before
+        // the first scan runs.
+        let config = load_config();
+        let excluded_kinds: HashSet<ArtifactKind> = config
+            .default_exclude_types
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|s| ArtifactKind::from_slug(s.trim()))
+            .collect();
+
         App {
             root,
             stage: Stage::Splash,
@@ -51,8 +65,9 @@ impl App {
             selected: HashSet::new(),
             status: String::new(),
             pending_action: None,
-            excluded_kinds: HashSet::new(),
+            excluded_kinds,
             filter_cursor: 0,
+            ignore_patterns,
         }
     }
 
@@ -60,6 +75,7 @@ impl App {
         let opts = ScanOptions {
             root: self.root.clone(),
             exclude_kinds: self.excluded_kinds.iter().copied().collect(),
+            ignore_patterns: self.ignore_patterns.clone(),
             ..Default::default()
         };
         let mut entries = scan(&opts)?;
@@ -366,7 +382,9 @@ fn draw_type_select(f: &mut ratatui::Frame, app: &App) {
             .borders(Borders::ALL)
             .title(" Select artifact types to scan for "),
     );
-    f.render_widget(list, chunks[0]);
+    let mut list_state = ListState::default();
+    list_state.select(Some(app.filter_cursor));
+    f.render_stateful_widget(list, chunks[0], &mut list_state);
 
     let help = "↑/↓ move · space toggle · a select all · n select none · enter scan · q quit";
     f.render_widget(Paragraph::new(help), chunks[1]);
@@ -405,7 +423,13 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
             .borders(Borders::ALL)
             .title(format!(" nodewipe — {} ", app.root.display())),
     );
-    f.render_widget(list, chunks[0]);
+    // A plain render_widget would just draw items 0.. and clip anything
+    // past the visible height — the cursor could move well past what's on
+    // screen with no visible feedback. A ListState with the cursor selected
+    // makes ratatui compute the right scroll offset automatically.
+    let mut list_state = ListState::default();
+    list_state.select(Some(app.cursor));
+    f.render_stateful_widget(list, chunks[0], &mut list_state);
 
     let total: u64 = app.entries.iter().map(|e| e.size_bytes).sum();
     let selected_size = app.total_selected_size();

@@ -13,3 +13,5 @@ anyhow.workspace = true
 trash = "5"
 tar = "0.4"
 flate2 = "1"
+dirs = "5"
+toml = "0.8"

@@ -60,9 +60,9 @@ What's implemented right now:
   download yet until the first GitHub Release with built binaries exists.
 
 What's *not* built yet (next steps, see Roadmap):
-- `.nodewipeignore` / exclude-pattern config file.
 - Progress bar during long scans (current TUI/GUI block until the initial scan finishes).
-- Custom app icons for GUI bundling (placeholders in place for now).
+- Custom app icons for GUI bundling (currently a simple placeholder glyph).
+- Homebrew/Scoop/AUR packages, shell completions, self-update command.
 
 ## Installing
 
@@ -163,9 +163,46 @@ nodewipe delete ./apps/foo/node_modules --yes
 # Archive before deleting
 nodewipe delete ./apps/foo/node_modules --mode archive --yes
 
+# Only show artifacts untouched in 30+ days — surfaces abandoned projects
+nodewipe scan --older-than 30d
+# Also accepts w(eeks), m(onths, ~30d), y(ears, ~365d): --older-than 6m, --older-than 1y
+
 # Preview only
 nodewipe delete ./apps/foo/node_modules --dry-run
+
+# Restore a backup created by --mode archive
+nodewipe restore ./apps/foo/foo-node_modules-backup.tar.gz
 ```
+
+## Persistent config
+
+### `.nodewipeignore`
+
+Drop a `.nodewipeignore` file in a scan root (or `~/.nodewipeignore` for a
+global rule set that applies everywhere) to permanently skip specific paths
+without typing `--exclude-types` every time. One pattern per line; `#`
+starts a comment:
+
+```
+# .nodewipeignore
+legacy-project
+apps/keep-this-one/node_modules
+```
+
+A bare name (`legacy-project`) matches that directory anywhere in the tree;
+a multi-segment path matches as a suffix. Disable ignore-file loading for a
+single run with `--no-ignore-file`.
+
+### Config file
+
+`~/.config/nodewipe/config.toml` (platform-appropriate config dir) sets
+defaults that CLI flags always override:
+
+```toml
+default_delete_mode = "archive"          # trash | archive | permanent
+default_exclude_types = ["venv", "rust_target"]
+```
+
 
 ## Issue-to-fix mapping (voidcosmos/npkill)
 
@@ -185,9 +222,13 @@ nodewipe delete ./apps/foo/node_modules --dry-run
 1. ✅ Core scanning + deletion engine, scriptable CLI
 2. ✅ Interactive terminal UI with `ratatui`, multi-select, trash/archive/permanent
 3. ✅ Tauri GUI wrapping `nodewipe-core` (no engine code duplicated)
-4. `.nodewipeignore` config file + `--exclude` glob support
-5. Custom app icons + packaging: prebuilt binaries/installers via GitHub Actions for macOS/Linux/Windows
-6. Benchmark suite vs. npkill on a large monorepo fixture, published in README
+4. ✅ Multi-ecosystem support (Python, Rust, Java, JS build caches), risk warnings
+5. ✅ Prebuilt binaries/installers via GitHub Actions for macOS/Linux/Windows, npm shim, `install.sh`
+6. ✅ `.nodewipeignore`, `~/.config/nodewipe/config.toml`, `restore`, `--older-than` age filtering
+7. Homebrew tap + Scoop/winget package + **AUR package** (`yay`/`pacman` install)
+8. Shell completions (bash/zsh/fish) + man page
+9. Self-update command; GUI settings persistence (last root, view mode, sort) + running total stats
+10. Benchmark suite vs. npkill on a large monorepo fixture, published in README
 
 ## Project layout
 

@@ -130,6 +130,11 @@ pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
             continue;
         }
 
+        if crate::ignorefile::is_ignored(entry.path(), &opts.ignore_patterns) {
+            it.skip_current_dir();
+            continue;
+        }
+
         if let Some(kind) = classify(&entry) {
             if !opts.exclude_kinds.contains(&kind) {
                 matches.push((kind, entry.path().to_path_buf()));

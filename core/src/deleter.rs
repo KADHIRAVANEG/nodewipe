@@ -107,3 +107,60 @@ fn create_archive(src_dir: &Path, dest_tar_gz: &Path) -> Result<()> {
     builder.finish()?;
     Ok(())
 }
+
+/// Extracts an archive created by `DeleteMode::Archive` back into place.
+/// `archive_path` is the `.tar.gz` file itself; the artifact is restored
+/// into the archive's parent directory (where it originally lived).
+///
+/// Refuses to overwrite an existing directory of the same name — if you've
+/// since recreated the artifact (e.g. re-ran `npm install`), restoring on
+/// top of it could silently merge stale and fresh files together.
+pub fn restore(archive_path: &Path) -> Result<PathBuf> {
+    if !archive_path.exists() {
+        anyhow::bail!("archive does not exist: {}", archive_path.display());
+    }
+
+    let dest_dir = archive_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("archive has no parent directory: {}", archive_path.display()))?;
+
+    let file = File::open(archive_path).with_context(|| format!("failed to open {}", archive_path.display()))?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+
+    // Peek the top-level entry name to know (and check) the restored path
+    // before extracting, so we can refuse cleanly instead of partially
+    // overwriting something.
+    let entries = archive
+        .entries()
+        .with_context(|| format!("failed to read archive entries in {}", archive_path.display()))?;
+    let mut restored_name: Option<String> = None;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path()?;
+        if let Some(first) = path.components().next() {
+            restored_name = Some(first.as_os_str().to_string_lossy().to_string());
+            break;
+        }
+    }
+    let restored_name = restored_name
+        .ok_or_else(|| anyhow::anyhow!("archive is empty or has an unexpected layout: {}", archive_path.display()))?;
+    let restored_path = dest_dir.join(&restored_name);
+
+    if restored_path.exists() {
+        anyhow::bail!(
+            "refusing to restore: {} already exists (delete it first if you really want to overwrite)",
+            restored_path.display()
+        );
+    }
+
+    // Re-open since `entries()` consumed the reader above.
+    let file = File::open(archive_path)?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+    archive
+        .unpack(dest_dir)
+        .with_context(|| format!("failed to extract {}", archive_path.display()))?;
+
+    Ok(restored_path)
+}
