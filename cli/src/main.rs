@@ -2,9 +2,13 @@ mod tui;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use nodewipe_core::{annotate_workspace_roots, delete, group_by_workspace, scan, ArtifactKind, DeleteMode, Entry, ScanOptions};
+use nodewipe_core::{
+    annotate_workspace_roots, delete, group_by_workspace, load_config, load_ignore_patterns, restore, scan,
+    ArtifactKind, DeleteMode, Entry, ScanOptions,
+};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::{Duration, SystemTime};
 
 const BANNER: &str = r#"
  _   _           _    __        ___            
@@ -48,12 +52,18 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
-    /// Comma-separated artifact types to skip. Everything is scanned by
+    /// Comma-separated artifact types to skip, in addition to any set via
+    /// default_exclude_types in the config file. Everything is scanned by
     /// default. Valid values: node_modules, venv, pycache, pytest_cache,
     /// mypy_cache, ruff_cache, rust_target, maven_target, gradle_build,
     /// next_cache, turbo_cache, dist.
     #[arg(long, global = true, value_delimiter = ',')]
     exclude_types: Vec<String>,
+
+    /// Skip loading .nodewipeignore files (both the global ~/.nodewipeignore
+    /// and any in the scan root).
+    #[arg(long, global = true)]
+    no_ignore_file: bool,
 }
 
 #[derive(Subcommand)]
@@ -67,6 +77,12 @@ enum Command {
         /// Group output by monorepo/workspace root instead of a flat list.
         #[arg(long)]
         grouped: bool,
+
+        /// Only show artifacts whose last modification is older than this,
+        /// e.g. `30d`, `2w`, `6m`, `1y`. Surfaces likely-abandoned projects
+        /// rather than active ones you'd still want to keep intact.
+        #[arg(long)]
+        older_than: Option<String>,
     },
     /// Delete one or more artifact directories.
     Delete {
@@ -75,9 +91,10 @@ enum Command {
         paths: Vec<PathBuf>,
 
         /// How to delete: move to OS trash (recoverable), archive to .tar.gz
-        /// first, or permanently remove.
-        #[arg(long, value_enum, default_value_t = DeleteModeArg::Trash)]
-        mode: DeleteModeArg,
+        /// first, or permanently remove. Falls back to config file's
+        /// default_delete_mode, then Trash, if not given.
+        #[arg(long, value_enum)]
+        mode: Option<DeleteModeArg>,
 
         /// Skip the confirmation prompt (required for non-interactive/CI use).
         #[arg(long)]
@@ -86,6 +103,12 @@ enum Command {
         /// Show what would be deleted without deleting anything.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Restore a `.tar.gz` backup created by `delete --mode archive` back
+    /// into its original location.
+    Restore {
+        /// Path to the `-backup.tar.gz` file to restore.
+        archive: PathBuf,
     },
     /// List every supported artifact type and its slug (for --exclude-types).
     Types,
@@ -124,8 +147,19 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
-    let exclude_kinds = parse_exclude_types(&cli.exclude_types)?;
+    let config = load_config();
     let root = cli.path.clone().unwrap_or_else(|| cli.root.clone());
+
+    // Merge CLI-provided exclude types with the config file's defaults —
+    // both apply; the config sets a baseline, flags add to it per-invocation.
+    let mut exclude_kinds = parse_exclude_types(&cli.exclude_types)?;
+    if let Some(defaults) = &config.default_exclude_types {
+        exclude_kinds.extend(parse_exclude_types(defaults)?);
+    }
+    exclude_kinds.sort_by_key(|k| k.slug());
+    exclude_kinds.dedup_by_key(|k| k.slug());
+
+    let ignore_patterns = if cli.no_ignore_file { Vec::new() } else { load_ignore_patterns(&root) };
 
     match cli.command {
         None => {
@@ -135,18 +169,37 @@ fn run(cli: Cli) -> Result<ExitCode> {
             // `nodewipe > out.json` or `nodewipe --json` still work without
             // needing the explicit `scan` subcommand.
             if cli.json || !atty_stdout() {
-                cmd_scan(&root, cli.json, 0, false, exclude_kinds)
+                cmd_scan(&root, cli.json, 0, false, exclude_kinds, ignore_patterns, None)
             } else {
                 tui::run(root)?;
                 Ok(ExitCode::SUCCESS)
             }
         }
-        Some(Command::Scan { min_mb, grouped }) => cmd_scan(&root, cli.json, min_mb, grouped, exclude_kinds),
-        Some(Command::Delete { paths, mode, yes, dry_run }) => {
-            cmd_delete(paths, mode.into(), yes, dry_run, cli.json)
+        Some(Command::Scan { min_mb, grouped, older_than }) => {
+            cmd_scan(&root, cli.json, min_mb, grouped, exclude_kinds, ignore_patterns, older_than)
         }
+        Some(Command::Delete { paths, mode, yes, dry_run }) => {
+            let resolved_mode = resolve_delete_mode(mode, &config);
+            cmd_delete(paths, resolved_mode, yes, dry_run, cli.json)
+        }
+        Some(Command::Restore { archive }) => cmd_restore(&archive, cli.json),
         Some(Command::Types) => cmd_types(),
         Some(Command::Gui) => cmd_gui(),
+    }
+}
+
+fn resolve_delete_mode(cli_mode: Option<DeleteModeArg>, config: &nodewipe_core::Config) -> DeleteMode {
+    if let Some(m) = cli_mode {
+        return m.into();
+    }
+    match config.default_delete_mode.as_deref() {
+        Some("archive") => DeleteMode::Archive,
+        Some("permanent") => DeleteMode::Permanent,
+        Some("trash") | None => DeleteMode::Trash,
+        Some(other) => {
+            eprintln!("warning: unknown default_delete_mode '{other}' in config, using trash");
+            DeleteMode::Trash
+        }
     }
 }
 
@@ -157,6 +210,29 @@ fn parse_exclude_types(raw: &[String]) -> Result<Vec<ArtifactKind>> {
                 .ok_or_else(|| anyhow::anyhow!("unknown artifact type '{s}'. Valid types: {TYPE_HELP}"))
         })
         .collect()
+}
+
+/// Parses simple age strings like "30d", "2w", "6m", "1y". A bare number is
+/// treated as days. Months/years are approximate (30/365 days) — precise
+/// calendar math isn't the point here, "roughly how stale is this" is.
+fn parse_duration(s: &str) -> Result<Duration> {
+    let s = s.trim();
+    let (num_part, unit) = match s.chars().last() {
+        Some(c) if c.is_ascii_alphabetic() => (&s[..s.len() - 1], c.to_ascii_lowercase()),
+        _ => (s, 'd'),
+    };
+    let n: u64 = num_part
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid duration '{s}', expected e.g. 30d, 2w, 6m, 1y"))?;
+
+    let days = match unit {
+        'd' => n,
+        'w' => n * 7,
+        'm' => n * 30,
+        'y' => n * 365,
+        _ => anyhow::bail!("invalid duration unit in '{s}', expected d/w/m/y"),
+    };
+    Ok(Duration::from_secs(days * 24 * 60 * 60))
 }
 
 fn atty_stdout() -> bool {
@@ -172,10 +248,19 @@ fn cmd_types() -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_scan(root: &PathBuf, json: bool, min_mb: u64, grouped: bool, exclude_kinds: Vec<ArtifactKind>) -> Result<ExitCode> {
+fn cmd_scan(
+    root: &PathBuf,
+    json: bool,
+    min_mb: u64,
+    grouped: bool,
+    exclude_kinds: Vec<ArtifactKind>,
+    ignore_patterns: Vec<String>,
+    older_than: Option<String>,
+) -> Result<ExitCode> {
     let opts = ScanOptions {
         root: root.clone(),
         exclude_kinds,
+        ignore_patterns,
         ..Default::default()
     };
 
@@ -184,6 +269,16 @@ fn cmd_scan(root: &PathBuf, json: bool, min_mb: u64, grouped: bool, exclude_kind
 
     let min_bytes = min_mb * 1024 * 1024;
     entries.retain(|e| e.size_bytes >= min_bytes);
+
+    if let Some(older_than) = older_than {
+        let threshold = parse_duration(&older_than)?;
+        let now = SystemTime::now();
+        entries.retain(|e| match e.last_modified {
+            Some(t) => now.duration_since(t).map(|age| age >= threshold).unwrap_or(false),
+            None => false, // unknown age: don't claim it's stale
+        });
+    }
+
     entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
 
     if grouped {
@@ -264,6 +359,23 @@ fn cmd_delete(
     }
 
     Ok(if had_error { ExitCode::FAILURE } else { ExitCode::SUCCESS })
+}
+
+fn cmd_restore(archive: &PathBuf, json: bool) -> Result<ExitCode> {
+    match restore(archive) {
+        Ok(restored_path) => {
+            if json {
+                println!("{}", serde_json::json!({ "restored": restored_path }));
+            } else {
+                println!("Restored: {}", restored_path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(e) => {
+            eprintln!("failed to restore {}: {e:#}", archive.display());
+            Ok(ExitCode::FAILURE)
+        }
+    }
 }
 
 fn print_risk_warnings(paths: &[PathBuf]) {

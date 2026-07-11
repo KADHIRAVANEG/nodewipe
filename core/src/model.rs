@@ -162,6 +162,10 @@ pub struct ScanOptions {
     /// Artifact kinds to skip. Empty by default — nodewipe scans for every
     /// known kind unless the caller opts out (CLI: `--exclude-types`).
     pub exclude_kinds: Vec<ArtifactKind>,
+    /// Patterns loaded from `.nodewipeignore` (see `ignorefile` module).
+    /// Any path matching one of these is skipped entirely, whether or not
+    /// it would otherwise be classified as an artifact.
+    pub ignore_patterns: Vec<String>,
     /// If false, only paths and metadata are returned without computing directory sizes
     /// (much faster first pass; sizes can be filled in lazily/incrementally by the caller).
     pub compute_sizes: bool,
@@ -192,6 +196,7 @@ impl Default for ScanOptions {
                 "site-packages".into(), // lives inside a venv; venv itself is the unit
             ],
             exclude_kinds: Vec::new(),
+            ignore_patterns: Vec::new(),
             compute_sizes: true,
         }
     }
