@@ -1,4 +1,4 @@
-# Maintainer: KADHIRAVANEG <your-email-here>
+# Maintainer: KADHIRAVANEG <kadhiravanegk@gmail.com>
 pkgname=nodewipe-bin
 pkgver=0.3.0
 pkgrel=1
@@ -9,7 +9,7 @@ license=('MIT')
 provides=('nodewipe')
 conflicts=('nodewipe')
 source=("nodewipe-${pkgver}::https://github.com/KADHIRAVANEG/nodewipe/releases/download/v${pkgver}/nodewipe-linux-x86_64")
-sha256sums=('REPLACE_WITH_REAL_CHECKSUM')
+sha256sums=('2f673aab4578e99e0cd35adccc6e6beec1110e92a5a790834d223f9374ca948b')
 
 package() {
     install -Dm755 "${srcdir}/nodewipe-${pkgver}" "${pkgdir}/usr/bin/nodewipe"
