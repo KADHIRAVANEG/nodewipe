@@ -424,7 +424,7 @@ fn draw_type_select(f: &mut ratatui::Frame, app: &App) {
             let enabled = !app.excluded_kinds.contains(kind);
             let mark = if enabled { "[x]" } else { "[ ]" };
             let cursor_marker = if i == app.filter_cursor { "> " } else { "  " };
-            let line = format!("{cursor_marker}{mark} {}", kind.label());
+            let line = format!("{cursor_marker}{mark} {:<16} {}", kind.label(), kind.description());
             let style = if i == app.filter_cursor {
                 Style::default().fg(Color::Black).bg(Color::Yellow)
             } else if enabled {

@@ -12,6 +12,8 @@ enum Marker {
     None,
     /// At least one of these files must exist in the *parent* directory.
     ParentHasAny(&'static [&'static str]),
+    /// At least one file with one of these extensions must exist in the parent.
+    ParentHasExt(&'static [&'static str]),
     /// At least one of these files must exist *inside* the matched directory
     /// itself (used to confirm a `venv`/`.venv` folder is a real virtualenv).
     SelfHasAny(&'static [&'static str]),
@@ -57,6 +59,32 @@ const RULES: &[Rule] = &[
         kind: ArtifactKind::GenericDist,
         marker: Marker::ParentHasAny(&["package.json"]),
     },
+    // Go: `pkg/mod` inside a `go/` directory, or confirmed by sibling `go.mod`.
+    // `go/pkg/mod` is the standard GOPATH module cache layout.
+    Rule {
+        name: "mod",
+        kind: ArtifactKind::GoModCache,
+        marker: Marker::ParentHasAny(&["go.sum", "go.mod"]),
+    },
+    // Go build cache lives at `.cache/go-build` — matched by name, no ambiguity.
+    Rule { name: "go-build", kind: ArtifactKind::GoBuildCache, marker: Marker::None },
+    // PHP/Composer: `vendor/` confirmed by sibling `composer.json`.
+    Rule {
+        name: "vendor",
+        kind: ArtifactKind::PhpVendor,
+        marker: Marker::ParentHasAny(&["composer.json"]),
+    },
+    // .NET: `bin/` and `obj/` confirmed by a sibling project file extension.
+    Rule {
+        name: "bin",
+        kind: ArtifactKind::DotnetBin,
+        marker: Marker::ParentHasExt(&["csproj", "fsproj", "vbproj"]),
+    },
+    Rule {
+        name: "obj",
+        kind: ArtifactKind::DotnetObj,
+        marker: Marker::ParentHasExt(&["csproj", "fsproj", "vbproj"]),
+    },
 ];
 
 /// Classifies a path by name + marker files, independent of any active
@@ -75,6 +103,23 @@ pub fn classify_path(path: &Path) -> Option<ArtifactKind> {
             Marker::ParentHasAny(files) => path
                 .parent()
                 .map(|p| files.iter().any(|f| p.join(f).exists()))
+                .unwrap_or(false),
+            Marker::ParentHasExt(exts) => path
+                .parent()
+                .map(|p| {
+                    std::fs::read_dir(p)
+                        .ok()
+                        .map(|entries| {
+                            entries.flatten().any(|e| {
+                                e.path()
+                                    .extension()
+                                    .and_then(|ext| ext.to_str())
+                                    .map(|ext| exts.contains(&ext))
+                                    .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false)
+                })
                 .unwrap_or(false),
             Marker::SelfHasAny(files) => files.iter().any(|f| path.join(f).exists()),
         };
