@@ -1,0 +1,11 @@
+target/
+gui/node_modules/
+gui/src-tauri/target/
+packaging/
+.git/
+*.md
+*.png
+*.ico
+*.AppImage
+*.deb
+*.rpm

@@ -62,14 +62,14 @@ What's implemented right now:
 What's *not* built yet (next steps, see Roadmap):
 - Progress bar during long scans (current TUI/GUI block until the initial scan finishes).
 - Custom app icons for GUI bundling (currently a simple placeholder glyph).
-- Homebrew/Scoop/AUR packages, shell completions, self-update command.
+- Homebrew/Scoop packages, shell completions, self-update command.
 
 ## Installing
 
 The npm shim is already published as [`@joker53/nodewipe`](https://www.npmjs.com/package/@joker53/nodewipe)
 (scoped under a personal npm username — a plain `nodewipe` name was blocked by
-npm's collision check against an existing similarly-named package). Three ways
-to get it, from simplest to most manual:
+npm's collision check against an existing similarly-named package). Several
+ways to get it, from simplest to most manual:
 
 ```bash
 # 1. npm — downloads the right native binary via postinstall,
@@ -77,10 +77,21 @@ to get it, from simplest to most manual:
 npx @joker53/nodewipe
 # or: npm install -g @joker53/nodewipe
 
-# 2. Shell installer — asks CLI-only vs CLI+GUI
+# 2. Arch Linux (AUR) — CLI only for now, see packaging/aur/README.md
+yay -S nodewipe-bin
+# or: paru -S nodewipe-bin
+
+# 3. Docker — scan any folder without installing anything
+docker run --rm -v "$PWD":/scan ghcr.io/kadhiravaneg/nodewipe
+# Scan a specific directory:
+docker run --rm -v ~/Projects:/scan ghcr.io/kadhiravaneg/nodewipe scan --json
+# Interactive TUI inside Docker (needs a TTY):
+docker run --rm -it -v ~/Projects:/scan ghcr.io/kadhiravaneg/nodewipe scan
+
+# 4. Shell installer — asks CLI-only vs CLI+GUI
 curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/scripts/install.sh | bash
 
-# 3. Manual — grab the binary for your platform from GitHub Releases
+# 5. Manual — grab the binary for your platform from GitHub Releases
 #    https://github.com/KADHIRAVANEG/nodewipe/releases
 ```
 
@@ -225,7 +236,7 @@ default_exclude_types = ["venv", "rust_target"]
 4. ✅ Multi-ecosystem support (Python, Rust, Java, JS build caches), risk warnings
 5. ✅ Prebuilt binaries/installers via GitHub Actions for macOS/Linux/Windows, npm shim, `install.sh`
 6. ✅ `.nodewipeignore`, `~/.config/nodewipe/config.toml`, `restore`, `--older-than` age filtering
-7. Homebrew tap + Scoop/winget package + **AUR package** (`yay`/`pacman` install)
+7. ✅ AUR package scaffold (`packaging/aur/`) ready to publish; Homebrew tap + Scoop/winget still open
 8. Shell completions (bash/zsh/fish) + man page
 9. Self-update command; GUI settings persistence (last root, view mode, sort) + running total stats
 10. Benchmark suite vs. npkill on a large monorepo fixture, published in README
