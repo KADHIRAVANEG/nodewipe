@@ -9,20 +9,20 @@ Thank you for your interest in contributing to **nodewipe**!
    git clone https://github.com/YOUR_USERNAME/nodewipe.git
    cd nodewipe
    ```
-2.**Create a feature branch:
+2. **Create a feature branch:
   ```bash
   git checkout -b feature/amazing-feature
   ```
-3.**Make your changes and ensure the code builds and tests pass:
+3. **Make your changes and ensure the code builds and tests pass:
   ```bash
   cargo test
   cargo build --release
   ```
-4.**Commit your changes using Conventional Commits:
+4. **Commit your changes using Conventional Commits:
   ```bash
   git commit -m "feat: add support for new artifact type"
   ```
-5.**git commit -m "feat: add support for new artifact type"
+5. **git commit -m "feat: add support for new artifact type"
 
 
 ## Development Setup
