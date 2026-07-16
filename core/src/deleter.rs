@@ -40,6 +40,14 @@ const DELETABLE_NAMES: &[&str] = &[
     ".next",
     ".turbo",
     "dist",
+    // Go
+    "mod",
+    "go-build",
+    // PHP
+    "vendor",
+    // .NET
+    "bin",
+    "obj",
 ];
 
 /// Deletes `path` (expected to be one of nodewipe's known disposable artifact

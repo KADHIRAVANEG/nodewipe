@@ -243,7 +243,9 @@ fn atty_stdout() -> bool {
 fn cmd_types() -> Result<ExitCode> {
     println!("Supported artifact types:\n");
     for kind in ArtifactKind::ALL {
-        println!("  {:<14} {}", kind.slug(), kind.label());
+        println!("  {:<16} {}", kind.slug(), kind.label());
+        println!("  {:<16} {}", "", kind.description());
+        println!();
     }
     Ok(ExitCode::SUCCESS)
 }
