@@ -4,10 +4,10 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScree
 use crossterm::ExecutableCommand;
 use nodewipe_core::{annotate_workspace_roots, delete, load_config, load_ignore_patterns, scan, ArtifactKind, DeleteMode, Entry, ScanOptions};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Style};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Terminal;
 use std::collections::HashSet;
 use std::io::stdout;
@@ -34,6 +34,10 @@ struct App {
     /// mode is Permanent (always confirmed) or because the selection
     /// includes a risky kind (e.g. a Python venv) regardless of mode.
     pending_action: Option<(Vec<usize>, DeleteMode)>,
+    /// When Some, a warning/confirmation modal is displayed over the results.
+    /// Contains (title, body_lines, is_warning) — warnings render in amber,
+    /// plain confirmations in white.
+    modal_text: Option<(String, Vec<String>, bool)>,
     /// Artifact kinds currently excluded from scanning. Toggled on the
     /// SelectTypes screen; everything is included (unchecked = excluded) by
     /// default, matching "scan everything, opt out" from the CLI.
@@ -65,6 +69,7 @@ impl App {
             selected: HashSet::new(),
             status: String::new(),
             pending_action: None,
+            modal_text: None,
             excluded_kinds,
             filter_cursor: 0,
             ignore_patterns,
@@ -154,16 +159,68 @@ impl App {
             return;
         }
         let warnings = self.risk_warnings(&indices);
-        if mode == DeleteMode::Permanent || !warnings.is_empty() {
-            self.pending_action = Some((indices, mode));
-            self.status = if warnings.is_empty() {
-                "Permanently delete? y/n".to_string()
-            } else {
-                format!("{}  —  proceed with {mode:?}? y/n", warnings.join(" | "))
-            };
+        let has_warnings = !warnings.is_empty();
+
+        // Always confirm — show modal for every delete action.
+        // Trash/Archive get a brief modal; Permanent and risky kinds (venvs)
+        // get a prominent warning modal with amber/red border.
+        self.pending_action = Some((indices.clone(), mode));
+
+        let (title, body_lines, is_warning) = if has_warnings {
+            let mut lines = Vec::new();
+            for w in &warnings {
+                for part in w.split(": ").skip(1) {
+                    lines.push(part.to_string());
+                }
+                lines.push(String::new());
+            }
+            lines.push(format!("Proceed with {:?}? (y = yes · any other key = cancel)", mode));
+            (
+                format!("⚠  Warning — {} delete", format!("{:?}", mode).to_lowercase()),
+                lines,
+                true,
+            )
+        } else if mode == DeleteMode::Permanent {
+            (
+                "Confirm permanent delete".to_string(),
+                vec![
+                    format!(
+                        "Permanently delete {} item{}?",
+                        indices.len(),
+                        if indices.len() == 1 { "" } else { "s" }
+                    ),
+                    String::new(),
+                    "This cannot be undone.".to_string(),
+                    String::new(),
+                    "y = confirm  ·  any other key = cancel".to_string(),
+                ],
+                false,
+            )
         } else {
-            self.delete_indices(&indices, mode);
-        }
+            // Trash / Archive — brief confirmation
+            let action = match mode {
+                DeleteMode::Trash => "move to trash",
+                DeleteMode::Archive => "archive then delete",
+                DeleteMode::Permanent => "permanently delete",
+            };
+            (
+                format!("Confirm {action}"),
+                vec![
+                    format!(
+                        "{} {} item{}?",
+                        if mode == DeleteMode::Trash { "Move to trash:" } else { "Archive and delete:" },
+                        indices.len(),
+                        if indices.len() == 1 { "" } else { "s" }
+                    ),
+                    String::new(),
+                    "y = confirm  ·  any other key = cancel".to_string(),
+                ],
+                false,
+            )
+        };
+
+        self.modal_text = Some((title, body_lines, is_warning));
+        self.status = "Confirm in popup (y/n)".to_string();
     }
 
     fn delete_indices(&mut self, indices: &[usize], mode: DeleteMode) {
@@ -272,9 +329,11 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &
                             KeyCode::Char('y') | KeyCode::Char('Y') => {
                                 app.delete_indices(&pending, mode);
                                 app.pending_action = None;
+                                app.modal_text = None;
                             }
                             _ => {
                                 app.pending_action = None;
+                                app.modal_text = None;
                                 app.status = "Cancelled".into();
                             }
                         }
@@ -451,6 +510,71 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         )
     };
     f.render_widget(Paragraph::new(help), chunks[2]);
+
+    // Render the warning/confirmation modal on top of everything else.
+    if let Some((title, body_lines, is_warning)) = &app.modal_text {
+        draw_modal(f, title, body_lines, *is_warning);
+    }
+}
+
+/// Renders a centered popup modal over the current screen. Uses `Clear` to
+/// wipe the area first so the background list doesn't bleed through.
+fn draw_modal(f: &mut ratatui::Frame, title: &str, body_lines: &[String], is_warning: bool) {
+    let area = f.area();
+
+    // Centre the modal — 60% wide, tall enough for content + border + padding.
+    let width = (area.width as f32 * 0.60).min(70.0) as u16;
+    let height = (body_lines.len() as u16 + 4).min(area.height - 4);
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let modal_area = Rect { x, y, width, height };
+
+    f.render_widget(Clear, modal_area);
+
+    // Warning (venv etc.) → amber; permanent → red; archive → yellow; trash → green
+    let border_color = if is_warning {
+        Color::Yellow
+    } else if title.contains("permanent") || title.contains("Permanent") {
+        Color::Red
+    } else if title.contains("archive") || title.contains("Archive") {
+        Color::LightYellow
+    } else {
+        Color::Green  // trash — safest action
+    };
+
+    let title_style = Style::default()
+        .fg(border_color)
+        .add_modifier(Modifier::BOLD);
+
+    let lines: Vec<Line> = body_lines
+        .iter()
+        .map(|l| {
+            if l.is_empty() {
+                Line::from("")
+            } else {
+                Line::from(Span::styled(
+                    l.clone(),
+                    if is_warning {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::White)
+                    },
+                ))
+            }
+        })
+        .collect();
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .title(Span::styled(format!(" {title} "), title_style));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .alignment(Alignment::Left);
+
+    f.render_widget(paragraph, modal_area);
 }
 
 fn human_size(bytes: u64) -> String {
