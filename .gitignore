@@ -5,3 +5,5 @@ Cargo.lock.bak
 .DS_Store
 .idea/
 .vscode/
+core.*
+*.core
