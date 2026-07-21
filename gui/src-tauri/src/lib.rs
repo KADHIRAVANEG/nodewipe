@@ -2,7 +2,7 @@ use nodewipe_core::{annotate_workspace_roots, delete as core_delete, group_by_wo
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_command(root: String) -> Result<Vec<Entry>, String> {
     let opts = ScanOptions { root: PathBuf::from(root), ..Default::default() };
     let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
@@ -11,7 +11,7 @@ fn scan_command(root: String) -> Result<Vec<Entry>, String> {
     Ok(entries)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_grouped_command(root: String) -> Result<Vec<WorkspaceGroup>, String> {
     let opts = ScanOptions { root: PathBuf::from(root), ..Default::default() };
     let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
@@ -57,8 +57,7 @@ fn delete_command(paths: Vec<String>, mode: String, sizes: Vec<u64>) -> Result<V
     Ok(results)
 }
 
-/// Finds all nodewipe backup archives (*-backup.tar.gz) in the given root.
-#[tauri::command]
+#[tauri::command(async)]
 fn find_archives_command(root: String) -> Result<Vec<serde_json::Value>, String> {
     let archives: Vec<serde_json::Value> = WalkDir::new(&root)
         .max_depth(6)
@@ -77,8 +76,7 @@ fn find_archives_command(root: String) -> Result<Vec<serde_json::Value>, String>
     Ok(archives)
 }
 
-/// Restores a backup archive to its original location.
-#[tauri::command]
+#[tauri::command(async)]
 fn restore_command(archive_path: String) -> Result<String, String> {
     let path = PathBuf::from(&archive_path);
     core_restore(&path)
