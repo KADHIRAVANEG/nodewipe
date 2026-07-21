@@ -343,6 +343,80 @@ footer {
   margin-left: auto;
 }
 
+.restore-panel {
+  position: fixed;
+  bottom: 56px;
+  right: 0;
+  width: 420px;
+  max-height: 40vh;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 25;
+  overflow: hidden;
+}
+
+.restore-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.restore-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 0;
+}
+
+.restore-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 12px 14px;
+  margin: 0;
+}
+
+.restore-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+.restore-item:hover {
+  background: var(--panel-2);
+}
+
+.restore-item-path {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.restore-item-size {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.restore-item-btn {
+  background: var(--safe);
+  padding: 3px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

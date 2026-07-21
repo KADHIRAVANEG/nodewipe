@@ -1,42 +1,25 @@
-use nodewipe_core::{annotate_workspace_roots, delete as core_delete, group_by_workspace, scan as core_scan, DeleteMode, Entry, ScanOptions, WorkspaceGroup};
+use nodewipe_core::{annotate_workspace_roots, delete as core_delete, group_by_workspace, restore as core_restore, scan as core_scan, DeleteMode, Entry, ScanOptions, WorkspaceGroup};
 use std::path::PathBuf;
+use walkdir::WalkDir;
 
-/// Scans `root` and returns every discovered `node_modules` directory,
-/// annotated with its workspace/monorepo root (if any).
-///
-/// This is a thin wrapper: all scanning/exclude-list logic lives in
-/// `nodewipe-core`, so the GUI and CLI can never drift out of sync.
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_command(root: String) -> Result<Vec<Entry>, String> {
-    let opts = ScanOptions {
-        root: PathBuf::from(root),
-        ..Default::default()
-    };
-
+    let opts = ScanOptions { root: PathBuf::from(root), ..Default::default() };
     let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
     annotate_workspace_roots(&mut entries, &opts.root);
     entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
     Ok(entries)
 }
 
-/// Same as `scan_command`, but pre-grouped by monorepo/workspace root for the
-/// GUI's collapsible group view (fixes npkill#104 in the GUI too).
-#[tauri::command]
+#[tauri::command(async)]
 fn scan_grouped_command(root: String) -> Result<Vec<WorkspaceGroup>, String> {
-    let opts = ScanOptions {
-        root: PathBuf::from(root),
-        ..Default::default()
-    };
-
+    let opts = ScanOptions { root: PathBuf::from(root), ..Default::default() };
     let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
     annotate_workspace_roots(&mut entries, &opts.root);
-
     let groups = group_by_workspace(entries);
     let mut groups: Vec<WorkspaceGroup> = groups.into_values().collect();
     groups.sort_by(|a, b| b.total_size_bytes.cmp(&a.total_size_bytes));
-    for g in &mut groups {
-        g.entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
-    }
+    for g in &mut groups { g.entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes)); }
     Ok(groups)
 }
 
@@ -48,9 +31,6 @@ struct DeleteOutcome {
     error: Option<String>,
 }
 
-/// Deletes each path in `paths` using `mode` ("trash" | "archive" | "permanent").
-/// Continues past individual failures and reports them per-path rather than
-/// aborting the whole batch, so one locked file doesn't block the rest.
 #[tauri::command]
 fn delete_command(paths: Vec<String>, mode: String, sizes: Vec<u64>) -> Result<Vec<DeleteOutcome>, String> {
     let delete_mode = match mode.as_str() {
@@ -59,10 +39,7 @@ fn delete_command(paths: Vec<String>, mode: String, sizes: Vec<u64>) -> Result<V
         "permanent" => DeleteMode::Permanent,
         other => return Err(format!("unknown delete mode: {other}")),
     };
-
-    if paths.len() != sizes.len() {
-        return Err("paths and sizes must be the same length".into());
-    }
+    if paths.len() != sizes.len() { return Err("paths and sizes must be the same length".into()); }
 
     let mut results = Vec::with_capacity(paths.len());
     for (path_str, size) in paths.into_iter().zip(sizes) {
@@ -74,34 +51,58 @@ fn delete_command(paths: Vec<String>, mode: String, sizes: Vec<u64>) -> Result<V
                 archive_path: res.archive_path.map(|p| p.display().to_string()),
                 error: None,
             }),
-            Err(e) => results.push(DeleteOutcome {
-                path: path_str,
-                freed_bytes: 0,
-                archive_path: None,
-                error: Some(e.to_string()),
-            }),
+            Err(e) => results.push(DeleteOutcome { path: path_str, freed_bytes: 0, archive_path: None, error: Some(e.to_string()) }),
         }
     }
-
     Ok(results)
+}
+
+#[tauri::command(async)]
+fn find_archives_command(root: String) -> Result<Vec<serde_json::Value>, String> {
+    let archives: Vec<serde_json::Value> = WalkDir::new(&root)
+        .max_depth(6)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().is_file()
+                && e.file_name().to_str().map(|n| n.ends_with("-backup.tar.gz")).unwrap_or(false)
+        })
+        .map(|e| {
+            let path = e.path().to_string_lossy().to_string();
+            let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+            serde_json::json!({ "path": path, "size_bytes": size })
+        })
+        .collect();
+    Ok(archives)
+}
+
+#[tauri::command(async)]
+fn restore_command(archive_path: String) -> Result<String, String> {
+    let path = PathBuf::from(&archive_path);
+    core_restore(&path)
+        .map(|restored| restored.display().to_string())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn home_dir_command() -> Result<String, String> {
-    dirs_home().ok_or_else(|| "could not determine home directory".to_string())
-}
-
-// Minimal home-dir lookup without pulling in the `dirs` crate just for this.
-fn dirs_home() -> Option<String> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(|s| s.to_string_lossy().to_string())
+        .ok_or_else(|| "could not determine home directory".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![scan_command, scan_grouped_command, delete_command, home_dir_command])
+        .invoke_handler(tauri::generate_handler![
+            scan_command,
+            scan_grouped_command,
+            delete_command,
+            find_archives_command,
+            restore_command,
+            home_dir_command
+        ])
         .run(tauri::generate_context!())
         .expect("error while running nodewipe GUI");
 }

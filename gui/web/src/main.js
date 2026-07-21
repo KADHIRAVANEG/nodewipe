@@ -252,12 +252,10 @@ function updateButtons() {
 
 async function doScan() {
   const root = rootInput.value.trim();
-  if (!root) {
-    showToast("Enter a folder to scan.", "error");
-    return;
-  }
+  if (!root) { showToast("Enter a folder to scan.", "error"); return; }
   spinner.classList.remove("hidden");
   scanBtn.disabled = true;
+  scanBtn.textContent = "Scanning...";
   try {
     const [flat, grouped] = await Promise.all([
       invoke("scan_command", { root }),
@@ -273,6 +271,7 @@ async function doScan() {
   } finally {
     spinner.classList.add("hidden");
     scanBtn.disabled = false;
+    scanBtn.textContent = "Scan";
   }
 }
 
@@ -426,7 +425,48 @@ modalBackdrop.addEventListener("click", (e) => {
   if (e.target === modalBackdrop) closeModal();
 });
 
-// Prefill with the user's home directory on launch.
+const restoreBtn = document.getElementById("restore-btn");
+const restorePanel = document.getElementById("restore-panel");
+const restoreClose = document.getElementById("restore-close");
+const restoreList = document.getElementById("restore-list");
+
+async function openRestorePanel() {
+  restorePanel.classList.remove("hidden");
+  restoreList.innerHTML = '<p class="restore-empty">Searching for archives...</p>';
+  const root = rootInput.value.trim() || "/";
+  try {
+    const archives = await invoke("find_archives_command", { root });
+    if (archives.length === 0) {
+      restoreList.innerHTML = '<p class="restore-empty">No backup archives found. Create one using "Archive then Delete".</p>';
+      return;
+    }
+    restoreList.innerHTML = "";
+    for (const arc of archives) {
+      const item = document.createElement("div");
+      item.className = "restore-item";
+      item.innerHTML = `
+        <span class="restore-item-size">${humanSize(arc.size_bytes)}</span>
+        <span class="restore-item-path" title="${arc.path}">${arc.path}</span>
+        <button class="restore-item-btn">Restore</button>
+      `;
+      item.querySelector(".restore-item-btn").addEventListener("click", async () => {
+        try {
+          const restored = await invoke("restore_command", { archivePath: arc.path });
+          showToast(`Restored to ${restored}`, "success");
+          openRestorePanel(); // refresh list
+        } catch (e) {
+          showToast(`Restore failed: ${e}`, "error");
+        }
+      });
+      restoreList.appendChild(item);
+    }
+  } catch (e) {
+    restoreList.innerHTML = `<p class="restore-empty">Error: ${e}</p>`;
+  }
+}
+
+restoreBtn.addEventListener("click", openRestorePanel);
+restoreClose.addEventListener("click", () => restorePanel.classList.add("hidden"));
 invoke("home_dir_command").then((home) => {
   rootInput.value = home;
 });
