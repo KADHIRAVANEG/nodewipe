@@ -28,7 +28,7 @@ pub const BANNER: &str = r#"
         "scriptable/headless operation."
     ),
     before_help = BANNER,
-    after_help = "Full documentation: https://github.com/JOKER-53/nodewipe"
+    after_help = "Full documentation: https://github.com/KADHIRAVANEG/nodewipe"
 )]
 pub struct Cli {
     #[command(subcommand)]

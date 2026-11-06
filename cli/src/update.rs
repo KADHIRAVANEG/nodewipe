@@ -36,7 +36,7 @@ pub fn check_and_prompt_update() -> Result<()> {
     // Perform check
     let current_version = env!("CARGO_PKG_VERSION");
     let builder = self_update::backends::github::Update::configure()
-        .repo_owner("JOKER-53")
+        .repo_owner("KADHIRAVANEG")
         .repo_name("nodewipe")
         .bin_name(if cfg!(windows) {
             "nodewipe.exe"

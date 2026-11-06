@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # nodewipe installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/JOKER-53/nodewipe/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash
 set -euo pipefail
 
-REPO="JOKER-53/nodewipe"
+REPO="KADHIRAVANEG/nodewipe"
 API_LATEST="https://api.github.com/repos/${REPO}/releases/latest"
 
 info()  { printf "\033[1;34m==>\033[0m %s\n" "$1"; }

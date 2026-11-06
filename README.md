@@ -9,11 +9,11 @@
 
   <br>
 
-  [![Release](https://img.shields.io/github/v/release/JOKER-53/nodewipe?style=for-the-badge&color=8b5cf6&logo=github)](https://github.com/JOKER-53/nodewipe/releases)
+  [![Release](https://img.shields.io/github/v/release/KADHIRAVANEG/nodewipe?style=for-the-badge&color=8b5cf6&logo=github)](https://github.com/KADHIRAVANEG/nodewipe/releases)
   [![AUR](https://img.shields.io/aur/version/nodewipe?style=for-the-badge&color=1793d1&logo=arch-linux&logoColor=white&label=AUR)](https://aur.archlinux.org/packages/nodewipe)
   [![npm](https://img.shields.io/npm/v/@joker53/nodewipe?style=for-the-badge&color=cb3837&logo=npm)](https://www.npmjs.com/package/@joker53/nodewipe)
   [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
-  [![CI](https://img.shields.io/github/actions/workflow/status/JOKER-53/nodewipe/ci.yml?branch=main&style=for-the-badge&logo=github-actions&label=CI)](https://github.com/JOKER-53/nodewipe/actions)
+  [![CI](https://img.shields.io/github/actions/workflow/status/KADHIRAVANEG/nodewipe/ci.yml?branch=main&style=for-the-badge&logo=github-actions&label=CI)](https://github.com/KADHIRAVANEG/nodewipe/actions)
 
   <br><br>
 
@@ -71,7 +71,7 @@ yay -S nodewipe
 ### 3. Universal Shell Installer
 Interactive installer with support for CLI-only or CLI + Desktop GUI:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JOKER-53/nodewipe/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash
 ```
 
 ### 4. Docker
@@ -91,7 +91,7 @@ cargo build --release
 ```
 
 > [!TIP]
-> Precompiled standalone binaries for **Linux (x86_64, aarch64)**, **macOS (Intel & Apple Silicon)**, and **Windows (x86_64)** are available on the [GitHub Releases page](https://github.com/JOKER-53/nodewipe/releases).
+> Precompiled standalone binaries for **Linux (x86_64, aarch64)**, **macOS (Intel & Apple Silicon)**, and **Windows (x86_64)** are available on the [GitHub Releases page](https://github.com/KADHIRAVANEG/nodewipe/releases).
 
 ---
 
@@ -369,4 +369,4 @@ Contributions, issues, and feature requests are welcome!
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
-Developed and maintained by [**JOKER-53**](https://github.com/JOKER-53).
+Developed and maintained by [**KADHIRAVANEG**](https://github.com/KADHIRAVANEG).

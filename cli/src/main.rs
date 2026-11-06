@@ -640,7 +640,7 @@ fn cmd_gui() -> Result<ExitCode> {
     eprintln!();
     eprintln!("Install both with:");
     eprintln!(
-        "  curl -fsSL https://raw.githubusercontent.com/JOKER-53/nodewipe/main/install.sh | bash"
+        "  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash"
     );
     eprintln!("  (choose option 2: CLI + GUI)");
     eprintln!();

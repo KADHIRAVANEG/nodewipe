@@ -35,7 +35,7 @@ reproducible from a lockfile.
 There's also a desktop GUI, but it isn't distributed through npm (a native
 GUI bundle is much larger than this tool should ever cost you to try). Get it
 via the installer script or by building from source — see the main repo:
-https://github.com/JOKER-53/nodewipe
+https://github.com/KADHIRAVANEG/nodewipe
 
 ## Usage
 
@@ -48,4 +48,4 @@ nodewipe delete <path> --yes    # moves to trash by default
 nodewipe types                  # list all supported artifact types
 ```
 
-Full documentation: https://github.com/JOKER-53/nodewipe
+Full documentation: https://github.com/KADHIRAVANEG/nodewipe
