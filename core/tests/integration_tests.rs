@@ -43,6 +43,57 @@ fn test_classify_path_marker_rules() {
     let dist = py_project.join("dist");
     fs::create_dir(&dist).unwrap();
     assert_eq!(classify_path(&dist), Some(ArtifactKind::GenericDist));
+
+    // HuggingFace hub cache
+    let generic_hub = root.join("hub");
+    fs::create_dir(&generic_hub).unwrap();
+    assert_eq!(classify_path(&generic_hub), None);
+
+    let hf_dir = root.join("huggingface");
+    let hf_hub = hf_dir.join("hub");
+    fs::create_dir_all(&hf_hub).unwrap();
+    assert_eq!(classify_path(&hf_hub), Some(ArtifactKind::HuggingFaceCache));
+
+    let custom_hub = root.join("custom_ai").join("hub");
+    fs::create_dir_all(&custom_hub).unwrap();
+    File::create(custom_hub.join("version.txt")).unwrap();
+    assert_eq!(
+        classify_path(&custom_hub),
+        Some(ArtifactKind::HuggingFaceCache)
+    );
+
+    // Ollama models
+    let generic_models = root.join("models");
+    fs::create_dir(&generic_models).unwrap();
+    assert_eq!(classify_path(&generic_models), None);
+
+    let ollama_models = root.join(".ollama").join("models");
+    fs::create_dir_all(&ollama_models).unwrap();
+    assert_eq!(
+        classify_path(&ollama_models),
+        Some(ArtifactKind::OllamaModels)
+    );
+
+    // PyTorch cache
+    let generic_torch = root.join("torch");
+    fs::create_dir(&generic_torch).unwrap();
+    assert_eq!(classify_path(&generic_torch), None);
+
+    let cache_torch = root.join(".cache").join("torch");
+    fs::create_dir_all(&cache_torch).unwrap();
+    assert_eq!(classify_path(&cache_torch), Some(ArtifactKind::TorchCache));
+
+    // Triton cache
+    let generic_cache = root.join("cache");
+    fs::create_dir(&generic_cache).unwrap();
+    assert_eq!(classify_path(&generic_cache), None);
+
+    let triton_cache = root.join(".triton").join("cache");
+    fs::create_dir_all(&triton_cache).unwrap();
+    assert_eq!(
+        classify_path(&triton_cache),
+        Some(ArtifactKind::TritonCache)
+    );
 }
 
 #[test]
@@ -280,4 +331,63 @@ fn test_delete_refuses_root_or_non_artifact() {
     // Root directory check
     let res_root = delete(std::path::Path::new("/"), DeleteMode::Permanent, 0);
     assert!(res_root.is_err());
+}
+
+#[test]
+fn test_ai_ml_cache_scan_and_delete() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Setup HF cache
+    let hf_hub = root.join("huggingface").join("hub");
+    fs::create_dir_all(&hf_hub).unwrap();
+    fs::write(hf_hub.join("model.safetensors"), b"fake_weights").unwrap();
+
+    // Setup Ollama models
+    let ollama_models = root.join(".ollama").join("models");
+    fs::create_dir_all(&ollama_models).unwrap();
+    fs::write(ollama_models.join("sha256_blob"), b"fake_blob").unwrap();
+
+    // Setup PyTorch cache
+    let torch_cache = root.join(".cache").join("torch");
+    fs::create_dir_all(&torch_cache).unwrap();
+    fs::write(torch_cache.join("checkpoint.pt"), b"fake_checkpoint").unwrap();
+
+    // Setup Triton cache
+    let triton_cache = root.join(".triton").join("cache");
+    fs::create_dir_all(&triton_cache).unwrap();
+    fs::write(triton_cache.join("kernel.ptx"), b"fake_kernel").unwrap();
+
+    // Scan all
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        ..Default::default()
+    };
+    let entries = scan(&opts).unwrap();
+    assert_eq!(entries.len(), 4);
+
+    let kinds: Vec<ArtifactKind> = entries.iter().map(|e| e.kind).collect();
+    assert!(kinds.contains(&ArtifactKind::HuggingFaceCache));
+    assert!(kinds.contains(&ArtifactKind::OllamaModels));
+    assert!(kinds.contains(&ArtifactKind::TorchCache));
+    assert!(kinds.contains(&ArtifactKind::TritonCache));
+
+    // Test exclude_kinds
+    let opts_filtered = ScanOptions {
+        root: root.to_path_buf(),
+        exclude_kinds: vec![ArtifactKind::HuggingFaceCache, ArtifactKind::OllamaModels],
+        ..Default::default()
+    };
+    let filtered_entries = scan(&opts_filtered).unwrap();
+    assert_eq!(filtered_entries.len(), 2);
+    let filtered_kinds: Vec<ArtifactKind> = filtered_entries.iter().map(|e| e.kind).collect();
+    assert!(!filtered_kinds.contains(&ArtifactKind::HuggingFaceCache));
+    assert!(!filtered_kinds.contains(&ArtifactKind::OllamaModels));
+    assert!(filtered_kinds.contains(&ArtifactKind::TorchCache));
+    assert!(filtered_kinds.contains(&ArtifactKind::TritonCache));
+
+    // Test safe deletion of one of the AI caches
+    let delete_res = delete(&triton_cache, DeleteMode::Permanent, 0);
+    assert!(delete_res.is_ok());
+    assert!(!triton_cache.exists());
 }

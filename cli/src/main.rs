@@ -314,6 +314,12 @@ fn cmd_scan(
             PresetArg::Java => &[ArtifactKind::JavaMavenTarget, ArtifactKind::JavaGradleBuild],
             PresetArg::Go => &[ArtifactKind::GoModCache, ArtifactKind::GoBuildCache],
             PresetArg::Dotnet => &[ArtifactKind::DotnetBin, ArtifactKind::DotnetObj],
+            PresetArg::Ai | PresetArg::Ml => &[
+                ArtifactKind::HuggingFaceCache,
+                ArtifactKind::OllamaModels,
+                ArtifactKind::TorchCache,
+                ArtifactKind::TritonCache,
+            ],
         };
 
         for kind in ArtifactKind::ALL {
@@ -709,11 +715,25 @@ mod tests {
 
     #[test]
     fn test_parse_exclude_types() {
-        let types = vec!["venv".to_string(), "rust_target".to_string()];
+        let types = vec![
+            "venv".to_string(),
+            "rust_target".to_string(),
+            "hf_cache".to_string(),
+            "ollama_models".to_string(),
+            "torch_cache".to_string(),
+            "triton_cache".to_string(),
+        ];
         let parsed = parse_exclude_types(&types).unwrap();
         assert_eq!(
             parsed,
-            vec![ArtifactKind::PythonVenv, ArtifactKind::RustTarget]
+            vec![
+                ArtifactKind::PythonVenv,
+                ArtifactKind::RustTarget,
+                ArtifactKind::HuggingFaceCache,
+                ArtifactKind::OllamaModels,
+                ArtifactKind::TorchCache,
+                ArtifactKind::TritonCache,
+            ]
         );
 
         let invalid = vec!["not_a_valid_slug".to_string()];

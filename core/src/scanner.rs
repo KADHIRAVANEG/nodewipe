@@ -14,6 +14,8 @@ enum Marker {
     ParentHasAny(&'static [&'static str]),
     /// At least one file with one of these extensions must exist in the parent.
     ParentHasExt(&'static [&'static str]),
+    /// The parent directory must have one of these names.
+    ParentNamed(&'static [&'static str]),
     /// At least one of these files must exist *inside* the matched directory
     /// itself (used to confirm a `venv`/`.venv` folder is a real virtualenv).
     SelfHasAny(&'static [&'static str]),
@@ -125,6 +127,40 @@ const RULES: &[Rule] = &[
         kind: ArtifactKind::DotnetObj,
         marker: Marker::ParentHasExt(&["csproj", "fsproj", "vbproj"]),
     },
+    // AI / ML: Hugging Face Hub cache (`.../huggingface/hub` or confirmed by version.txt)
+    Rule {
+        name: "hub",
+        kind: ArtifactKind::HuggingFaceCache,
+        marker: Marker::ParentNamed(&["huggingface"]),
+    },
+    Rule {
+        name: "hub",
+        kind: ArtifactKind::HuggingFaceCache,
+        marker: Marker::SelfHasAny(&["version.txt"]),
+    },
+    // AI / ML: Ollama model blobs & manifests (`.../.ollama/models`)
+    Rule {
+        name: "models",
+        kind: ArtifactKind::OllamaModels,
+        marker: Marker::ParentNamed(&[".ollama"]),
+    },
+    // AI / ML: PyTorch checkpoint & kernel cache (`.../.cache/torch`)
+    Rule {
+        name: "torch",
+        kind: ArtifactKind::TorchCache,
+        marker: Marker::ParentNamed(&[".cache", "cache"]),
+    },
+    Rule {
+        name: "torch",
+        kind: ArtifactKind::TorchCache,
+        marker: Marker::SelfHasAny(&["checkpoints", "kernels"]),
+    },
+    // AI / ML: OpenAI Triton GPU compiler cache (`.../.triton/cache`)
+    Rule {
+        name: "cache",
+        kind: ArtifactKind::TritonCache,
+        marker: Marker::ParentNamed(&[".triton", "triton"]),
+    },
 ];
 
 /// Classifies a path by name + marker files, independent of any active
@@ -160,6 +196,12 @@ pub fn classify_path(path: &Path) -> Option<ArtifactKind> {
                         })
                         .unwrap_or(false)
                 })
+                .unwrap_or(false),
+            Marker::ParentNamed(names) => path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .map(|n| names.contains(&n))
                 .unwrap_or(false),
             Marker::SelfHasAny(files) => files.iter().any(|f| path.join(f).exists()),
         };

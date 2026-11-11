@@ -52,7 +52,7 @@ pub struct Cli {
     /// Valid values: node_modules, venv, pycache, pytest_cache, mypy_cache,
     /// ruff_cache, rust_target, maven_target, gradle_build, next_cache,
     /// turbo_cache, dist, go_mod_cache, go_build_cache, php_vendor,
-    /// dotnet_bin, dotnet_obj.
+    /// dotnet_bin, dotnet_obj, hf_cache, ollama_models, torch_cache, triton_cache.
     #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
     pub exclude_types: Vec<String>,
 
@@ -223,4 +223,8 @@ pub enum PresetArg {
     Go,
     /// .NET ecosystem (bin, obj).
     Dotnet,
+    /// AI & Machine Learning ecosystems (Hugging Face, Ollama, PyTorch, Triton).
+    Ai,
+    /// AI & Machine Learning ecosystems (alias for AI).
+    Ml,
 }
