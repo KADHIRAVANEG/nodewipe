@@ -105,6 +105,11 @@ const KIND_LABELS = {
   ollama_models: "Ollama models",
   torch_cache: "PyTorch cache",
   triton_cache: "Triton cache",
+  xcode_derived_data: "Xcode DerivedData",
+  swift_pm_build: "SwiftPM build",
+  cocoapods: "CocoaPods",
+  gradle_cache: "Gradle cache",
+  android_build_cache: "Android build cache",
 };
 
 const KIND_BADGE_CLASS = {
@@ -129,6 +134,11 @@ const KIND_BADGE_CLASS = {
   ollama_models: "badge-yarn",
   torch_cache: "badge-npm",
   triton_cache: "badge-unknown",
+  xcode_derived_data: "badge-npm",
+  swift_pm_build: "badge-yarn",
+  cocoapods: "badge-pnpm",
+  gradle_cache: "badge-unknown",
+  android_build_cache: "badge-unknown",
 };
 
 const KIND_RISK_NOTES = {

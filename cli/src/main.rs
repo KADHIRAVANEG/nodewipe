@@ -320,6 +320,13 @@ fn cmd_scan(
                 ArtifactKind::TorchCache,
                 ArtifactKind::TritonCache,
             ],
+            PresetArg::Mobile | PresetArg::Apple | PresetArg::Ios | PresetArg::Android => &[
+                ArtifactKind::XcodeDerivedData,
+                ArtifactKind::SwiftPmBuild,
+                ArtifactKind::CocoaPods,
+                ArtifactKind::GradleCache,
+                ArtifactKind::AndroidBuildCache,
+            ],
         };
 
         for kind in ArtifactKind::ALL {
@@ -722,6 +729,11 @@ mod tests {
             "ollama_models".to_string(),
             "torch_cache".to_string(),
             "triton_cache".to_string(),
+            "derived_data".to_string(),
+            "swiftpm_build".to_string(),
+            "cocoapods".to_string(),
+            "gradle_cache".to_string(),
+            "android_build_cache".to_string(),
         ];
         let parsed = parse_exclude_types(&types).unwrap();
         assert_eq!(
@@ -733,6 +745,11 @@ mod tests {
                 ArtifactKind::OllamaModels,
                 ArtifactKind::TorchCache,
                 ArtifactKind::TritonCache,
+                ArtifactKind::XcodeDerivedData,
+                ArtifactKind::SwiftPmBuild,
+                ArtifactKind::CocoaPods,
+                ArtifactKind::GradleCache,
+                ArtifactKind::AndroidBuildCache,
             ]
         );
 

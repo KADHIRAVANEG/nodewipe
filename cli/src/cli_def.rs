@@ -52,7 +52,8 @@ pub struct Cli {
     /// Valid values: node_modules, venv, pycache, pytest_cache, mypy_cache,
     /// ruff_cache, rust_target, maven_target, gradle_build, next_cache,
     /// turbo_cache, dist, go_mod_cache, go_build_cache, php_vendor,
-    /// dotnet_bin, dotnet_obj, hf_cache, ollama_models, torch_cache, triton_cache.
+    /// dotnet_bin, dotnet_obj, hf_cache, ollama_models, torch_cache, triton_cache,
+    /// derived_data, swiftpm_build, cocoapods, gradle_cache, android_build_cache.
     #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
     pub exclude_types: Vec<String>,
 
@@ -227,4 +228,12 @@ pub enum PresetArg {
     Ai,
     /// AI & Machine Learning ecosystems (alias for AI).
     Ml,
+    /// Mobile & Apple development ecosystems (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache).
+    Mobile,
+    /// Apple development ecosystem (alias for mobile).
+    Apple,
+    /// iOS development ecosystem (alias for mobile).
+    Ios,
+    /// Android development ecosystem (alias for mobile).
+    Android,
 }
