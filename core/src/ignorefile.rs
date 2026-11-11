@@ -29,10 +29,8 @@ pub fn is_ignored(path: &Path, ignore: &Gitignore) -> bool {
     // The ignore crate panics with "path is expected to be under the root"
     // if `path` is absolute and does not begin with `ignore.path()`.
     // If the path is not under the matcher's root, it cannot be ignored by it.
-    if path.has_root() {
-        if !root.has_root() || !path.starts_with(root) {
-            return false;
-        }
+    if path.has_root() && (!root.has_root() || !path.starts_with(root)) {
+        return false;
     }
 
     // matched_path_or_any_parents tells us if the path or its ancestors are ignored

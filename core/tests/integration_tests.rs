@@ -83,11 +83,17 @@ fn test_is_ignored_outside_root_does_not_panic() {
 
     // Testing a path outside the ignore root should safely return false instead of panicking
     let outside_path = std::path::Path::new("/some/random/outside/path");
-    assert!(!nodewipe_core::ignorefile::is_ignored(outside_path, &ignore_patterns));
+    assert!(!nodewipe_core::ignorefile::is_ignored(
+        outside_path,
+        &ignore_patterns
+    ));
 
     // Even if Gitignore has a relative root like ".", an absolute path outside should not panic
     let dot_ignore = nodewipe_core::load_ignore_patterns(std::path::Path::new("."));
-    assert!(!nodewipe_core::ignorefile::is_ignored(outside_path, &dot_ignore));
+    assert!(!nodewipe_core::ignorefile::is_ignored(
+        outside_path,
+        &dot_ignore
+    ));
 
     // Empty ignore
     let empty = nodewipe_core::Gitignore::empty();
@@ -255,4 +261,23 @@ fn test_symlink_delete_does_not_wipe_target() {
     assert!(real_dir.exists());
     assert!(canary.exists());
     assert_eq!(fs::read_to_string(canary).unwrap(), "do not delete");
+}
+
+#[test]
+fn test_delete_refuses_root_or_non_artifact() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Trying to delete a normal directory that isn't an artifact should fail
+    let regular_dir = root.join("my_documents");
+    fs::create_dir(&regular_dir).unwrap();
+    let res = delete(&regular_dir, DeleteMode::Permanent, 0);
+    assert!(res.is_err());
+    assert!(res.unwrap_err().to_string().contains(
+        "refusing to delete a directory that doesn't look like a known disposable artifact"
+    ));
+
+    // Root directory check
+    let res_root = delete(std::path::Path::new("/"), DeleteMode::Permanent, 0);
+    assert!(res_root.is_err());
 }

@@ -126,7 +126,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Some(Command::Doctor { path: sub_path }) => {
             let doctor_root = sub_path
                 .or(cli.path)
-                .or_else(|| dirs::home_dir())
+                .or_else(dirs::home_dir)
                 .unwrap_or(root);
             let doctor_ignore = if cli.no_ignore_file {
                 nodewipe_core::Gitignore::empty()
@@ -669,4 +669,77 @@ fn human_size(bytes: u64) -> String {
         unit += 1;
     }
     format!("{size:.2} {}", UNITS[unit])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_human_size_formatting() {
+        assert_eq!(human_size(0), "0.00 B");
+        assert_eq!(human_size(512), "512.00 B");
+        assert_eq!(human_size(1024), "1.00 KB");
+        assert_eq!(human_size(1024 * 1024), "1.00 MB");
+        assert_eq!(human_size(1024 * 1024 * 1024), "1.00 GB");
+        assert_eq!(human_size(1024 * 1024 * 1024 * 1024), "1.00 TB");
+    }
+
+    #[test]
+    fn test_parse_duration() {
+        assert_eq!(
+            parse_duration("10d").unwrap(),
+            Duration::from_secs(10 * 86400)
+        );
+        assert_eq!(
+            parse_duration("2w").unwrap(),
+            Duration::from_secs(14 * 86400)
+        );
+        assert_eq!(
+            parse_duration("1m").unwrap(),
+            Duration::from_secs(30 * 86400)
+        );
+        assert_eq!(
+            parse_duration("1y").unwrap(),
+            Duration::from_secs(365 * 86400)
+        );
+        assert!(parse_duration("invalid").is_err());
+        assert!(parse_duration("10x").is_err());
+    }
+
+    #[test]
+    fn test_parse_exclude_types() {
+        let types = vec!["venv".to_string(), "rust_target".to_string()];
+        let parsed = parse_exclude_types(&types).unwrap();
+        assert_eq!(
+            parsed,
+            vec![ArtifactKind::PythonVenv, ArtifactKind::RustTarget]
+        );
+
+        let invalid = vec!["not_a_valid_slug".to_string()];
+        assert!(parse_exclude_types(&invalid).is_err());
+    }
+
+    #[test]
+    fn test_resolve_delete_mode() {
+        let empty_config = nodewipe_core::Config::default();
+        assert_eq!(resolve_delete_mode(None, &empty_config), DeleteMode::Trash);
+        assert_eq!(
+            resolve_delete_mode(Some(DeleteModeArg::Archive), &empty_config),
+            DeleteMode::Archive
+        );
+
+        let archive_config = nodewipe_core::Config {
+            default_delete_mode: Some("archive".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_delete_mode(None, &archive_config),
+            DeleteMode::Archive
+        );
+        assert_eq!(
+            resolve_delete_mode(Some(DeleteModeArg::Permanent), &archive_config),
+            DeleteMode::Permanent
+        );
+    }
 }
