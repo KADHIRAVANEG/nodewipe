@@ -31,6 +31,14 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
     let meta = std::fs::symlink_metadata(path)
         .with_context(|| format!("path does not exist: {}", path.display()))?;
 
+    // Safety guard: Never delete filesystem roots or user home directory
+    if path.parent().is_none() {
+        anyhow::bail!("refusing to delete filesystem root: {}", path.display());
+    }
+    if dirs::home_dir().as_deref() == Some(path) {
+        anyhow::bail!("refusing to delete user home directory: {}", path.display());
+    }
+
     if crate::scanner::classify_path(path).is_none() {
         anyhow::bail!(
             "refusing to delete a directory that doesn't look like a known disposable artifact: {}",

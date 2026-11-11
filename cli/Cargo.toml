@@ -19,7 +19,7 @@ crossterm = "0.28"
 walkdir.workspace = true
 clap_complete = "4"
 self_update = { version = "1.2.0", features = ["rustls"] }
-dirs = "6.0.0"
+dirs.workspace = true
 clap_mangen = "0.2"
 
 [build-dependencies]

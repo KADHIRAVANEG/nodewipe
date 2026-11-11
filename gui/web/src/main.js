@@ -101,6 +101,10 @@ const KIND_LABELS = {
   next_cache: "Next.js cache",
   turbo_cache: "Turborepo cache",
   generic_dist: "dist/",
+  hugging_face_cache: "HuggingFace cache",
+  ollama_models: "Ollama models",
+  torch_cache: "PyTorch cache",
+  triton_cache: "Triton cache",
 };
 
 const KIND_BADGE_CLASS = {
@@ -121,11 +125,21 @@ const KIND_BADGE_CLASS = {
   next_cache: "badge-npm",
   turbo_cache: "badge-npm",
   generic_dist: "badge-unknown",
+  hugging_face_cache: "badge-pnpm",
+  ollama_models: "badge-yarn",
+  torch_cache: "badge-npm",
+  triton_cache: "badge-unknown",
 };
 
 const KIND_RISK_NOTES = {
   python_venv:
     "This is a Python virtual environment, not just a cache. If nothing has a requirements.txt/poetry.lock recording its exact packages, deleting it loses that environment for good — and if any running process, service, or script currently points at this venv's interpreter, it will break the moment this is gone.",
+  hugging_face_cache:
+    "This cache stores downloaded model weights (.safetensors, .bin). Deleting it requires re-downloading large multi-gigabyte models over the internet on next run.",
+  ollama_models:
+    "This directory contains local Ollama model blobs. Deleting it will require re-pulling models via 'ollama pull <model>'.",
+  torch_cache:
+    "This cache stores PyTorch model checkpoints and kernel cache. Deleting it requires re-downloading pretrained weights on next run.",
 };
 
 function badgeFor(entry) {

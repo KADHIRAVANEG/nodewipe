@@ -5,7 +5,7 @@
   # nodewipe
 
   **The surgical, blazing-fast dev-environment cleaner written in Rust.**  
-  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, and build caches across 17+ ecosystems.*
+  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and build caches across 21+ ecosystems.*
 
   <br>
 
@@ -37,7 +37,7 @@
 ## ⚡ Key Features
 
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
-* **🌐 17+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
+* **🌐 21+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, AI/ML model caches (Hugging Face, Ollama, PyTorch, Triton), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
 * **🛡️ Zero-Risk Excision**: Moves to OS Trash by default. Supports atomic `.tar.gz` archiving if you want a compressed rollback backup before removing.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
 * **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
@@ -118,6 +118,10 @@ cargo build --release
 | **Next.js** | `.next` | `next_cache` | Directory name |
 | **Turborepo**| `.turbo` | `turbo_cache` | Directory name |
 | **Bundlers**| `dist/` | `dist` | Sibling `package.json` or `pyproject.toml` exists |
+| **AI / HF** | `hub/` | `hf_cache` | Parent `huggingface` or contains `version.txt` |
+| **AI / Ollama** | `models/` | `ollama_models` | Parent `.ollama` directory |
+| **AI / PyTorch** | `torch/` | `torch_cache` | Parent `.cache` or contains checkpoints/kernels |
+| **AI / Triton** | `cache/` | `triton_cache` | Parent `.triton` directory |
 
 List all supported types and slugs at any time with:
 ```bash

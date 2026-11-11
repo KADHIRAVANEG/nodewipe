@@ -33,6 +33,8 @@ detect_platform() {
     CLI_ASSET="nodewipe-macos-x86_64"
   elif [ "$PLATFORM" = "linux" ] && [ "$ARCH" = "x86_64" ]; then
     CLI_ASSET="nodewipe-linux-x86_64"
+  elif [ "$PLATFORM" = "linux" ] && [ "$ARCH" = "aarch64" ]; then
+    CLI_ASSET="nodewipe-linux-aarch64"
   else
     error "Prebuilt binary for $PLATFORM/$ARCH is not currently available. Please build from source using 'cargo build --release'."
   fi
