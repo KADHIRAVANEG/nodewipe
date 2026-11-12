@@ -217,6 +217,11 @@ function filteredSorted(list) {
   filtered.sort((a, b) => {
     if (sortKey === "size") return (a.size_bytes - b.size_bytes) * dir;
     if (sortKey === "pm") return (KIND_LABELS[a.kind] || a.kind).localeCompare(KIND_LABELS[b.kind] || b.kind) * dir;
+    if (sortKey === "git") {
+      const ga = a.git_status && a.git_status.branch ? a.git_status.branch : "";
+      const gb = b.git_status && b.git_status.branch ? b.git_status.branch : "";
+      return ga.localeCompare(gb) * dir;
+    }
     return a.path.localeCompare(b.path) * dir;
   });
   return filtered;
@@ -246,11 +251,27 @@ function renderRow(entry) {
   const pmCell = document.createElement("td");
   pmCell.innerHTML = badgeFor(entry);
 
+  const gitCell = document.createElement("td");
+  gitCell.className = "git-cell";
+  if (entry.git_status && entry.git_status.branch) {
+    let gitHtml = `<span class="git-branch">${escapeHtml(entry.git_status.branch)}</span>`;
+    if (entry.git_status.is_dirty) {
+      gitHtml += ` <span class="badge badge-dirty" title="Uncommitted local edits">*dirty</span>`;
+    }
+    if (entry.git_status.is_merged) {
+      gitHtml += ` <span class="badge badge-merged" title="Branch is merged into main/master">merged</span>`;
+    }
+    gitCell.innerHTML = gitHtml;
+  } else {
+    gitCell.textContent = "—";
+    gitCell.style.color = "var(--text-muted, #71717a)";
+  }
+
   const pathCell = document.createElement("td");
   pathCell.textContent = entry.path;
   pathCell.className = "path-cell";
 
-  row.append(checkCell, sizeCell, pmCell, pathCell);
+  row.append(checkCell, sizeCell, pmCell, gitCell, pathCell);
   return row;
 }
 
@@ -279,7 +300,7 @@ function render() {
       const collapsed = collapsedGroups.has(gIdx);
       headerRow.innerHTML = `
         <td></td>
-        <td colspan="3">
+        <td colspan="4">
           <span class="group-toggle ${collapsed ? "collapsed" : ""}">▾</span>
           <span class="group-label">${escapeHtml(group.root)}</span>
           <span class="group-meta">${groupEntries.length} found · ${humanSize(groupSize)}</span>

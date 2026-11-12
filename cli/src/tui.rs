@@ -693,12 +693,31 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                 "[ ]"
             };
             let cursor_marker = if i == app.cursor { "> " } else { "  " };
-            let line = format!(
-                "{cursor_marker}{checked} {:>10}  {:<14} {}",
-                human_size(e.size_bytes),
-                e.kind.label(),
-                e.path.display()
-            );
+            let git_info = match &e.git_status {
+                Some(git) => {
+                    let branch = git.branch.as_deref().unwrap_or("?");
+                    let dirty = if git.is_dirty { "*" } else { "" };
+                    let merged = if git.is_merged { " [merged]" } else { "" };
+                    format!("({branch}{dirty}{merged})")
+                }
+                None => String::new(),
+            };
+            let line = if git_info.is_empty() {
+                format!(
+                    "{cursor_marker}{checked} {:>10}  {:<14}  {}",
+                    human_size(e.size_bytes),
+                    e.kind.label(),
+                    e.path.display()
+                )
+            } else {
+                format!(
+                    "{cursor_marker}{checked} {:>10}  {:<14}  {:<20}  {}",
+                    human_size(e.size_bytes),
+                    e.kind.label(),
+                    git_info,
+                    e.path.display()
+                )
+            };
             let style = if i == app.cursor {
                 Style::default().fg(Color::Black).bg(Color::Yellow)
             } else {

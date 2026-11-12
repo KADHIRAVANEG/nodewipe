@@ -76,6 +76,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     None,
                     None,
                     !cli.serial,
+                    !cli.no_git,
                 )
             } else {
                 tui::run(root)?;
@@ -111,6 +112,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 preset,
                 export,
                 !cli.serial,
+                !cli.no_git,
             )
         }
         Some(Command::Delete {
@@ -297,6 +299,7 @@ fn cmd_scan(
     preset: Option<PresetArg>,
     export: Option<PathBuf>,
     parallel: bool,
+    inspect_git: bool,
 ) -> Result<ExitCode> {
     if let Some(preset) = preset {
         let allowed: &[ArtifactKind] = match preset {
@@ -358,6 +361,7 @@ fn cmd_scan(
         exclude_kinds,
         ignore_patterns,
         parallel,
+        inspect_git,
         ..Default::default()
     };
 
@@ -391,6 +395,21 @@ fn cmd_scan(
                 (None, None) => std::cmp::Ordering::Equal,
             });
         }
+        SortKey::Git => {
+            entries.sort_by(|a, b| {
+                let ga = a
+                    .git_status
+                    .as_ref()
+                    .and_then(|g| g.branch.as_deref())
+                    .unwrap_or("");
+                let gb = b
+                    .git_status
+                    .as_ref()
+                    .and_then(|g| g.branch.as_deref())
+                    .unwrap_or("");
+                ga.cmp(gb)
+            });
+        }
     }
 
     let stale = if let Some(days) = stale_days {
@@ -415,10 +434,20 @@ fn cmd_scan(
                     human_size(group.total_size_bytes)
                 );
                 for e in &group.entries {
+                    let git_info = match &e.git_status {
+                        Some(git) => {
+                            let branch = git.branch.as_deref().unwrap_or("?");
+                            let dirty = if git.is_dirty { "*" } else { "" };
+                            let merged = if git.is_merged { " [merged]" } else { "" };
+                            format!("({branch}{dirty}{merged}) ")
+                        }
+                        None => String::new(),
+                    };
                     println!(
-                        "  {}  {}  {}",
+                        "  {}  {}  {}{}",
                         human_size(e.size_bytes),
                         kind_display(e),
+                        git_info,
                         e.path.display()
                     );
                 }
@@ -444,13 +473,33 @@ fn cmd_scan(
                 }
                 None => "   ?d".to_string(),
             };
-            println!(
-                "{}  {}  {}  {}",
-                human_size(e.size_bytes),
-                age_str,
-                kind_display(e),
-                e.path.display()
-            );
+            let git_info = match &e.git_status {
+                Some(git) => {
+                    let branch = git.branch.as_deref().unwrap_or("?");
+                    let dirty = if git.is_dirty { "*" } else { "" };
+                    let merged = if git.is_merged { " [merged]" } else { "" };
+                    format!("({branch}{dirty}{merged})")
+                }
+                None => String::new(),
+            };
+            if git_info.is_empty() {
+                println!(
+                    "{}  {}  {}  {}",
+                    human_size(e.size_bytes),
+                    age_str,
+                    kind_display(e),
+                    e.path.display()
+                );
+            } else {
+                println!(
+                    "{}  {}  {}  {:<20}  {}",
+                    human_size(e.size_bytes),
+                    age_str,
+                    kind_display(e),
+                    git_info,
+                    e.path.display()
+                );
+            }
         }
         println!(
             "\n{} artifacts found, {} reclaimable",
@@ -466,10 +515,19 @@ fn cmd_scan(
                 stale_days.unwrap_or(90),
             );
             for s in &stale {
+                let git_info = match &s.git_branch {
+                    Some(b) => {
+                        let dirty = if s.is_dirty { "*" } else { "" };
+                        let merged = if s.is_merged { " [merged]" } else { "" };
+                        format!("({b}{dirty}{merged}) ")
+                    }
+                    None => String::new(),
+                };
                 println!(
-                    "   {} days   {}   {}",
+                    "   {} days   {}   {}{}",
                     s.stale_days,
                     human_size(s.reclaimable_bytes),
+                    git_info,
                     s.root.display(),
                 );
             }
@@ -498,7 +556,9 @@ fn export_scan_results(
 ) -> Result<()> {
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     if ext.eq_ignore_ascii_case("csv") {
-        let mut wtr = String::from("path,kind,size_bytes,package_manager,last_modified_unix\n");
+        let mut wtr = String::from(
+            "path,kind,size_bytes,package_manager,last_modified_unix,git_branch,git_dirty,git_merged\n",
+        );
         for e in entries {
             let pm = e
                 .package_manager
@@ -509,13 +569,24 @@ fn export_scan_results(
                 .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs().to_string())
                 .unwrap_or_default();
+            let (branch, dirty, merged) = match &e.git_status {
+                Some(g) => (
+                    g.branch.as_deref().unwrap_or(""),
+                    if g.is_dirty { "true" } else { "false" },
+                    if g.is_merged { "true" } else { "false" },
+                ),
+                None => ("", "", ""),
+            };
             wtr.push_str(&format!(
-                "\"{}\",\"{}\",{},\"{}\",{}\n",
+                "\"{}\",\"{}\",{},\"{}\",{},\"{}\",{},{}\n",
                 e.path.display(),
                 e.kind.slug(),
                 e.size_bytes,
                 pm,
-                mtime
+                mtime,
+                branch,
+                dirty,
+                merged,
             ));
         }
         std::fs::write(path, wtr)

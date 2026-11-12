@@ -23,6 +23,12 @@ pub struct StaleProject {
     pub stale_days: u64,
     /// Bytes that could be freed by deleting the artifact.
     pub reclaimable_bytes: u64,
+    /// Git branch name, if inside a Git repository.
+    pub git_branch: Option<String>,
+    /// True if the branch has been merged into upstream main/master.
+    pub is_merged: bool,
+    /// True if there are uncommitted working tree changes.
+    pub is_dirty: bool,
 }
 
 // ── main entry point ──────────────────────────────────────────────────────────
@@ -44,12 +50,42 @@ pub fn find_stale_projects(entries: &[Entry], threshold: Duration) -> Vec<StaleP
 
         let youngest_source = youngest_source_file_mtime(&root, &entry.path);
 
-        let age = match youngest_source {
-            Some(mtime) => match now.duration_since(mtime) {
-                Ok(d) => d,
-                Err(_) => continue, // clock skew — skip
-            },
-            None => continue, // couldn't read any source files — skip
+        let (git_branch, is_merged, is_dirty) = match &entry.git_status {
+            Some(g) => (g.branch.clone(), g.is_merged, g.is_dirty),
+            None => (None, false, false),
+        };
+
+        // Smart staleness scoring:
+        // 1. If uncommitted edits exist (is_dirty = true), active coding is happening right now,
+        //    so use youngest source file mtime to avoid prematurely flagging active work.
+        // 2. If clean and last commit time is known, use the max of git commit age and source age,
+        //    preventing fresh git-clone/checkout mtimes from masking truly abandoned repositories.
+        let age = if is_dirty {
+            match youngest_source {
+                Some(mtime) => match now.duration_since(mtime) {
+                    Ok(d) => d,
+                    Err(_) => continue, // clock skew — skip
+                },
+                None => continue,
+            }
+        } else if let Some(commit_time_secs) =
+            entry.git_status.as_ref().and_then(|g| g.last_commit_time)
+        {
+            let commit_time = SystemTime::UNIX_EPOCH + Duration::from_secs(commit_time_secs);
+            let commit_age = now.duration_since(commit_time).unwrap_or(Duration::ZERO);
+            let source_age = match youngest_source {
+                Some(mtime) => now.duration_since(mtime).unwrap_or(commit_age),
+                None => commit_age,
+            };
+            commit_age.max(source_age)
+        } else {
+            match youngest_source {
+                Some(mtime) => match now.duration_since(mtime) {
+                    Ok(d) => d,
+                    Err(_) => continue, // clock skew — skip
+                },
+                None => continue, // couldn't read any source files — skip
+            }
         };
 
         if age >= threshold {
@@ -58,6 +94,9 @@ pub fn find_stale_projects(entries: &[Entry], threshold: Duration) -> Vec<StaleP
                 artifact: entry.clone(),
                 stale_days: age.as_secs() / 86400,
                 reclaimable_bytes: entry.size_bytes,
+                git_branch,
+                is_merged,
+                is_dirty,
             });
         }
     }
