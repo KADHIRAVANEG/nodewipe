@@ -120,6 +120,13 @@ pub fn run(
     }
 
     println!();
+    if cfg!(target_os = "macos") || report.ecosystems.iter().any(|e| e.kind == "derived_data") {
+        println!(" 📱 Mobile / Apple tip:");
+        println!(
+            "    Run `xcrun simctl delete unavailable` to purge orphaned iOS simulator runtimes.\n"
+        );
+    }
+
     println!(" 💡 Next steps:");
     println!("    nodewipe scan --older-than 90d    # list stale artifacts");
     println!("    nodewipe scan --older-than 90d --json | jq  # script-friendly");

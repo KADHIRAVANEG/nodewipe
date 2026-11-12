@@ -161,6 +161,41 @@ const RULES: &[Rule] = &[
         kind: ArtifactKind::TritonCache,
         marker: Marker::ParentNamed(&[".triton", "triton"]),
     },
+    // Mobile / Apple: Xcode DerivedData (`.../Xcode/DerivedData` or confirmed by Xcode build markers)
+    Rule {
+        name: "DerivedData",
+        kind: ArtifactKind::XcodeDerivedData,
+        marker: Marker::ParentNamed(&["Xcode"]),
+    },
+    Rule {
+        name: "DerivedData",
+        kind: ArtifactKind::XcodeDerivedData,
+        marker: Marker::SelfHasAny(&["ModuleCache.noindex", "Build", "Index.noindex", "Logs"]),
+    },
+    // Mobile / Apple: Swift Package Manager build output (`.build/` confirmed by sibling `Package.swift`)
+    Rule {
+        name: ".build",
+        kind: ArtifactKind::SwiftPmBuild,
+        marker: Marker::ParentHasAny(&["Package.swift"]),
+    },
+    // Mobile / Apple: CocoaPods (`Pods/` confirmed by sibling `Podfile`)
+    Rule {
+        name: "Pods",
+        kind: ArtifactKind::CocoaPods,
+        marker: Marker::ParentHasAny(&["Podfile"]),
+    },
+    // Mobile / Android: Gradle global dependency & transform cache (`.../.gradle/caches`)
+    Rule {
+        name: "caches",
+        kind: ArtifactKind::GradleCache,
+        marker: Marker::ParentNamed(&[".gradle"]),
+    },
+    // Mobile / Android: Android build cache (`.../.android/build-cache`)
+    Rule {
+        name: "build-cache",
+        kind: ArtifactKind::AndroidBuildCache,
+        marker: Marker::ParentNamed(&[".android"]),
+    },
 ];
 
 /// Classifies a path by name + marker files, independent of any active

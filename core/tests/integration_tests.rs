@@ -94,6 +94,63 @@ fn test_classify_path_marker_rules() {
         classify_path(&triton_cache),
         Some(ArtifactKind::TritonCache)
     );
+
+    // Xcode DerivedData
+    let generic_derived_data = root.join("DerivedData");
+    fs::create_dir(&generic_derived_data).unwrap();
+    assert_eq!(classify_path(&generic_derived_data), None);
+
+    let xcode_derived_data = root.join("Xcode").join("DerivedData");
+    fs::create_dir_all(&xcode_derived_data).unwrap();
+    assert_eq!(
+        classify_path(&xcode_derived_data),
+        Some(ArtifactKind::XcodeDerivedData)
+    );
+
+    // SwiftPM build
+    let swift_proj = root.join("swift_app");
+    fs::create_dir_all(&swift_proj).unwrap();
+    let swift_build = swift_proj.join(".build");
+    fs::create_dir(&swift_build).unwrap();
+    assert_eq!(classify_path(&swift_build), None);
+    File::create(swift_proj.join("Package.swift")).unwrap();
+    assert_eq!(
+        classify_path(&swift_build),
+        Some(ArtifactKind::SwiftPmBuild)
+    );
+
+    // CocoaPods Pods
+    let ios_proj = root.join("ios_app");
+    fs::create_dir_all(&ios_proj).unwrap();
+    let pods_dir = ios_proj.join("Pods");
+    fs::create_dir(&pods_dir).unwrap();
+    assert_eq!(classify_path(&pods_dir), None);
+    File::create(ios_proj.join("Podfile")).unwrap();
+    assert_eq!(classify_path(&pods_dir), Some(ArtifactKind::CocoaPods));
+
+    // Gradle cache
+    let generic_gradle_cache = root.join("caches");
+    fs::create_dir(&generic_gradle_cache).unwrap();
+    assert_eq!(classify_path(&generic_gradle_cache), None);
+
+    let real_gradle_cache = root.join(".gradle").join("caches");
+    fs::create_dir_all(&real_gradle_cache).unwrap();
+    assert_eq!(
+        classify_path(&real_gradle_cache),
+        Some(ArtifactKind::GradleCache)
+    );
+
+    // Android build cache
+    let generic_android_cache = root.join("build-cache");
+    fs::create_dir(&generic_android_cache).unwrap();
+    assert_eq!(classify_path(&generic_android_cache), None);
+
+    let real_android_cache = root.join(".android").join("build-cache");
+    fs::create_dir_all(&real_android_cache).unwrap();
+    assert_eq!(
+        classify_path(&real_android_cache),
+        Some(ArtifactKind::AndroidBuildCache)
+    );
 }
 
 #[test]
@@ -390,4 +447,76 @@ fn test_ai_ml_cache_scan_and_delete() {
     let delete_res = delete(&triton_cache, DeleteMode::Permanent, 0);
     assert!(delete_res.is_ok());
     assert!(!triton_cache.exists());
+}
+
+#[test]
+fn test_mobile_apple_cache_scan_and_delete() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Xcode DerivedData
+    let xcode_dir = root.join("Xcode").join("DerivedData");
+    fs::create_dir_all(&xcode_dir).unwrap();
+    fs::write(xcode_dir.join("build.db"), b"index_data").unwrap();
+
+    // SwiftPM .build
+    let swift_proj = root.join("my_swift_lib");
+    fs::create_dir_all(&swift_proj).unwrap();
+    File::create(swift_proj.join("Package.swift")).unwrap();
+    let swift_build = swift_proj.join(".build");
+    fs::create_dir_all(&swift_build).unwrap();
+    fs::write(swift_build.join("output.o"), b"compiled_swift").unwrap();
+
+    // CocoaPods Pods
+    let ios_proj = root.join("my_ios_app");
+    fs::create_dir_all(&ios_proj).unwrap();
+    File::create(ios_proj.join("Podfile")).unwrap();
+    let pods_dir = ios_proj.join("Pods");
+    fs::create_dir_all(&pods_dir).unwrap();
+    fs::write(pods_dir.join("Pod.a"), b"pod_lib").unwrap();
+
+    // Gradle cache
+    let gradle_cache = root.join(".gradle").join("caches");
+    fs::create_dir_all(&gradle_cache).unwrap();
+    fs::write(gradle_cache.join("dep.jar"), b"jar_cache").unwrap();
+
+    // Android build cache
+    let android_cache = root.join(".android").join("build-cache");
+    fs::create_dir_all(&android_cache).unwrap();
+    fs::write(android_cache.join("dex.cache"), b"dex_cache").unwrap();
+
+    // Scan all
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        ..Default::default()
+    };
+    let entries = scan(&opts).unwrap();
+    assert_eq!(entries.len(), 5);
+
+    let kinds: Vec<ArtifactKind> = entries.iter().map(|e| e.kind).collect();
+    assert!(kinds.contains(&ArtifactKind::XcodeDerivedData));
+    assert!(kinds.contains(&ArtifactKind::SwiftPmBuild));
+    assert!(kinds.contains(&ArtifactKind::CocoaPods));
+    assert!(kinds.contains(&ArtifactKind::GradleCache));
+    assert!(kinds.contains(&ArtifactKind::AndroidBuildCache));
+
+    // Test exclude_kinds
+    let opts_filtered = ScanOptions {
+        root: root.to_path_buf(),
+        exclude_kinds: vec![ArtifactKind::XcodeDerivedData, ArtifactKind::CocoaPods],
+        ..Default::default()
+    };
+    let filtered_entries = scan(&opts_filtered).unwrap();
+    assert_eq!(filtered_entries.len(), 3);
+    let filtered_kinds: Vec<ArtifactKind> = filtered_entries.iter().map(|e| e.kind).collect();
+    assert!(!filtered_kinds.contains(&ArtifactKind::XcodeDerivedData));
+    assert!(!filtered_kinds.contains(&ArtifactKind::CocoaPods));
+    assert!(filtered_kinds.contains(&ArtifactKind::SwiftPmBuild));
+    assert!(filtered_kinds.contains(&ArtifactKind::GradleCache));
+    assert!(filtered_kinds.contains(&ArtifactKind::AndroidBuildCache));
+
+    // Test safe deletion
+    let delete_res = delete(&xcode_dir, DeleteMode::Permanent, 0);
+    assert!(delete_res.is_ok());
+    assert!(!xcode_dir.exists());
 }

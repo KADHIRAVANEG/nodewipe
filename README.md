@@ -5,7 +5,7 @@
   # nodewipe
 
   **The surgical, blazing-fast dev-environment cleaner written in Rust.**  
-  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and build caches across 21+ ecosystems.*
+  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and mobile build caches across 26+ ecosystems.*
 
   <br>
 
@@ -37,7 +37,7 @@
 ## ⚡ Key Features
 
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
-* **🌐 21+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, AI/ML model caches (Hugging Face, Ollama, PyTorch, Triton), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
+* **🌐 26+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
 * **🛡️ Zero-Risk Excision**: Moves to OS Trash by default. Supports atomic `.tar.gz` archiving if you want a compressed rollback backup before removing.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
 * **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
@@ -122,6 +122,11 @@ cargo build --release
 | **AI / Ollama** | `models/` | `ollama_models` | Parent `.ollama` directory |
 | **AI / PyTorch** | `torch/` | `torch_cache` | Parent `.cache` or contains checkpoints/kernels |
 | **AI / Triton** | `cache/` | `triton_cache` | Parent `.triton` directory |
+| **Apple / Xcode** | `DerivedData` | `derived_data` | Parent `Xcode` or contains ModuleCache/Build |
+| **Apple / Swift** | `.build/` | `swiftpm_build` | Sibling `Package.swift` exists |
+| **iOS / CocoaPods** | `Pods/` | `cocoapods` | Sibling `Podfile` exists |
+| **Android / Gradle**| `caches/` | `gradle_cache` | Parent `.gradle` directory |
+| **Android SDK** | `build-cache/` | `android_build_cache` | Parent `.android` directory |
 
 List all supported types and slugs at any time with:
 ```bash
