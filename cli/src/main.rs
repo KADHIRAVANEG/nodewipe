@@ -127,7 +127,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Some(Command::Restore { archive }) => cmd_restore(&archive, cli.json),
         Some(Command::Types) => cmd_types(),
         Some(Command::Gui) => cmd_gui(),
-        Some(Command::Doctor { path: sub_path }) => {
+        Some(Command::Doctor {
+            path: sub_path,
+            threshold,
+            notify,
+            install_service,
+            uninstall_service,
+        }) => {
             let doctor_root = sub_path
                 .or(cli.path)
                 .or_else(dirs::home_dir)
@@ -137,7 +143,18 @@ fn run(cli: Cli) -> Result<ExitCode> {
             } else {
                 load_ignore_patterns(&doctor_root)
             };
-            cmd_doctor::run(doctor_root, cli.json, exclude_kinds, doctor_ignore)
+            cmd_doctor::run(
+                doctor_root,
+                cli.json,
+                exclude_kinds,
+                doctor_ignore,
+                threshold,
+                notify,
+                install_service,
+                uninstall_service,
+                !cli.serial,
+                !cli.no_git,
+            )
         }
         Some(Command::Stats { days, path: _ }) => cmd_stats::run(cli.json, days),
         Some(Command::Completions { shell }) => {
@@ -980,5 +997,27 @@ mod tests {
             resolve_delete_mode(Some(DeleteModeArg::Permanent), &archive_config),
             DeleteMode::Permanent
         );
+    }
+
+    #[test]
+    fn test_parse_size_threshold() {
+        use crate::cmd_doctor::parse_size_threshold;
+
+        assert_eq!(
+            parse_size_threshold("20GB").unwrap(),
+            20 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            parse_size_threshold("10G").unwrap(),
+            10 * 1024 * 1024 * 1024
+        );
+        assert_eq!(parse_size_threshold("500MB").unwrap(), 500 * 1024 * 1024);
+        assert_eq!(
+            parse_size_threshold("1TB").unwrap(),
+            1024 * 1024 * 1024 * 1024
+        );
+        assert_eq!(parse_size_threshold("1024KB").unwrap(), 1024 * 1024);
+        assert_eq!(parse_size_threshold("1048576B").unwrap(), 1048576);
+        assert_eq!(parse_size_threshold("5").unwrap(), 5 * 1024 * 1024 * 1024); // defaults to GB
     }
 }
