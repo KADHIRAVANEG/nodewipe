@@ -5,7 +5,7 @@
   # nodewipe
 
   **The surgical, blazing-fast dev-environment cleaner written in Rust.**  
-  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and frontend/mobile build caches across 33+ ecosystems.*
+  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and native/mobile build caches across 37+ ecosystems.*
 
   <br>
 
@@ -37,7 +37,7 @@
 ## ⚡ Key Features
 
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
-* **🌐 33+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
+* **🌐 37+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, C/C++ & Native (CMake, Ninja, Zig, Elixir, Meson), modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
 * **🛡️ Zero-Risk Excision**: Moves to OS Trash by default. Supports atomic `.tar.gz` archiving if you want a compressed rollback backup before removing.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
 * **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
@@ -134,6 +134,10 @@ cargo build --release
 | **Nuxt** | `.nuxt/` | `nuxt_cache` | Sibling `nuxt.config.*` or `package.json` |
 | **Docusaurus** | `.docusaurus/` | `docusaurus_cache` | Sibling `docusaurus.config.*` or `package.json` |
 | **Vite** | `.vite/` | `vite_cache` | Sibling `vite.config.*` or `package.json` |
+| **C / C++ (CMake)**| `build/` | `cmake_build` | Sibling `CMakeLists.txt` or contains `CMakeCache.txt` |
+| **Zig** | `.zig-cache/` | `zig_cache` | Sibling `build.zig` or directory name |
+| **Elixir / Erlang**| `_build/` | `elixir_build` | Sibling `mix.exs` |
+| **Meson** | `builddir/` | `meson_build` | Sibling `meson.build` or contains `meson-private` |
 
 List all supported types and slugs at any time with:
 ```bash

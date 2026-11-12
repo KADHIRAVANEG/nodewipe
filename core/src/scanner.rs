@@ -247,6 +247,55 @@ const RULES: &[Rule] = &[
         kind: ArtifactKind::ViteCache,
         marker: Marker::ParentHasAny(&["vite.config.js", "vite.config.ts", "package.json"]),
     },
+    // Systems / Native: CMake & Ninja build output
+    Rule {
+        name: "build",
+        kind: ArtifactKind::CmakeBuild,
+        marker: Marker::ParentHasAny(&["CMakeLists.txt", "compile_commands.json"]),
+    },
+    Rule {
+        name: "build",
+        kind: ArtifactKind::CmakeBuild,
+        marker: Marker::SelfHasAny(&["CMakeCache.txt", "build.ninja"]),
+    },
+    Rule {
+        name: "cmake-build-debug",
+        kind: ArtifactKind::CmakeBuild,
+        marker: Marker::None,
+    },
+    Rule {
+        name: "cmake-build-release",
+        kind: ArtifactKind::CmakeBuild,
+        marker: Marker::None,
+    },
+    // Systems / Native: Zig build cache & output
+    Rule {
+        name: ".zig-cache",
+        kind: ArtifactKind::ZigCache,
+        marker: Marker::None,
+    },
+    Rule {
+        name: "zig-out",
+        kind: ArtifactKind::ZigCache,
+        marker: Marker::ParentHasAny(&["build.zig", "build.zig.zon"]),
+    },
+    // Systems / Native: Elixir / Mix compiled output
+    Rule {
+        name: "_build",
+        kind: ArtifactKind::ElixirBuild,
+        marker: Marker::ParentHasAny(&["mix.exs"]),
+    },
+    // Systems / Native: Meson build directory
+    Rule {
+        name: "builddir",
+        kind: ArtifactKind::MesonBuild,
+        marker: Marker::ParentHasAny(&["meson.build"]),
+    },
+    Rule {
+        name: "builddir",
+        kind: ArtifactKind::MesonBuild,
+        marker: Marker::SelfHasAny(&["meson-private", "meson-logs"]),
+    },
 ];
 
 /// Classifies a path by name + marker files, independent of any active

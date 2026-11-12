@@ -117,6 +117,10 @@ const KIND_LABELS = {
   nuxt_cache: "Nuxt cache",
   docusaurus_cache: "Docusaurus cache",
   vite_cache: "Vite cache",
+  cmake_build: "CMake / Ninja build",
+  zig_cache: "Zig cache & build",
+  elixir_build: "Elixir / Mix build",
+  meson_build: "Meson build",
 };
 
 const KIND_BADGE_CLASS = {
@@ -153,6 +157,10 @@ const KIND_BADGE_CLASS = {
   nuxt_cache: "badge-npm",
   docusaurus_cache: "badge-unknown",
   vite_cache: "badge-yarn",
+  cmake_build: "badge-yarn",
+  zig_cache: "badge-npm",
+  elixir_build: "badge-pnpm",
+  meson_build: "badge-unknown",
 };
 
 const KIND_RISK_NOTES = {
