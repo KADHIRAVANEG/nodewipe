@@ -408,10 +408,14 @@ pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
     // Parallel size computation and path prefix interning — each matched
     // directory is sized independently and concurrently.
     let interner = PathInterner::new();
-    let entries: Vec<Entry> = matches
+    let mut entries: Vec<Entry> = matches
         .par_iter()
         .map(|(kind, path)| build_entry(path, *kind, opts.compute_sizes, &interner))
         .collect();
+
+    if opts.inspect_git {
+        crate::git::annotate_git_status(&mut entries);
+    }
 
     Ok(entries)
 }
@@ -573,6 +577,7 @@ fn build_entry(
         package_manager,
         last_modified,
         workspace_root: None, // filled in by `workspace::annotate_workspace_roots`
+        git_status: None,     // annotated by `git::annotate_git_status`
     }
 }
 

@@ -599,3 +599,29 @@ footer {
   color: var(--text-muted, #888);
   font-variant-numeric: tabular-nums;
 }
+
+/* Git Status Column */
+.git-cell {
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+.git-branch {
+  font-family: monospace;
+  color: #a1a1aa;
+}
+.badge-dirty {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-size: 0.72rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.badge-merged {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 0.72rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+}

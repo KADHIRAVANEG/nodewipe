@@ -345,6 +345,7 @@ fn test_workspace_detection() {
         package_manager: None,
         last_modified: None,
         workspace_root: None,
+        git_status: None,
     }];
 
     annotate_workspace_roots(&mut entries, root);
@@ -1004,4 +1005,171 @@ fn test_path_interner_deduplication() {
         "PathInterner successfully deduplicated strings: unique count = {}",
         interner.len()
     );
+}
+
+fn run_git_cmd(dir: &std::path::Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .expect("git execution failed");
+    assert!(status.success(), "git {:?} in {:?} failed", args, dir);
+}
+
+#[test]
+fn test_git_clean_repo_detection() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    run_git_cmd(root, &["init", "-b", "main"]);
+    run_git_cmd(root, &["config", "user.name", "Test User"]);
+    run_git_cmd(root, &["config", "user.email", "test@example.com"]);
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"foo\"\n").unwrap();
+    run_git_cmd(root, &["add", "Cargo.toml"]);
+    run_git_cmd(root, &["commit", "-m", "init"]);
+
+    let target = root.join("target");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("output.bin"), b"build artifacts").unwrap();
+
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        inspect_git: true,
+        ..Default::default()
+    };
+    let entries = scan(&opts).unwrap();
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    let git = entry
+        .git_status
+        .as_ref()
+        .expect("git_status must be present");
+    assert_eq!(git.branch.as_deref(), Some("main"));
+    assert!(!git.is_dirty, "repository should not be dirty");
+    assert!(!git.is_merged, "main branch is not a merged feature branch");
+    assert!(
+        git.last_commit_time.is_some(),
+        "commit time must be present"
+    );
+}
+
+#[test]
+fn test_git_dirty_repo_detection() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    run_git_cmd(root, &["init", "-b", "main"]);
+    run_git_cmd(root, &["config", "user.name", "Test User"]);
+    run_git_cmd(root, &["config", "user.email", "test@example.com"]);
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"foo\"\n").unwrap();
+    run_git_cmd(root, &["add", "Cargo.toml"]);
+    run_git_cmd(root, &["commit", "-m", "init"]);
+
+    let target = root.join("target");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("output.bin"), b"build artifacts").unwrap();
+
+    // Make repository dirty by adding uncommitted change
+    fs::write(root.join("uncommitted.rs"), "fn dirty() {}").unwrap();
+
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        inspect_git: true,
+        ..Default::default()
+    };
+    let entries = scan(&opts).unwrap();
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    let git = entry
+        .git_status
+        .as_ref()
+        .expect("git_status must be present");
+    assert_eq!(git.branch.as_deref(), Some("main"));
+    assert!(git.is_dirty, "repository must be flagged as dirty");
+}
+
+#[test]
+fn test_git_merged_feature_branch_detection() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    run_git_cmd(root, &["init", "-b", "main"]);
+    run_git_cmd(root, &["config", "user.name", "Test User"]);
+    run_git_cmd(root, &["config", "user.email", "test@example.com"]);
+    fs::write(root.join("package.json"), "{\"name\":\"app\"}").unwrap();
+    run_git_cmd(root, &["add", "package.json"]);
+    run_git_cmd(root, &["commit", "-m", "initial on main"]);
+
+    // Create and checkout feature-auth branch
+    run_git_cmd(root, &["checkout", "-b", "feature-auth"]);
+    fs::write(root.join("auth.js"), "// auth logic").unwrap();
+    run_git_cmd(root, &["add", "auth.js"]);
+    run_git_cmd(root, &["commit", "-m", "add auth"]);
+
+    // Merge into main
+    run_git_cmd(root, &["checkout", "main"]);
+    run_git_cmd(
+        root,
+        &["merge", "feature-auth", "--no-ff", "-m", "merge auth"],
+    );
+
+    // Checkout feature-auth branch again
+    run_git_cmd(root, &["checkout", "feature-auth"]);
+
+    let nm = root.join("node_modules");
+    fs::create_dir_all(&nm).unwrap();
+    fs::write(nm.join("package.json"), "{}").unwrap();
+
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        inspect_git: true,
+        ..Default::default()
+    };
+    let entries = scan(&opts).unwrap();
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    let git = entry
+        .git_status
+        .as_ref()
+        .expect("git_status must be present");
+    assert_eq!(git.branch.as_deref(), Some("feature-auth"));
+    assert!(
+        git.is_merged,
+        "feature-auth branch must be flagged as merged"
+    );
+    assert!(!git.is_dirty, "repository should not be dirty");
+}
+
+#[test]
+fn test_smart_staleness_with_git_integration() {
+    use nodewipe_core::find_stale_projects;
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    run_git_cmd(root, &["init", "-b", "main"]);
+    run_git_cmd(root, &["config", "user.name", "Test User"]);
+    run_git_cmd(root, &["config", "user.email", "test@example.com"]);
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"foo\"\n").unwrap();
+    run_git_cmd(root, &["add", "Cargo.toml"]);
+    run_git_cmd(root, &["commit", "-m", "init"]);
+
+    let target = root.join("target");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("output.bin"), b"build artifacts").unwrap();
+
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        inspect_git: true,
+        ..Default::default()
+    };
+    let entries = scan(&opts).unwrap();
+    assert_eq!(entries.len(), 1);
+
+    let stale = find_stale_projects(&entries, Duration::from_secs(0));
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0].git_branch.as_deref(), Some("main"));
+    assert!(!stale[0].is_dirty);
+    assert!(!stale[0].is_merged);
 }

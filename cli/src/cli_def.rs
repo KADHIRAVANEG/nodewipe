@@ -67,6 +67,10 @@ pub struct Cli {
     /// Force single-threaded directory traversal (sequential fallback).
     #[arg(long, global = true)]
     pub serial: bool,
+
+    /// Skip Git repository status inspection (branch, dirty status, merged check).
+    #[arg(long, global = true)]
+    pub no_git: bool,
 }
 
 #[derive(Subcommand)]
@@ -215,6 +219,8 @@ pub enum SortKey {
     /// Sort by last-modified date, oldest first.
     /// Surfaces the most abandoned artifacts at the top of the list.
     Age,
+    /// Sort alphabetically by Git branch name.
+    Git,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]

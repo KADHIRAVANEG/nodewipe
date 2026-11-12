@@ -417,6 +417,21 @@ pub struct Entry {
     pub last_modified: Option<SystemTime>,
     /// True if this entry sits inside a detected monorepo/workspace.
     pub workspace_root: Option<PathBuf>,
+    /// Git repository status if this artifact resides inside a Git repository.
+    pub git_status: Option<GitStatus>,
+}
+
+/// Git status information for an artifact's enclosing repository.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct GitStatus {
+    /// Currently checked out branch name (e.g. `main`, `feat-login`, or `detached (abc1234)`).
+    pub branch: Option<String>,
+    /// True if the working directory contains uncommitted tracked/untracked changes.
+    pub is_dirty: bool,
+    /// True if this feature branch has already been merged into upstream main/master.
+    pub is_merged: bool,
+    /// Unix timestamp (in seconds) of the last commit on this branch.
+    pub last_commit_time: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -448,6 +463,8 @@ pub struct ScanOptions {
     /// Traversal engine: parallel multithreaded directory walking using Rayon (default: true).
     /// When false, falls back to sequential single-threaded traversal.
     pub parallel: bool,
+    /// Inspect git status (branch name, dirty status, merged branch check) for projects (default: true).
+    pub inspect_git: bool,
 }
 
 impl Default for ScanOptions {
@@ -478,6 +495,7 @@ impl Default for ScanOptions {
             ignore_patterns: ignore::gitignore::Gitignore::empty(),
             compute_sizes: true,
             parallel: true,
+            inspect_git: true,
         }
     }
 }
