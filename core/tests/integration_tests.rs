@@ -797,3 +797,127 @@ fn test_systems_native_cache_scan_and_delete() {
     assert!(delete_res.is_ok());
     assert!(!cmake_build.exists());
 }
+
+#[test]
+fn test_parallel_vs_sequential_scan_consistency() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // 1. Rust project
+    let rust_proj = root.join("apps").join("backend");
+    fs::create_dir_all(&rust_proj).unwrap();
+    File::create(rust_proj.join("Cargo.toml")).unwrap();
+    let rust_target = rust_proj.join("target");
+    fs::create_dir_all(&rust_target).unwrap();
+    fs::write(rust_target.join("app"), b"bin").unwrap();
+
+    // 2. Node project
+    let node_proj = root.join("apps").join("frontend");
+    fs::create_dir_all(&node_proj).unwrap();
+    File::create(node_proj.join("package.json")).unwrap();
+    let node_modules = node_proj.join("node_modules");
+    fs::create_dir_all(&node_modules).unwrap();
+    fs::write(node_modules.join("react.js"), b"react").unwrap();
+
+    // 3. Python venv
+    let py_proj = root.join("services").join("worker");
+    fs::create_dir_all(&py_proj).unwrap();
+    let venv = py_proj.join(".venv");
+    fs::create_dir_all(&venv).unwrap();
+    File::create(venv.join("pyvenv.cfg")).unwrap();
+
+    // 4. Excluded .git directory (should be pruned)
+    let git_dir = root.join(".git");
+    fs::create_dir_all(git_dir.join("node_modules")).unwrap();
+
+    // 5. Ignored project via .nodewipeignore
+    let ignored_dir = root.join("libs").join("ignored");
+    fs::create_dir_all(ignored_dir.join("node_modules")).unwrap();
+    let mut ignore_file = File::create(root.join(".nodewipeignore")).unwrap();
+    writeln!(ignore_file, "libs/ignored").unwrap();
+
+    let ignore_patterns = load_ignore_patterns(root);
+
+    // Parallel scan (default)
+    let opts_parallel = ScanOptions {
+        root: root.to_path_buf(),
+        ignore_patterns: ignore_patterns.clone(),
+        parallel: true,
+        ..Default::default()
+    };
+    let parallel_entries = scan(&opts_parallel).unwrap();
+
+    // Sequential scan (fallback)
+    let opts_sequential = ScanOptions {
+        root: root.to_path_buf(),
+        ignore_patterns,
+        parallel: false,
+        ..Default::default()
+    };
+    let sequential_entries = scan(&opts_sequential).unwrap();
+
+    // Both MUST discover the exact same number of entries
+    assert_eq!(parallel_entries.len(), 3);
+    assert_eq!(sequential_entries.len(), 3);
+
+    // Both MUST match identical paths and kinds in identical order
+    for (p, s) in parallel_entries.iter().zip(sequential_entries.iter()) {
+        assert_eq!(p.path, s.path);
+        assert_eq!(p.kind, s.kind);
+        assert_eq!(p.size_bytes, s.size_bytes);
+    }
+}
+
+#[test]
+fn test_parallel_traversal_benchmark() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Create a multi-tiered directory hierarchy with 30 project trees
+    for i in 0..30 {
+        let proj = root.join(format!("proj_{}", i));
+        fs::create_dir_all(&proj).unwrap();
+        if i % 3 == 0 {
+            File::create(proj.join("Cargo.toml")).unwrap();
+            let target = proj.join("target");
+            fs::create_dir_all(&target).unwrap();
+            fs::write(target.join("output.bin"), b"data").unwrap();
+        } else if i % 3 == 1 {
+            let nm = proj.join("node_modules");
+            fs::create_dir_all(&nm).unwrap();
+            fs::write(nm.join("index.js"), b"console.log('hi');").unwrap();
+        } else {
+            let cmake = proj.join("build");
+            fs::create_dir_all(&cmake).unwrap();
+            File::create(proj.join("CMakeLists.txt")).unwrap();
+            fs::write(cmake.join("CMakeCache.txt"), b"# cmake cache").unwrap();
+        }
+    }
+
+    let start_seq = std::time::Instant::now();
+    let seq_opts = ScanOptions {
+        root: root.to_path_buf(),
+        parallel: false,
+        compute_sizes: true,
+        ..Default::default()
+    };
+    let seq_entries = scan(&seq_opts).unwrap();
+    let seq_duration = start_seq.elapsed();
+
+    let start_par = std::time::Instant::now();
+    let par_opts = ScanOptions {
+        root: root.to_path_buf(),
+        parallel: true,
+        compute_sizes: true,
+        ..Default::default()
+    };
+    let par_entries = scan(&par_opts).unwrap();
+    let par_duration = start_par.elapsed();
+
+    assert_eq!(seq_entries.len(), 30);
+    assert_eq!(par_entries.len(), 30);
+    println!(
+        "Benchmark (30 projects): Sequential = {:?}, Parallel = {:?}",
+        seq_duration, par_duration
+    );
+}

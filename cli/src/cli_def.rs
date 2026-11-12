@@ -63,6 +63,10 @@ pub struct Cli {
     /// Skip loading .nodewipeignore files.
     #[arg(long, global = true)]
     pub no_ignore_file: bool,
+
+    /// Force single-threaded directory traversal (sequential fallback).
+    #[arg(long, global = true)]
+    pub serial: bool,
 }
 
 #[derive(Subcommand)]
