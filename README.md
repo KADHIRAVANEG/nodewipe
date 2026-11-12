@@ -5,7 +5,7 @@
   # nodewipe
 
   **The surgical, blazing-fast dev-environment cleaner written in Rust.**  
-  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and mobile build caches across 26+ ecosystems.*
+  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and frontend/mobile build caches across 33+ ecosystems.*
 
   <br>
 
@@ -37,7 +37,7 @@
 ## ⚡ Key Features
 
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
-* **🌐 26+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
+* **🌐 33+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
 * **🛡️ Zero-Risk Excision**: Moves to OS Trash by default. Supports atomic `.tar.gz` archiving if you want a compressed rollback backup before removing.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
 * **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
@@ -127,6 +127,13 @@ cargo build --release
 | **iOS / CocoaPods** | `Pods/` | `cocoapods` | Sibling `Podfile` exists |
 | **Android / Gradle**| `caches/` | `gradle_cache` | Parent `.gradle` directory |
 | **Android SDK** | `build-cache/` | `android_build_cache` | Parent `.android` directory |
+| **Testing / Web** | `ms-playwright` | `playwright_browsers` | Directory name |
+| **Testing / Web** | `Cypress` | `cypress_cache` | Parent `.cache` or `Caches` |
+| **Astro** | `.astro/` | `astro_cache` | Sibling `astro.config.*` or `package.json` |
+| **SvelteKit** | `.svelte-kit/` | `sveltekit_cache` | Sibling `svelte.config.*` or `package.json` |
+| **Nuxt** | `.nuxt/` | `nuxt_cache` | Sibling `nuxt.config.*` or `package.json` |
+| **Docusaurus** | `.docusaurus/` | `docusaurus_cache` | Sibling `docusaurus.config.*` or `package.json` |
+| **Vite** | `.vite/` | `vite_cache` | Sibling `vite.config.*` or `package.json` |
 
 List all supported types and slugs at any time with:
 ```bash

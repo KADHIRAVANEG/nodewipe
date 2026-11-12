@@ -60,6 +60,20 @@ pub enum ArtifactKind {
     GradleCache,
     /// Android SDK build cache (`~/.android/build-cache`).
     AndroidBuildCache,
+    /// Playwright downloaded browser binaries (`~/.cache/ms-playwright`).
+    PlaywrightBrowsers,
+    /// Cypress downloaded test runner binaries (`~/.cache/Cypress`).
+    CypressCache,
+    /// Astro build and content cache (`.astro/`).
+    AstroCache,
+    /// SvelteKit build and types cache (`.svelte-kit/`).
+    SvelteKitCache,
+    /// Nuxt 3 build cache (`.nuxt/`).
+    NuxtCache,
+    /// Docusaurus build cache (`.docusaurus/`).
+    DocusaurusCache,
+    /// Vite pre-bundled dependency cache (`.vite/`).
+    ViteCache,
 }
 
 impl ArtifactKind {
@@ -91,6 +105,13 @@ impl ArtifactKind {
         ArtifactKind::CocoaPods,
         ArtifactKind::GradleCache,
         ArtifactKind::AndroidBuildCache,
+        ArtifactKind::PlaywrightBrowsers,
+        ArtifactKind::CypressCache,
+        ArtifactKind::AstroCache,
+        ArtifactKind::SvelteKitCache,
+        ArtifactKind::NuxtCache,
+        ArtifactKind::DocusaurusCache,
+        ArtifactKind::ViteCache,
     ];
 
     /// Short slug used in CLI flags (`--exclude-types venv,pycache`) and JSON.
@@ -122,6 +143,13 @@ impl ArtifactKind {
             ArtifactKind::CocoaPods => "cocoapods",
             ArtifactKind::GradleCache => "gradle_cache",
             ArtifactKind::AndroidBuildCache => "android_build_cache",
+            ArtifactKind::PlaywrightBrowsers => "playwright_browsers",
+            ArtifactKind::CypressCache => "cypress_cache",
+            ArtifactKind::AstroCache => "astro_cache",
+            ArtifactKind::SvelteKitCache => "sveltekit_cache",
+            ArtifactKind::NuxtCache => "nuxt_cache",
+            ArtifactKind::DocusaurusCache => "docusaurus_cache",
+            ArtifactKind::ViteCache => "vite_cache",
         }
     }
 
@@ -153,6 +181,13 @@ impl ArtifactKind {
             "cocoapods" | "pods" => ArtifactKind::CocoaPods,
             "gradle_cache" => ArtifactKind::GradleCache,
             "android_build_cache" | "android_cache" => ArtifactKind::AndroidBuildCache,
+            "playwright_browsers" | "playwright" => ArtifactKind::PlaywrightBrowsers,
+            "cypress_cache" | "cypress" => ArtifactKind::CypressCache,
+            "astro_cache" | "astro" => ArtifactKind::AstroCache,
+            "sveltekit_cache" | "sveltekit" | "svelte" => ArtifactKind::SvelteKitCache,
+            "nuxt_cache" | "nuxt" => ArtifactKind::NuxtCache,
+            "docusaurus_cache" | "docusaurus" => ArtifactKind::DocusaurusCache,
+            "vite_cache" | "vite" => ArtifactKind::ViteCache,
             _ => return None,
         })
     }
@@ -185,6 +220,13 @@ impl ArtifactKind {
             ArtifactKind::CocoaPods => "CocoaPods",
             ArtifactKind::GradleCache => "Gradle cache",
             ArtifactKind::AndroidBuildCache => "Android build cache",
+            ArtifactKind::PlaywrightBrowsers => "Playwright browsers",
+            ArtifactKind::CypressCache => "Cypress cache",
+            ArtifactKind::AstroCache => "Astro cache",
+            ArtifactKind::SvelteKitCache => "SvelteKit cache",
+            ArtifactKind::NuxtCache => "Nuxt cache",
+            ArtifactKind::DocusaurusCache => "Docusaurus cache",
+            ArtifactKind::ViteCache => "Vite cache",
         }
     }
 
@@ -265,6 +307,27 @@ impl ArtifactKind {
             }
             ArtifactKind::AndroidBuildCache => {
                 "Android SDK / Gradle build cache (~/.android/build-cache). Safe to delete."
+            }
+            ArtifactKind::PlaywrightBrowsers => {
+                "Playwright downloaded browser binaries (Chromium, Firefox, WebKit). Safe to delete."
+            }
+            ArtifactKind::CypressCache => {
+                "Cypress downloaded test runner binaries. Safe to delete."
+            }
+            ArtifactKind::AstroCache => {
+                "Astro build and content cache (.astro/). Auto-regenerated on build."
+            }
+            ArtifactKind::SvelteKitCache => {
+                "SvelteKit generated types and build cache (.svelte-kit/). Auto-regenerated on dev/build."
+            }
+            ArtifactKind::NuxtCache => {
+                "Nuxt generated build cache (.nuxt/). Auto-regenerated on dev/build."
+            }
+            ArtifactKind::DocusaurusCache => {
+                "Docusaurus build cache (.docusaurus/). Auto-regenerated on build."
+            }
+            ArtifactKind::ViteCache => {
+                "Vite pre-bundled dependency cache (.vite/). Auto-regenerated on next dev run."
             }
         }
     }

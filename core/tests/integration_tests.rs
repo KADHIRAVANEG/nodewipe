@@ -151,6 +151,74 @@ fn test_classify_path_marker_rules() {
         classify_path(&real_android_cache),
         Some(ArtifactKind::AndroidBuildCache)
     );
+
+    // Playwright
+    let pw_dir = root.join("ms-playwright");
+    fs::create_dir(&pw_dir).unwrap();
+    assert_eq!(
+        classify_path(&pw_dir),
+        Some(ArtifactKind::PlaywrightBrowsers)
+    );
+
+    // Cypress
+    let generic_cypress = root.join("Cypress");
+    fs::create_dir(&generic_cypress).unwrap();
+    assert_eq!(classify_path(&generic_cypress), None);
+
+    let cache_cypress = root.join(".cache").join("Cypress");
+    fs::create_dir_all(&cache_cypress).unwrap();
+    assert_eq!(
+        classify_path(&cache_cypress),
+        Some(ArtifactKind::CypressCache)
+    );
+
+    // Astro
+    let astro_proj = root.join("astro_site");
+    fs::create_dir_all(&astro_proj).unwrap();
+    let astro_dir = astro_proj.join(".astro");
+    fs::create_dir(&astro_dir).unwrap();
+    assert_eq!(classify_path(&astro_dir), None);
+    File::create(astro_proj.join("astro.config.mjs")).unwrap();
+    assert_eq!(classify_path(&astro_dir), Some(ArtifactKind::AstroCache));
+
+    // SvelteKit
+    let svelte_proj = root.join("svelte_site");
+    fs::create_dir_all(&svelte_proj).unwrap();
+    let svelte_dir = svelte_proj.join(".svelte-kit");
+    fs::create_dir(&svelte_dir).unwrap();
+    assert_eq!(classify_path(&svelte_dir), None);
+    File::create(svelte_proj.join("svelte.config.js")).unwrap();
+    assert_eq!(
+        classify_path(&svelte_dir),
+        Some(ArtifactKind::SvelteKitCache)
+    );
+
+    // Nuxt
+    let nuxt_proj = root.join("nuxt_site");
+    fs::create_dir_all(&nuxt_proj).unwrap();
+    let nuxt_dir = nuxt_proj.join(".nuxt");
+    fs::create_dir(&nuxt_dir).unwrap();
+    assert_eq!(classify_path(&nuxt_dir), None);
+    File::create(nuxt_proj.join("nuxt.config.ts")).unwrap();
+    assert_eq!(classify_path(&nuxt_dir), Some(ArtifactKind::NuxtCache));
+
+    // Docusaurus
+    let doc_proj = root.join("doc_site");
+    fs::create_dir_all(&doc_proj).unwrap();
+    let doc_dir = doc_proj.join(".docusaurus");
+    fs::create_dir(&doc_dir).unwrap();
+    assert_eq!(classify_path(&doc_dir), None);
+    File::create(doc_proj.join("docusaurus.config.js")).unwrap();
+    assert_eq!(classify_path(&doc_dir), Some(ArtifactKind::DocusaurusCache));
+
+    // Vite
+    let vite_proj = root.join("vite_site");
+    fs::create_dir_all(&vite_proj).unwrap();
+    let vite_dir = vite_proj.join(".vite");
+    fs::create_dir(&vite_dir).unwrap();
+    assert_eq!(classify_path(&vite_dir), None);
+    File::create(vite_proj.join("vite.config.ts")).unwrap();
+    assert_eq!(classify_path(&vite_dir), Some(ArtifactKind::ViteCache));
 }
 
 #[test]
@@ -519,4 +587,95 @@ fn test_mobile_apple_cache_scan_and_delete() {
     let delete_res = delete(&xcode_dir, DeleteMode::Permanent, 0);
     assert!(delete_res.is_ok());
     assert!(!xcode_dir.exists());
+}
+
+#[test]
+fn test_modern_web_cache_scan_and_delete() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Playwright
+    let pw_dir = root.join("ms-playwright");
+    fs::create_dir_all(&pw_dir).unwrap();
+    fs::write(pw_dir.join("chromium-1000"), b"browser_binary").unwrap();
+
+    // Cypress
+    let cypress_dir = root.join(".cache").join("Cypress");
+    fs::create_dir_all(&cypress_dir).unwrap();
+    fs::write(cypress_dir.join("cypress.zip"), b"cypress_binary").unwrap();
+
+    // Astro
+    let astro_proj = root.join("astro_app");
+    fs::create_dir_all(&astro_proj).unwrap();
+    File::create(astro_proj.join("package.json")).unwrap();
+    let astro_cache = astro_proj.join(".astro");
+    fs::create_dir_all(&astro_cache).unwrap();
+    fs::write(astro_cache.join("cache.data"), b"astro_data").unwrap();
+
+    // SvelteKit
+    let svelte_proj = root.join("svelte_app");
+    fs::create_dir_all(&svelte_proj).unwrap();
+    File::create(svelte_proj.join("svelte.config.js")).unwrap();
+    let svelte_cache = svelte_proj.join(".svelte-kit");
+    fs::create_dir_all(&svelte_cache).unwrap();
+    fs::write(svelte_cache.join("types.d.ts"), b"types").unwrap();
+
+    // Nuxt
+    let nuxt_proj = root.join("nuxt_app");
+    fs::create_dir_all(&nuxt_proj).unwrap();
+    File::create(nuxt_proj.join("nuxt.config.ts")).unwrap();
+    let nuxt_cache = nuxt_proj.join(".nuxt");
+    fs::create_dir_all(&nuxt_cache).unwrap();
+    fs::write(nuxt_cache.join("nitro.json"), b"nitro").unwrap();
+
+    // Docusaurus
+    let doc_proj = root.join("doc_app");
+    fs::create_dir_all(&doc_proj).unwrap();
+    File::create(doc_proj.join("docusaurus.config.js")).unwrap();
+    let doc_cache = doc_proj.join(".docusaurus");
+    fs::create_dir_all(&doc_cache).unwrap();
+    fs::write(doc_cache.join("routes.json"), b"routes").unwrap();
+
+    // Vite
+    let vite_proj = root.join("vite_app");
+    fs::create_dir_all(&vite_proj).unwrap();
+    File::create(vite_proj.join("vite.config.ts")).unwrap();
+    let vite_cache = vite_proj.join(".vite");
+    fs::create_dir_all(&vite_cache).unwrap();
+    fs::write(vite_cache.join("deps.js"), b"bundled_deps").unwrap();
+
+    // Scan all
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        ..Default::default()
+    };
+    let entries = scan(&opts).unwrap();
+    assert_eq!(entries.len(), 7);
+
+    let kinds: Vec<ArtifactKind> = entries.iter().map(|e| e.kind).collect();
+    assert!(kinds.contains(&ArtifactKind::PlaywrightBrowsers));
+    assert!(kinds.contains(&ArtifactKind::CypressCache));
+    assert!(kinds.contains(&ArtifactKind::AstroCache));
+    assert!(kinds.contains(&ArtifactKind::SvelteKitCache));
+    assert!(kinds.contains(&ArtifactKind::NuxtCache));
+    assert!(kinds.contains(&ArtifactKind::DocusaurusCache));
+    assert!(kinds.contains(&ArtifactKind::ViteCache));
+
+    // Test exclude_kinds
+    let opts_filtered = ScanOptions {
+        root: root.to_path_buf(),
+        exclude_kinds: vec![
+            ArtifactKind::PlaywrightBrowsers,
+            ArtifactKind::CypressCache,
+            ArtifactKind::AstroCache,
+        ],
+        ..Default::default()
+    };
+    let filtered_entries = scan(&opts_filtered).unwrap();
+    assert_eq!(filtered_entries.len(), 4);
+
+    // Test safe deletion
+    let delete_res = delete(&pw_dir, DeleteMode::Permanent, 0);
+    assert!(delete_res.is_ok());
+    assert!(!pw_dir.exists());
 }
