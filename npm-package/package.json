@@ -1,6 +1,6 @@
 {
   "name": "@joker53/nodewipe",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Find and reclaim disk space from stray dev artifacts — node_modules, Python venvs, Rust target/, Java build output, and more (Rust engine, npm shim)",
   "keywords": [
     "node_modules",
