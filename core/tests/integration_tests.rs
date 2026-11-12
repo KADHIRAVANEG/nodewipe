@@ -1,7 +1,7 @@
 use nodewipe_core::history::{daily_totals, format_date, stats_by_ecosystem};
 use nodewipe_core::workspace::{annotate_workspace_roots, group_by_workspace};
 use nodewipe_core::{
-    ArtifactKind, DeleteMode, HistoryEntry, ScanOptions, classify_path, delete,
+    ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, classify_path, delete,
     load_ignore_patterns, restore, scan,
 };
 use std::fs::{self, File};
@@ -1172,4 +1172,140 @@ fn test_smart_staleness_with_git_integration() {
     assert_eq!(stale[0].git_branch.as_deref(), Some("main"));
     assert!(!stale[0].is_dirty);
     assert!(!stale[0].is_merged);
+}
+
+#[test]
+fn test_resolve_rebuild_plan_rust() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"my-crate\"\n").unwrap();
+
+    let entry = Entry {
+        path: root.join("target"),
+        size_bytes: 500,
+        kind: ArtifactKind::RustTarget,
+        package_manager: None,
+        last_modified: None,
+        workspace_root: None,
+        git_status: None,
+    };
+
+    let plan = nodewipe_core::resolve_rebuild_plan(&entry).expect("plan must exist");
+    assert_eq!(plan.program, "cargo");
+    assert_eq!(plan.args, vec!["build"]);
+    assert_eq!(plan.work_dir, root);
+}
+
+#[test]
+fn test_resolve_rebuild_plan_node_variants() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    // 1. pnpm
+    let pnpm_dir = root.join("pnpm_app");
+    fs::create_dir_all(&pnpm_dir).unwrap();
+    fs::write(pnpm_dir.join("pnpm-lock.yaml"), "lockfileVersion: '9.0'").unwrap();
+    let entry_pnpm = Entry {
+        path: pnpm_dir.join("node_modules"),
+        size_bytes: 100,
+        kind: ArtifactKind::NodeModules,
+        package_manager: Some(nodewipe_core::PackageManager::Pnpm),
+        last_modified: None,
+        workspace_root: None,
+        git_status: None,
+    };
+    let plan = nodewipe_core::resolve_rebuild_plan(&entry_pnpm).unwrap();
+    assert_eq!(plan.program, "pnpm");
+    assert_eq!(plan.args, vec!["install"]);
+
+    // 2. yarn
+    let yarn_dir = root.join("yarn_app");
+    fs::create_dir_all(&yarn_dir).unwrap();
+    fs::write(yarn_dir.join("yarn.lock"), "").unwrap();
+    let entry_yarn = Entry {
+        path: yarn_dir.join("node_modules"),
+        size_bytes: 100,
+        kind: ArtifactKind::NodeModules,
+        package_manager: Some(nodewipe_core::PackageManager::Yarn),
+        last_modified: None,
+        workspace_root: None,
+        git_status: None,
+    };
+    let plan = nodewipe_core::resolve_rebuild_plan(&entry_yarn).unwrap();
+    assert_eq!(plan.program, "yarn");
+    assert_eq!(plan.args, vec!["install"]);
+
+    // 3. npm
+    let npm_dir = root.join("npm_app");
+    fs::create_dir_all(&npm_dir).unwrap();
+    fs::write(npm_dir.join("package.json"), "{}").unwrap();
+    let entry_npm = Entry {
+        path: npm_dir.join("node_modules"),
+        size_bytes: 100,
+        kind: ArtifactKind::NodeModules,
+        package_manager: Some(nodewipe_core::PackageManager::Npm),
+        last_modified: None,
+        workspace_root: None,
+        git_status: None,
+    };
+    let plan = nodewipe_core::resolve_rebuild_plan(&entry_npm).unwrap();
+    assert_eq!(plan.program, "npm");
+    assert_eq!(plan.args, vec!["install"]);
+}
+
+#[test]
+fn test_resolve_rebuild_plan_python_variants() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    // 1. uv
+    let uv_dir = root.join("uv_app");
+    fs::create_dir_all(&uv_dir).unwrap();
+    fs::write(uv_dir.join("uv.lock"), "").unwrap();
+    let entry_uv = Entry {
+        path: uv_dir.join(".venv"),
+        size_bytes: 100,
+        kind: ArtifactKind::PythonVenv,
+        package_manager: None,
+        last_modified: None,
+        workspace_root: None,
+        git_status: None,
+    };
+    let plan = nodewipe_core::resolve_rebuild_plan(&entry_uv).unwrap();
+    assert_eq!(plan.program, "uv");
+    assert_eq!(plan.args, vec!["sync"]);
+
+    // 2. poetry
+    let poetry_dir = root.join("poetry_app");
+    fs::create_dir_all(&poetry_dir).unwrap();
+    fs::write(poetry_dir.join("poetry.lock"), "").unwrap();
+    let entry_poetry = Entry {
+        path: poetry_dir.join(".venv"),
+        size_bytes: 100,
+        kind: ArtifactKind::PythonVenv,
+        package_manager: None,
+        last_modified: None,
+        workspace_root: None,
+        git_status: None,
+    };
+    let plan = nodewipe_core::resolve_rebuild_plan(&entry_poetry).unwrap();
+    assert_eq!(plan.program, "poetry");
+    assert_eq!(plan.args, vec!["install"]);
+
+    // 3. requirements.txt / venv
+    let req_dir = root.join("req_app");
+    fs::create_dir_all(&req_dir).unwrap();
+    fs::write(req_dir.join("requirements.txt"), "requests>=2.0\n").unwrap();
+    let entry_req = Entry {
+        path: req_dir.join("venv"),
+        size_bytes: 100,
+        kind: ArtifactKind::PythonVenv,
+        package_manager: None,
+        last_modified: None,
+        workspace_root: None,
+        git_status: None,
+    };
+    let plan = nodewipe_core::resolve_rebuild_plan(&entry_req).unwrap();
+    assert_eq!(plan.program, "python3");
+    assert_eq!(plan.args, vec!["-m", "venv", ".venv"]);
 }

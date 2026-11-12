@@ -146,6 +146,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             clap_complete::generate(shell, &mut cmd, "nodewipe", &mut std::io::stdout());
             Ok(ExitCode::SUCCESS)
         }
+        Some(Command::Rebuild { path }) => cmd_rebuild(&path),
         Some(Command::Man { install }) => cmd_man(install),
     }
 }
@@ -283,6 +284,96 @@ fn cmd_man(install: bool) -> Result<ExitCode> {
     use std::io::Write;
     std::io::stdout().write_all(&buf)?;
     Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_rebuild(path: &Path) -> Result<ExitCode> {
+    let target_entry = if let Some(kind) = nodewipe_core::classify_path(path) {
+        Entry {
+            path: path.to_path_buf(),
+            size_bytes: 0,
+            kind,
+            package_manager: None,
+            last_modified: None,
+            workspace_root: None,
+            git_status: None,
+        }
+    } else if path.join("Cargo.toml").exists() {
+        Entry {
+            path: path.join("target"),
+            size_bytes: 0,
+            kind: ArtifactKind::RustTarget,
+            package_manager: None,
+            last_modified: None,
+            workspace_root: None,
+            git_status: None,
+        }
+    } else if path.join("package.json").exists() {
+        Entry {
+            path: path.join("node_modules"),
+            size_bytes: 0,
+            kind: ArtifactKind::NodeModules,
+            package_manager: None,
+            last_modified: None,
+            workspace_root: None,
+            git_status: None,
+        }
+    } else if path.join("pyproject.toml").exists() || path.join("requirements.txt").exists() {
+        Entry {
+            path: path.join(".venv"),
+            size_bytes: 0,
+            kind: ArtifactKind::PythonVenv,
+            package_manager: None,
+            last_modified: None,
+            workspace_root: None,
+            git_status: None,
+        }
+    } else if path.join("pom.xml").exists() {
+        Entry {
+            path: path.join("target"),
+            size_bytes: 0,
+            kind: ArtifactKind::JavaMavenTarget,
+            package_manager: None,
+            last_modified: None,
+            workspace_root: None,
+            git_status: None,
+        }
+    } else {
+        eprintln!(
+            "error: no recognised project manifest or artifact found in {}",
+            path.display()
+        );
+        return Ok(ExitCode::FAILURE);
+    };
+
+    let plan = match nodewipe_core::resolve_rebuild_plan(&target_entry) {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "error: no rebuild toolchain plan found for {}",
+                path.display()
+            );
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+
+    println!(
+        "Running rebuild: {} in {}",
+        plan.description,
+        plan.work_dir.display()
+    );
+    let status = std::process::Command::new(&plan.program)
+        .args(&plan.args)
+        .current_dir(&plan.work_dir)
+        .status()
+        .with_context(|| format!("failed to execute '{}'", plan.program))?;
+
+    if status.success() {
+        println!("Rebuild completed successfully.");
+        Ok(ExitCode::SUCCESS)
+    } else {
+        eprintln!("Rebuild process exited with code: {:?}", status.code());
+        Ok(ExitCode::FAILURE)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

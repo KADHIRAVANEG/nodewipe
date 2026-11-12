@@ -191,6 +191,17 @@ pub enum Command {
         shell: clap_complete::Shell,
     },
 
+    /// Reinstall dependencies or rebuild a project using its detected toolchain.
+    ///
+    /// Detects package manager / compiler (e.g. `npm install`, `pnpm install`,
+    /// `cargo build`, `python3 -m venv .venv`, `mvn package`, `gradle build`) and
+    /// runs it in the target directory.
+    Rebuild {
+        /// Path to the artifact or project directory.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+    },
+
     /// Render or install the manual page for nodewipe.
     ///
     /// By default, views the man page or writes to stdout. Pass --install to

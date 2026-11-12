@@ -487,6 +487,68 @@ fn event_loop(
                             let idx = app.selected_indices();
                             app.request_delete(idx, DeleteMode::Permanent);
                         }
+                        KeyCode::Char('b') => {
+                            if let Some(entry) = app.entries.get(app.cursor) {
+                                if let Some(plan) = nodewipe_core::resolve_rebuild_plan(entry) {
+                                    terminal.backend_mut().execute(LeaveAlternateScreen)?;
+                                    disable_raw_mode()?;
+
+                                    println!("\x1B[2J\x1B[1;1H");
+                                    println!(
+                                        "┌──────────────────────────────────────────────────────────────────┐"
+                                    );
+                                    println!(
+                                        "│ nodewipe rebuild: {} in {} │",
+                                        plan.description,
+                                        plan.work_dir.display()
+                                    );
+                                    println!(
+                                        "└──────────────────────────────────────────────────────────────────┘\n"
+                                    );
+
+                                    let status = std::process::Command::new(&plan.program)
+                                        .args(&plan.args)
+                                        .current_dir(&plan.work_dir)
+                                        .status();
+
+                                    println!(
+                                        "\n──────────────────────────────────────────────────────────────────"
+                                    );
+                                    match status {
+                                        Ok(s) if s.success() => {
+                                            println!(
+                                                "Rebuild completed successfully ({})",
+                                                plan.description
+                                            );
+                                        }
+                                        Ok(s) => {
+                                            println!(
+                                                "Rebuild process exited with code: {:?}",
+                                                s.code()
+                                            );
+                                        }
+                                        Err(e) => {
+                                            println!("Failed to run '{}': {}", plan.program, e);
+                                        }
+                                    }
+                                    println!("\nPress Enter to return to nodewipe...");
+                                    let mut buf = String::new();
+                                    let _ = std::io::stdin().read_line(&mut buf);
+
+                                    enable_raw_mode()?;
+                                    terminal.backend_mut().execute(EnterAlternateScreen)?;
+                                    terminal.clear()?;
+
+                                    app.status = format!("Finished: {}", plan.description);
+                                    app.start_scan();
+                                } else {
+                                    app.status = format!(
+                                        "No rebuild toolchain detected for {}",
+                                        entry.kind.label()
+                                    );
+                                }
+                            }
+                        }
                         KeyCode::Char('P') => {
                             app.dry_run = !app.dry_run;
                             app.status = if app.dry_run {
@@ -754,7 +816,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         )
     } else {
         format!(
-            "{}{}  |  ↑/↓ move · space select · d trash · a archive · p delete · P dry-run · R restore · t types · r rescan · q quit",
+            "{}{}  |  ↑/↓ move · space select · b rebuild · d trash · a archive · p delete · P dry-run · R restore · t types · r rescan · q quit",
             app.status, dry_run_indicator
         )
     };
