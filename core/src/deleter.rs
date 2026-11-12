@@ -61,12 +61,33 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
                     path.display()
                 );
             }
-            let archive = archive_path_for(path);
-            create_archive(path, &archive)
-                .with_context(|| format!("failed to archive {}", path.display()))?;
-            std::fs::remove_dir_all(path)
-                .with_context(|| format!("failed to remove {} after archiving", path.display()))?;
-            Some(archive)
+            let parent = path.parent().unwrap_or(path);
+            let use_reflink = crate::reflink::supports_reflink(parent);
+
+            if use_reflink {
+                let snapshot = snapshot_path_for(path);
+                crate::reflink::reflink_dir(path, &snapshot).with_context(|| {
+                    format!("failed to create reflink snapshot of {}", path.display())
+                })?;
+                if let Some(artifact_name) = path.file_name() {
+                    let _ = std::fs::write(
+                        snapshot.join(".nodewipe_snapshot_meta"),
+                        artifact_name.to_string_lossy().as_bytes(),
+                    );
+                }
+                std::fs::remove_dir_all(path).with_context(|| {
+                    format!("failed to remove {} after snapshotting", path.display())
+                })?;
+                Some(snapshot)
+            } else {
+                let archive = archive_path_for(path);
+                create_archive(path, &archive)
+                    .with_context(|| format!("failed to archive {}", path.display()))?;
+                std::fs::remove_dir_all(path).with_context(|| {
+                    format!("failed to remove {} after archiving", path.display())
+                })?;
+                Some(archive)
+            }
         }
         DeleteMode::Permanent => {
             if is_symlink {
@@ -100,6 +121,43 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
         archive_path,
         freed_bytes: size_bytes,
     })
+}
+
+fn snapshot_path_for(artifact_path: &Path) -> PathBuf {
+    let parent = artifact_path.parent().unwrap_or(artifact_path);
+    let artifact_name = artifact_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("artifact")
+        .trim_start_matches('.');
+    let project_name = parent
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project");
+
+    let base_name = format!("{project_name}-{artifact_name}-backup");
+    let initial = parent.join(format!("{base_name}.snapshot"));
+    if !initial.exists() {
+        return initial;
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let candidate = parent.join(format!("{base_name}-{now}.snapshot"));
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    for i in 1..1000 {
+        let candidate = parent.join(format!("{base_name}-{now}-{i}.snapshot"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    initial
 }
 
 fn archive_path_for(artifact_path: &Path) -> PathBuf {
@@ -154,13 +212,51 @@ fn create_archive(src_dir: &Path, dest_tar_gz: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Extracts an archive created by `DeleteMode::Archive` back into place.
-/// `archive_path` is the `.tar.gz` file itself; the artifact is restored
-/// into the archive's parent directory (where it originally lived).
-///
-/// Refuses to overwrite an existing directory of the same name — if you've
-/// since recreated the artifact (e.g. re-ran `npm install`), restoring on
-/// top of it could silently merge stale and fresh files together.
+const VALID_ARTIFACT_NAMES: &[&str] = &[
+    "node_modules",
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "target",
+    "build",
+    ".next",
+    ".turbo",
+    "dist",
+    "mod",
+    "go-build",
+    "vendor",
+    "bin",
+    "obj",
+    "hub",
+    "models",
+    "torch",
+    "cache",
+    "DerivedData",
+    ".build",
+    "Pods",
+    "caches",
+    "build-cache",
+    "ms-playwright",
+    "Cypress",
+    ".astro",
+    ".svelte-kit",
+    ".nuxt",
+    ".docusaurus",
+    ".vite",
+    "cmake-build-debug",
+    "cmake-build-release",
+    ".zig-cache",
+    "zig-out",
+    "_build",
+    "builddir",
+];
+
+/// Extracts an archive or reflink snapshot created by `DeleteMode::Archive` back into place.
+/// Supports both `.snapshot` directories (instant atomic restore) and `.tar.gz` files.
+/// Refuses to overwrite an existing directory of the same name.
 pub fn restore(archive_path: &Path) -> Result<PathBuf> {
     if !archive_path.exists() {
         anyhow::bail!("archive does not exist: {}", archive_path.display());
@@ -173,30 +269,69 @@ pub fn restore(archive_path: &Path) -> Result<PathBuf> {
         )
     })?;
 
+    if archive_path.is_dir() {
+        return restore_snapshot(archive_path, dest_dir);
+    }
+
+    restore_tar_gz(archive_path, dest_dir)
+}
+
+fn restore_snapshot(snapshot_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
+    let meta_file = snapshot_path.join(".nodewipe_snapshot_meta");
+    let original_name = if meta_file.exists() {
+        std::fs::read_to_string(&meta_file)?.trim().to_string()
+    } else {
+        let folder_name = snapshot_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        infer_artifact_name_from_snapshot(folder_name)?
+    };
+
+    if !VALID_ARTIFACT_NAMES.contains(&original_name.as_str()) {
+        anyhow::bail!(
+            "refusing to restore: snapshot contains an unexpected artifact directory name '{}'",
+            original_name
+        );
+    }
+
+    let target = dest_dir.join(&original_name);
+    if target.exists() {
+        anyhow::bail!(
+            "refusing to restore: {} already exists (delete it first if you really want to overwrite)",
+            target.display()
+        );
+    }
+
+    let _ = std::fs::remove_file(meta_file);
+
+    if std::fs::rename(snapshot_path, &target).is_err() {
+        crate::reflink::reflink_dir(snapshot_path, &target)?;
+        std::fs::remove_dir_all(snapshot_path)?;
+    }
+
+    Ok(target)
+}
+
+fn infer_artifact_name_from_snapshot(folder_name: &str) -> Result<String> {
+    let stripped = folder_name.strip_suffix(".snapshot").unwrap_or(folder_name);
+    for valid in VALID_ARTIFACT_NAMES {
+        let bare = valid.trim_start_matches('.');
+        if stripped.contains(bare) {
+            return Ok(valid.to_string());
+        }
+    }
+    anyhow::bail!(
+        "could not determine original artifact directory name from snapshot '{}'",
+        folder_name
+    );
+}
+
+fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
     let file = File::open(archive_path)
         .with_context(|| format!("failed to open {}", archive_path.display()))?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
-
-    const VALID_ARTIFACT_NAMES: &[&str] = &[
-        "node_modules",
-        "venv",
-        ".venv",
-        "__pycache__",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        "target",
-        "build",
-        ".next",
-        ".turbo",
-        "dist",
-        "mod",
-        "go-build",
-        "vendor",
-        "bin",
-        "obj",
-    ];
 
     let mut restored_name: Option<String> = None;
 

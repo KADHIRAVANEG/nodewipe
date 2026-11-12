@@ -18,8 +18,11 @@ const WORKSPACE_MARKERS: &[&str] = &[
 /// in a monorepo, the caller (CLI/GUI) can render one collapsible group per
 /// workspace root.
 pub fn annotate_workspace_roots(entries: &mut [Entry], scan_root: &Path) {
+    let interner = crate::interner::PathInterner::new();
     for entry in entries.iter_mut() {
-        entry.workspace_root = find_workspace_root(&entry.path, scan_root);
+        if let Some(ws) = find_workspace_root(&entry.path, scan_root) {
+            entry.workspace_root = Some(interner.intern_path(&ws));
+        }
     }
 }
 

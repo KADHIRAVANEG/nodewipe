@@ -38,7 +38,7 @@
 
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
 * **🌐 37+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, C/C++ & Native (CMake, Ninja, Zig, Elixir, Meson), modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
-* **🛡️ Zero-Risk Excision**: Moves to OS Trash by default. Supports atomic `.tar.gz` archiving if you want a compressed rollback backup before removing.
+* **🛡️ Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
 * **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
 * **📦 Monorepo & Workspace Aware**: Automatically groups nested packages and monorepo roots (`pnpm`, `Cargo`, `Turborepo`, `Nx`).

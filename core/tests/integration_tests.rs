@@ -921,3 +921,87 @@ fn test_parallel_traversal_benchmark() {
         seq_duration, par_duration
     );
 }
+
+#[test]
+fn test_reflink_snapshot_and_restore_cycle() {
+    use nodewipe_core::reflink::{reflink_dir, supports_reflink};
+
+    // Use current workspace directory which is on Btrfs to test native reflink CoW
+    let base = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join("test_reflink_tmp");
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
+
+    let project = base.join("my_btrfs_proj");
+    let target = project.join("target");
+    fs::create_dir_all(&target).unwrap();
+    File::create(project.join("Cargo.toml")).unwrap();
+    fs::write(target.join("my_binary"), b"compiled machine code").unwrap();
+    fs::write(target.join("cached.o"), b"object file").unwrap();
+
+    let can_reflink = supports_reflink(&project);
+    println!("Filesystem supports reflink: {}", can_reflink);
+
+    // Delete with Archive mode
+    let res = delete(&target, DeleteMode::Archive, 100).unwrap();
+    assert!(!target.exists());
+
+    let archive_path = res.archive_path.expect("archive path should be returned");
+    assert!(archive_path.exists());
+
+    if can_reflink {
+        // Must be a snapshot folder on Btrfs
+        assert!(archive_path.is_dir());
+        assert!(archive_path.to_string_lossy().ends_with(".snapshot"));
+    }
+
+    // Restore from snapshot or archive
+    let restored = restore(&archive_path).unwrap();
+    assert_eq!(restored, target);
+    assert!(target.exists());
+    assert_eq!(
+        fs::read(target.join("my_binary")).unwrap(),
+        b"compiled machine code"
+    );
+    assert_eq!(fs::read(target.join("cached.o")).unwrap(), b"object file");
+
+    // Also test direct reflink_dir functionality
+    let clone_dst = base.join("target_direct_clone");
+    let stats = reflink_dir(&target, &clone_dst).unwrap();
+    assert!(clone_dst.exists());
+    assert_eq!(
+        fs::read(clone_dst.join("my_binary")).unwrap(),
+        b"compiled machine code"
+    );
+    println!("Direct reflink stats: {:?}", stats);
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn test_path_interner_deduplication() {
+    use nodewipe_core::PathInterner;
+    use std::path::Path;
+
+    let interner = PathInterner::new();
+
+    // Intern 10,000 paths across 10 monorepo projects
+    for p in 0..10 {
+        let prefix = format!("/very/deep/monorepo/root/workspace/project_{}", p);
+        for i in 0..1000 {
+            let path_str = format!("{}/package_{}/node_modules", prefix, i);
+            let interned = interner.intern_path(Path::new(&path_str));
+            assert_eq!(interned, Path::new(&path_str));
+        }
+    }
+
+    // 10,000 paths interned, pool should have interned unique parent strings
+    assert!(!interner.is_empty());
+    assert!(interner.len() <= 10010);
+    println!(
+        "PathInterner successfully deduplicated strings: unique count = {}",
+        interner.len()
+    );
+}

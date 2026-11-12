@@ -1,3 +1,4 @@
+use crate::interner::PathInterner;
 use crate::model::{ArtifactKind, Entry, PackageManager, ScanOptions};
 use anyhow::Result;
 use crossbeam_queue::SegQueue;
@@ -386,7 +387,13 @@ pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
 
     if let Some(kind) = classify_path(&opts.root) {
         if !opts.exclude_kinds.contains(&kind) {
-            return Ok(vec![build_entry(&opts.root, kind, opts.compute_sizes)]);
+            let interner = PathInterner::new();
+            return Ok(vec![build_entry(
+                &opts.root,
+                kind,
+                opts.compute_sizes,
+                &interner,
+            )]);
         } else {
             return Ok(Vec::new());
         }
@@ -398,11 +405,12 @@ pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
         scan_sequential(opts)?
     };
 
-    // Parallel size computation — each matched directory is sized
-    // independently and concurrently.
+    // Parallel size computation and path prefix interning — each matched
+    // directory is sized independently and concurrently.
+    let interner = PathInterner::new();
     let entries: Vec<Entry> = matches
         .par_iter()
-        .map(|(kind, path)| build_entry(path, *kind, opts.compute_sizes))
+        .map(|(kind, path)| build_entry(path, *kind, opts.compute_sizes, &interner))
         .collect();
 
     Ok(entries)
@@ -544,7 +552,12 @@ fn is_excluded(entry: &DirEntry, exclude_dirs: &[String]) -> bool {
     }
 }
 
-fn build_entry(path: &Path, kind: ArtifactKind, compute_sizes: bool) -> Entry {
+fn build_entry(
+    path: &Path,
+    kind: ArtifactKind,
+    compute_sizes: bool,
+    interner: &PathInterner,
+) -> Entry {
     let size_bytes = if compute_sizes { dir_size(path) } else { 0 };
     let last_modified = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     let package_manager = if kind == ArtifactKind::NodeModules {
@@ -554,7 +567,7 @@ fn build_entry(path: &Path, kind: ArtifactKind, compute_sizes: bool) -> Entry {
     };
 
     Entry {
-        path: path.to_path_buf(),
+        path: interner.intern_path(path),
         size_bytes,
         kind,
         package_manager,
