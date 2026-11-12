@@ -334,6 +334,13 @@ fn cmd_scan(
                 ArtifactKind::GradleCache,
                 ArtifactKind::AndroidBuildCache,
             ],
+            PresetArg::Systems | PresetArg::Native | PresetArg::Cpp | PresetArg::C => &[
+                ArtifactKind::RustTarget,
+                ArtifactKind::CmakeBuild,
+                ArtifactKind::ZigCache,
+                ArtifactKind::ElixirBuild,
+                ArtifactKind::MesonBuild,
+            ],
         };
 
         for kind in ArtifactKind::ALL {
@@ -748,6 +755,10 @@ mod tests {
             "nuxt_cache".to_string(),
             "docusaurus_cache".to_string(),
             "vite_cache".to_string(),
+            "cmake_build".to_string(),
+            "zig_cache".to_string(),
+            "elixir_build".to_string(),
+            "meson_build".to_string(),
         ];
         let parsed = parse_exclude_types(&types).unwrap();
         assert_eq!(
@@ -771,6 +782,10 @@ mod tests {
                 ArtifactKind::NuxtCache,
                 ArtifactKind::DocusaurusCache,
                 ArtifactKind::ViteCache,
+                ArtifactKind::CmakeBuild,
+                ArtifactKind::ZigCache,
+                ArtifactKind::ElixirBuild,
+                ArtifactKind::MesonBuild,
             ]
         );
 

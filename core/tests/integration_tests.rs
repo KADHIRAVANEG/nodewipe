@@ -219,6 +219,53 @@ fn test_classify_path_marker_rules() {
     assert_eq!(classify_path(&vite_dir), None);
     File::create(vite_proj.join("vite.config.ts")).unwrap();
     assert_eq!(classify_path(&vite_dir), Some(ArtifactKind::ViteCache));
+
+    // CMake / Ninja
+    let cmake_proj = root.join("cpp_proj");
+    fs::create_dir_all(&cmake_proj).unwrap();
+    let cmake_build = cmake_proj.join("build");
+    fs::create_dir(&cmake_build).unwrap();
+    assert_eq!(classify_path(&cmake_build), None);
+    File::create(cmake_proj.join("CMakeLists.txt")).unwrap();
+    assert_eq!(classify_path(&cmake_build), Some(ArtifactKind::CmakeBuild));
+
+    let clion_build = cmake_proj.join("cmake-build-debug");
+    fs::create_dir(&clion_build).unwrap();
+    assert_eq!(classify_path(&clion_build), Some(ArtifactKind::CmakeBuild));
+
+    // Zig
+    let zig_proj = root.join("zig_proj");
+    fs::create_dir_all(&zig_proj).unwrap();
+    let zig_cache = zig_proj.join(".zig-cache");
+    fs::create_dir(&zig_cache).unwrap();
+    assert_eq!(classify_path(&zig_cache), Some(ArtifactKind::ZigCache));
+
+    let zig_out = zig_proj.join("zig-out");
+    fs::create_dir(&zig_out).unwrap();
+    assert_eq!(classify_path(&zig_out), None);
+    File::create(zig_proj.join("build.zig")).unwrap();
+    assert_eq!(classify_path(&zig_out), Some(ArtifactKind::ZigCache));
+
+    // Elixir / Mix
+    let elixir_proj = root.join("elixir_proj");
+    fs::create_dir_all(&elixir_proj).unwrap();
+    let elixir_build = elixir_proj.join("_build");
+    fs::create_dir(&elixir_build).unwrap();
+    assert_eq!(classify_path(&elixir_build), None);
+    File::create(elixir_proj.join("mix.exs")).unwrap();
+    assert_eq!(
+        classify_path(&elixir_build),
+        Some(ArtifactKind::ElixirBuild)
+    );
+
+    // Meson
+    let meson_proj = root.join("meson_proj");
+    fs::create_dir_all(&meson_proj).unwrap();
+    let meson_build = meson_proj.join("builddir");
+    fs::create_dir(&meson_build).unwrap();
+    assert_eq!(classify_path(&meson_build), None);
+    File::create(meson_proj.join("meson.build")).unwrap();
+    assert_eq!(classify_path(&meson_build), Some(ArtifactKind::MesonBuild));
 }
 
 #[test]
@@ -678,4 +725,75 @@ fn test_modern_web_cache_scan_and_delete() {
     let delete_res = delete(&pw_dir, DeleteMode::Permanent, 0);
     assert!(delete_res.is_ok());
     assert!(!pw_dir.exists());
+}
+
+#[test]
+fn test_systems_native_cache_scan_and_delete() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // CMake
+    let cmake_proj = root.join("my_cmake_app");
+    fs::create_dir_all(&cmake_proj).unwrap();
+    File::create(cmake_proj.join("CMakeLists.txt")).unwrap();
+    let cmake_build = cmake_proj.join("build");
+    fs::create_dir_all(&cmake_build).unwrap();
+    fs::write(cmake_build.join("my_binary"), b"compiled_elf").unwrap();
+
+    // Zig
+    let zig_proj = root.join("my_zig_app");
+    fs::create_dir_all(&zig_proj).unwrap();
+    File::create(zig_proj.join("build.zig")).unwrap();
+    let zig_cache = zig_proj.join(".zig-cache");
+    fs::create_dir_all(&zig_cache).unwrap();
+    fs::write(zig_cache.join("z.o"), b"zig_obj").unwrap();
+
+    // Elixir
+    let elixir_proj = root.join("my_elixir_app");
+    fs::create_dir_all(&elixir_proj).unwrap();
+    File::create(elixir_proj.join("mix.exs")).unwrap();
+    let elixir_build = elixir_proj.join("_build");
+    fs::create_dir_all(&elixir_build).unwrap();
+    fs::write(elixir_build.join("beam.beam"), b"beam_code").unwrap();
+
+    // Meson
+    let meson_proj = root.join("my_meson_app");
+    fs::create_dir_all(&meson_proj).unwrap();
+    File::create(meson_proj.join("meson.build")).unwrap();
+    let meson_build = meson_proj.join("builddir");
+    fs::create_dir_all(&meson_build).unwrap();
+    fs::write(meson_build.join("app.ninja"), b"ninja_data").unwrap();
+
+    // Scan all
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        ..Default::default()
+    };
+    let entries = scan(&opts).unwrap();
+    assert_eq!(entries.len(), 4);
+
+    let kinds: Vec<ArtifactKind> = entries.iter().map(|e| e.kind).collect();
+    assert!(kinds.contains(&ArtifactKind::CmakeBuild));
+    assert!(kinds.contains(&ArtifactKind::ZigCache));
+    assert!(kinds.contains(&ArtifactKind::ElixirBuild));
+    assert!(kinds.contains(&ArtifactKind::MesonBuild));
+
+    // Test exclude_kinds
+    let opts_filtered = ScanOptions {
+        root: root.to_path_buf(),
+        exclude_kinds: vec![ArtifactKind::CmakeBuild, ArtifactKind::ZigCache],
+        ..Default::default()
+    };
+    let filtered_entries = scan(&opts_filtered).unwrap();
+    assert_eq!(filtered_entries.len(), 2);
+    let filtered_kinds: Vec<ArtifactKind> = filtered_entries.iter().map(|e| e.kind).collect();
+    assert!(!filtered_kinds.contains(&ArtifactKind::CmakeBuild));
+    assert!(!filtered_kinds.contains(&ArtifactKind::ZigCache));
+    assert!(filtered_kinds.contains(&ArtifactKind::ElixirBuild));
+    assert!(filtered_kinds.contains(&ArtifactKind::MesonBuild));
+
+    // Test safe deletion
+    let delete_res = delete(&cmake_build, DeleteMode::Permanent, 0);
+    assert!(delete_res.is_ok());
+    assert!(!cmake_build.exists());
 }

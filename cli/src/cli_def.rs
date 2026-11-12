@@ -55,7 +55,8 @@ pub struct Cli {
     /// dotnet_bin, dotnet_obj, hf_cache, ollama_models, torch_cache, triton_cache,
     /// derived_data, swiftpm_build, cocoapods, gradle_cache, android_build_cache,
     /// playwright_browsers, cypress_cache, astro_cache, sveltekit_cache,
-    /// nuxt_cache, docusaurus_cache, vite_cache.
+    /// nuxt_cache, docusaurus_cache, vite_cache, cmake_build, zig_cache,
+    /// elixir_build, meson_build.
     #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
     pub exclude_types: Vec<String>,
 
@@ -242,4 +243,12 @@ pub enum PresetArg {
     Ios,
     /// Android development ecosystem (alias for mobile).
     Android,
+    /// Systems and Native programming ecosystems (CMake, Ninja, Zig, Elixir, Meson, Rust).
+    Systems,
+    /// Native compiled ecosystems (alias for systems).
+    Native,
+    /// C/C++ compilation ecosystems (alias for systems).
+    Cpp,
+    /// C compilation ecosystems (alias for systems).
+    C,
 }
