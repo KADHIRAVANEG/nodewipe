@@ -218,6 +218,25 @@ pub enum Command {
         path: PathBuf,
     },
 
+    /// Deduplicate identical files across project directories using hardlinks or reflinks.
+    ///
+    /// Finds duplicate dependencies and assets across multiple projects and replaces
+    /// them with Copy-on-Write reflinks or filesystem hardlinks, reclaiming storage
+    /// without breaking any projects.
+    Dedupe {
+        /// Target directories to scan and deduplicate (defaults to current directory).
+        #[arg(value_name = "PATHS")]
+        paths: Vec<PathBuf>,
+
+        /// Preview how much disk space would be reclaimed without modifying files.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Minimum file size in bytes to consider for deduplication (default: 64).
+        #[arg(long, default_value_t = 64)]
+        min_size: u64,
+    },
+
     /// Render or install the manual page for nodewipe.
     ///
     /// By default, views the man page or writes to stdout. Pass --install to

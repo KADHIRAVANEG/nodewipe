@@ -164,6 +164,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Rebuild { path }) => cmd_rebuild(&path),
+        Some(Command::Dedupe {
+            paths,
+            dry_run,
+            min_size,
+        }) => cmd_dedupe(paths, dry_run, min_size, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
     }
 }
@@ -391,6 +396,66 @@ fn cmd_rebuild(path: &Path) -> Result<ExitCode> {
         eprintln!("Rebuild process exited with code: {:?}", status.code());
         Ok(ExitCode::FAILURE)
     }
+}
+
+fn cmd_dedupe(
+    mut paths: Vec<PathBuf>,
+    dry_run: bool,
+    min_size: u64,
+    json: bool,
+) -> Result<ExitCode> {
+    if paths.is_empty() {
+        paths.push(PathBuf::from("."));
+    }
+
+    if !json {
+        println!(
+            "\n 🔗  nodewipe dedupe — analyzing identical files across {} target(s) …\n",
+            paths.len()
+        );
+        if dry_run {
+            println!(
+                " [DRY-RUN MODE] Previewing potential storage savings without modifying files.\n"
+            );
+        }
+    }
+
+    let opts = nodewipe_core::DedupeOptions {
+        dry_run,
+        min_size_bytes: min_size,
+    };
+
+    let stats =
+        nodewipe_core::dedupe_paths(&paths, &opts).with_context(|| "deduplication scan failed")?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&stats)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    println!(" Scanned:                  {} files", stats.files_scanned);
+    println!(" Duplicate files found:    {}", stats.duplicate_files_found);
+    if !dry_run {
+        println!(
+            " Files deduplicated:       {}",
+            stats.duplicate_files_linked
+        );
+    }
+    println!(
+        " Storage reclaimed:        {}",
+        human_size(stats.reclaimed_bytes)
+    );
+
+    if stats.duplicate_files_found == 0 {
+        println!("\n ✅  No duplicate files found. Your storage is already deduplicated!");
+    } else if dry_run {
+        println!("\n Run without `--dry-run` to execute hardlink/reflink deduplication.");
+    } else {
+        println!("\n ✅  Deduplication complete! Hardlinked identical files with zero data loss.");
+    }
+    println!();
+
+    Ok(ExitCode::SUCCESS)
 }
 
 #[allow(clippy::too_many_arguments)]

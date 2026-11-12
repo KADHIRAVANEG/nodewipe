@@ -1309,3 +1309,65 @@ fn test_resolve_rebuild_plan_python_variants() {
     assert_eq!(plan.program, "python3");
     assert_eq!(plan.args, vec!["-m", "venv", ".venv"]);
 }
+
+#[test]
+fn test_dedupe_dry_run_and_execution() {
+    use nodewipe_core::{DedupeOptions, dedupe_paths};
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    let app1 = root.join("app1").join("node_modules");
+    let app2 = root.join("app2").join("node_modules");
+    fs::create_dir_all(&app1).unwrap();
+    fs::create_dir_all(&app2).unwrap();
+
+    let payload = b"const lodash = function() { return 'utility_suite_content_12345'; };";
+    let file1 = app1.join("lodash.js");
+    let file2 = app2.join("lodash.js");
+    let file_diff = app1.join("other.js");
+
+    fs::write(&file1, payload).unwrap();
+    fs::write(&file2, payload).unwrap();
+    fs::write(&file_diff, b"different_file_content_here").unwrap();
+
+    // 1. Dry run
+    let dry_opts = DedupeOptions {
+        dry_run: true,
+        min_size_bytes: 10,
+    };
+    let dry_stats = dedupe_paths(&[root.to_path_buf()], &dry_opts).unwrap();
+    assert_eq!(dry_stats.files_scanned, 3);
+    assert_eq!(dry_stats.duplicate_files_found, 1);
+    assert_eq!(dry_stats.duplicate_files_linked, 0);
+    assert_eq!(dry_stats.reclaimed_bytes, payload.len() as u64);
+
+    // 2. Real deduplication run
+    let real_opts = DedupeOptions {
+        dry_run: false,
+        min_size_bytes: 10,
+    };
+    let real_stats = dedupe_paths(&[root.to_path_buf()], &real_opts).unwrap();
+    assert_eq!(real_stats.duplicate_files_found, 1);
+    assert_eq!(real_stats.duplicate_files_linked, 1);
+    assert_eq!(real_stats.reclaimed_bytes, payload.len() as u64);
+
+    // Verify both files still exist and have intact identical content
+    assert_eq!(fs::read(&file1).unwrap(), payload);
+    assert_eq!(fs::read(&file2).unwrap(), payload);
+
+    // On Unix, verify they now share the same inode (hardlinked)
+    #[cfg(unix)]
+    {
+        let m1 = fs::metadata(&file1).unwrap();
+        let m2 = fs::metadata(&file2).unwrap();
+        assert_eq!(m1.ino(), m2.ino(), "deduplicated files must share inode");
+    }
+
+    // 3. Re-running on already-deduplicated files detects 0 duplicates
+    let second_run = dedupe_paths(&[root.to_path_buf()], &real_opts).unwrap();
+    assert_eq!(second_run.duplicate_files_found, 0);
+    assert_eq!(second_run.duplicate_files_linked, 0);
+}
