@@ -2457,6 +2457,7 @@ dependencies = [
  "flate2",
  "ignore",
  "rayon",
+ "reflink-copy",
  "serde",
  "serde_json",
  "tar",
@@ -3204,6 +3205,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "reflink-copy"
+version = "0.1.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad64f61357bcf16105a0f353f9783733409c8bd889bc326ad857959605ea927"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "rustix 1.1.4",
+ "windows 0.61.3",
 ]
 
 [[package]]
