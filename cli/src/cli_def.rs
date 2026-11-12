@@ -166,6 +166,22 @@ pub enum Command {
         /// Directory to scan, e.g. `nodewipe doctor ~`.
         #[arg(value_name = "PATH")]
         path: Option<PathBuf>,
+
+        /// Threshold size to trigger alert/notification, e.g. "20GB", "500MB", "10G".
+        #[arg(long, value_name = "SIZE")]
+        threshold: Option<String>,
+
+        /// Send a desktop notification if reclaimable disk space exceeds the threshold.
+        #[arg(long)]
+        notify: bool,
+
+        /// Install background service scheduler (systemd user timer on Linux, LaunchAgent on macOS).
+        #[arg(long)]
+        install_service: bool,
+
+        /// Uninstall background service scheduler.
+        #[arg(long)]
+        uninstall_service: bool,
     },
 
     /// Show a dashboard of how much disk space you have freed over time.
