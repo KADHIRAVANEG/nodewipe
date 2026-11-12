@@ -297,11 +297,18 @@ fn cmd_scan(
 ) -> Result<ExitCode> {
     if let Some(preset) = preset {
         let allowed: &[ArtifactKind] = match preset {
-            PresetArg::Node => &[
+            PresetArg::Node | PresetArg::Web | PresetArg::Frontend => &[
                 ArtifactKind::NodeModules,
                 ArtifactKind::NextCache,
                 ArtifactKind::TurboCache,
                 ArtifactKind::GenericDist,
+                ArtifactKind::PlaywrightBrowsers,
+                ArtifactKind::CypressCache,
+                ArtifactKind::AstroCache,
+                ArtifactKind::SvelteKitCache,
+                ArtifactKind::NuxtCache,
+                ArtifactKind::DocusaurusCache,
+                ArtifactKind::ViteCache,
             ],
             PresetArg::Python => &[
                 ArtifactKind::PythonVenv,
@@ -734,6 +741,13 @@ mod tests {
             "cocoapods".to_string(),
             "gradle_cache".to_string(),
             "android_build_cache".to_string(),
+            "playwright_browsers".to_string(),
+            "cypress_cache".to_string(),
+            "astro_cache".to_string(),
+            "sveltekit_cache".to_string(),
+            "nuxt_cache".to_string(),
+            "docusaurus_cache".to_string(),
+            "vite_cache".to_string(),
         ];
         let parsed = parse_exclude_types(&types).unwrap();
         assert_eq!(
@@ -750,6 +764,13 @@ mod tests {
                 ArtifactKind::CocoaPods,
                 ArtifactKind::GradleCache,
                 ArtifactKind::AndroidBuildCache,
+                ArtifactKind::PlaywrightBrowsers,
+                ArtifactKind::CypressCache,
+                ArtifactKind::AstroCache,
+                ArtifactKind::SvelteKitCache,
+                ArtifactKind::NuxtCache,
+                ArtifactKind::DocusaurusCache,
+                ArtifactKind::ViteCache,
             ]
         );
 

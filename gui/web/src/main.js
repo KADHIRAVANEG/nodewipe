@@ -110,6 +110,13 @@ const KIND_LABELS = {
   cocoapods: "CocoaPods",
   gradle_cache: "Gradle cache",
   android_build_cache: "Android build cache",
+  playwright_browsers: "Playwright browsers",
+  cypress_cache: "Cypress cache",
+  astro_cache: "Astro cache",
+  svelte_kit_cache: "SvelteKit cache",
+  nuxt_cache: "Nuxt cache",
+  docusaurus_cache: "Docusaurus cache",
+  vite_cache: "Vite cache",
 };
 
 const KIND_BADGE_CLASS = {
@@ -139,6 +146,13 @@ const KIND_BADGE_CLASS = {
   cocoapods: "badge-pnpm",
   gradle_cache: "badge-unknown",
   android_build_cache: "badge-unknown",
+  playwright_browsers: "badge-npm",
+  cypress_cache: "badge-pnpm",
+  astro_cache: "badge-yarn",
+  svelte_kit_cache: "badge-pnpm",
+  nuxt_cache: "badge-npm",
+  docusaurus_cache: "badge-unknown",
+  vite_cache: "badge-yarn",
 };
 
 const KIND_RISK_NOTES = {

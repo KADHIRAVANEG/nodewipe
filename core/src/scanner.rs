@@ -196,6 +196,57 @@ const RULES: &[Rule] = &[
         kind: ArtifactKind::AndroidBuildCache,
         marker: Marker::ParentNamed(&[".android"]),
     },
+    // Modern Web / Test: Playwright downloaded browser binaries (`ms-playwright`)
+    Rule {
+        name: "ms-playwright",
+        kind: ArtifactKind::PlaywrightBrowsers,
+        marker: Marker::None,
+    },
+    // Modern Web / Test: Cypress binary cache (`Cypress` in cache dir)
+    Rule {
+        name: "Cypress",
+        kind: ArtifactKind::CypressCache,
+        marker: Marker::ParentNamed(&[".cache", "Caches", "Local", "AppData"]),
+    },
+    // Modern Web: Astro build and content cache (`.astro/`)
+    Rule {
+        name: ".astro",
+        kind: ArtifactKind::AstroCache,
+        marker: Marker::ParentHasAny(&[
+            "astro.config.mjs",
+            "astro.config.js",
+            "astro.config.ts",
+            "package.json",
+        ]),
+    },
+    // Modern Web: SvelteKit build and generated types (`.svelte-kit/`)
+    Rule {
+        name: ".svelte-kit",
+        kind: ArtifactKind::SvelteKitCache,
+        marker: Marker::ParentHasAny(&["svelte.config.js", "svelte.config.ts", "package.json"]),
+    },
+    // Modern Web: Nuxt build cache (`.nuxt/`)
+    Rule {
+        name: ".nuxt",
+        kind: ArtifactKind::NuxtCache,
+        marker: Marker::ParentHasAny(&["nuxt.config.js", "nuxt.config.ts", "package.json"]),
+    },
+    // Modern Web: Docusaurus build cache (`.docusaurus/`)
+    Rule {
+        name: ".docusaurus",
+        kind: ArtifactKind::DocusaurusCache,
+        marker: Marker::ParentHasAny(&[
+            "docusaurus.config.js",
+            "docusaurus.config.ts",
+            "package.json",
+        ]),
+    },
+    // Modern Web: Vite pre-bundled dev cache (`.vite/`)
+    Rule {
+        name: ".vite",
+        kind: ArtifactKind::ViteCache,
+        marker: Marker::ParentHasAny(&["vite.config.js", "vite.config.ts", "package.json"]),
+    },
 ];
 
 /// Classifies a path by name + marker files, independent of any active

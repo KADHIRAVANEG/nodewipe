@@ -53,7 +53,9 @@ pub struct Cli {
     /// ruff_cache, rust_target, maven_target, gradle_build, next_cache,
     /// turbo_cache, dist, go_mod_cache, go_build_cache, php_vendor,
     /// dotnet_bin, dotnet_obj, hf_cache, ollama_models, torch_cache, triton_cache,
-    /// derived_data, swiftpm_build, cocoapods, gradle_cache, android_build_cache.
+    /// derived_data, swiftpm_build, cocoapods, gradle_cache, android_build_cache,
+    /// playwright_browsers, cypress_cache, astro_cache, sveltekit_cache,
+    /// nuxt_cache, docusaurus_cache, vite_cache.
     #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
     pub exclude_types: Vec<String>,
 
@@ -212,8 +214,12 @@ pub enum SortKey {
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum PresetArg {
-    /// JavaScript/TypeScript/Frontend ecosystems (node_modules, next, turbo, dist).
+    /// JavaScript/TypeScript/Frontend ecosystems (node_modules, next, turbo, dist, astro, svelte, nuxt, vite, playwright, cypress).
     Node,
+    /// Web frontend ecosystems (alias for node).
+    Web,
+    /// Frontend framework ecosystems (alias for node).
+    Frontend,
     /// Python ecosystems (venv, __pycache__, pytest, mypy, ruff).
     Python,
     /// Rust/Cargo ecosystem (target).
