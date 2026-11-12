@@ -445,6 +445,9 @@ pub struct ScanOptions {
     /// If false, only paths and metadata are returned without computing directory sizes
     /// (much faster first pass; sizes can be filled in lazily/incrementally by the caller).
     pub compute_sizes: bool,
+    /// Traversal engine: parallel multithreaded directory walking using Rayon (default: true).
+    /// When false, falls back to sequential single-threaded traversal.
+    pub parallel: bool,
 }
 
 impl Default for ScanOptions {
@@ -474,6 +477,7 @@ impl Default for ScanOptions {
             exclude_kinds: Vec::new(),
             ignore_patterns: ignore::gitignore::Gitignore::empty(),
             compute_sizes: true,
+            parallel: true,
         }
     }
 }

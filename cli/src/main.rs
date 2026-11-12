@@ -75,6 +75,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     None,
                     None,
                     None,
+                    !cli.serial,
                 )
             } else {
                 tui::run(root)?;
@@ -109,6 +110,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 stale_days,
                 preset,
                 export,
+                !cli.serial,
             )
         }
         Some(Command::Delete {
@@ -294,6 +296,7 @@ fn cmd_scan(
     stale_days: Option<u64>,
     preset: Option<PresetArg>,
     export: Option<PathBuf>,
+    parallel: bool,
 ) -> Result<ExitCode> {
     if let Some(preset) = preset {
         let allowed: &[ArtifactKind] = match preset {
@@ -354,6 +357,7 @@ fn cmd_scan(
         root: root.to_path_buf(),
         exclude_kinds,
         ignore_patterns,
+        parallel,
         ..Default::default()
     };
 

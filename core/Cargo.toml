@@ -16,6 +16,7 @@ flate2 = "1"
 dirs.workspace = true
 toml = "0.8"
 ignore = "0.4.33"
+crossbeam-queue = "0.3.14"
 
 [dev-dependencies]
 tempfile = "3"

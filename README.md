@@ -276,6 +276,7 @@ nodewipe scan ~ --stale-days 60            # Flag projects with source untouched
 nodewipe scan ~ --preset python            # Scan only Python artifacts (node, rust, java, go)
 nodewipe scan ~ --exclude-types venv,dist  # Skip specific types
 nodewipe scan ~ --export audit.csv         # Export results to CSV or JSON
+nodewipe scan ~ --serial                   # Single-threaded traversal fallback
 nodewipe scan ~ --json                     # Headless JSON output for CI/automation
 
 # ── Deleting & Restoring ───────────────────────────────────────────────────
