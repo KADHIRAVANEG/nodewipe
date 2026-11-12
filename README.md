@@ -61,20 +61,26 @@ npx @joker53/nodewipe
 npm install -g @joker53/nodewipe
 ```
 
-### 2. Arch Linux (AUR)
+### 2. Homebrew (macOS & Linux)
+Install via the official Homebrew tap:
+```bash
+brew install kadhiravaneg/nodewipe/nodewipe
+```
+
+### 3. Arch Linux (AUR)
 Maintained in the official Arch User Repository:
 ```bash
 yay -S nodewipe
 # or: paru -S nodewipe
 ```
 
-### 3. Universal Shell Installer
+### 4. Universal Shell Installer
 Interactive installer with support for CLI-only or CLI + Desktop GUI:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash
 ```
 
-### 4. Docker
+### 5. Docker
 Run isolated scans without installing anything on your host machine:
 ```bash
 # Scan current directory:
@@ -84,7 +90,7 @@ docker run --rm -v "$PWD":/scan ghcr.io/joker-53/nodewipe
 docker run --rm -it -v ~/Projects:/scan ghcr.io/joker-53/nodewipe scan
 ```
 
-### 5. Build from Source (Cargo)
+### 6. Build from Source (Cargo)
 ```bash
 cargo build --release
 ./target/release/nodewipe
