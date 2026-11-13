@@ -8,7 +8,7 @@ GitHub Actions runners (especially standard 14GB Ubuntu runners) frequently exha
 
 ```yaml
 - name: Reclaim CI Runner Disk Space
-  uses: KADHIRAVANEG/nodewipe-action@v1
+  uses: KADHIRAVANEG/nodewipe/.github/actions/nodewipe@main
   with:
     path: '.'
     mode: 'delete'
@@ -23,7 +23,7 @@ steps:
 
   # Wipe old host caches before Docker builds
   - name: Free Disk Space
-    uses: KADHIRAVANEG/nodewipe-action@v1
+    uses: KADHIRAVANEG/nodewipe/.github/actions/nodewipe@main
     with:
       path: '~'
       mode: 'delete'
