@@ -100,7 +100,18 @@ docker run --rm -v "$PWD":/scan ghcr.io/joker-53/nodewipe
 docker run --rm -it -v ~/Projects:/scan ghcr.io/joker-53/nodewipe scan
 ```
 
-### 7. Build from Source (Cargo)
+### 7. GitHub Action (CI/CD)
+Automatically reclaim runner disk space before Docker builds or large test matrices:
+```yaml
+- name: Free Runner Disk Space
+  uses: KADHIRAVANEG/nodewipe-action@v1
+  with:
+    path: '.'
+    mode: 'delete'
+    older-than: '24h'
+```
+
+### 8. Build from Source (Cargo)
 ```bash
 cargo build --release
 ./target/release/nodewipe
