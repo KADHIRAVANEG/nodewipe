@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+PackageIdentifier: KADHIRAVANEG.nodewipe
+PackageVersion: 0.9.0
+PackageName: nodewipe
+Publisher: KADHIRAVANEG
+PublisherUrl: https://github.com/KADHIRAVANEG
+PublisherSupportUrl: https://github.com/KADHIRAVANEG/nodewipe/issues
+Author: KADHIRAVANEG
+License: MIT
+LicenseUrl: https://github.com/KADHIRAVANEG/nodewipe/blob/main/LICENSE
+ShortDescription: Find and reclaim disk space from stray developer artifacts across 13+ ecosystems.
+Description: |
+  nodewipe is a universal developer tool designed to find and clean disk space consumed by
+  stray build caches, node_modules, Python venvs, Rust target directories, and other build artifacts.
+Moniker: nodewipe
+Tags:
+  - cli
+  - node_modules
+  - cleanup
+  - developer-tools
+  - rust
+  - disk-space
+Commands:
+  - nodewipe
+Installers:
+  - Architecture: x64
+    InstallerType: portable
+    InstallerUrl: https://github.com/KADHIRAVANEG/nodewipe/releases/download/v0.9.0/nodewipe-windows-x86_64.exe
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    Commands:
+      - nodewipe
+ManifestType: singleton
+ManifestVersion: 1.6.0
