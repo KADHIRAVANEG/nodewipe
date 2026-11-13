@@ -74,13 +74,23 @@ yay -S nodewipe
 # or: paru -S nodewipe
 ```
 
-### 4. Universal Shell Installer
+### 4. Windows (Winget & Scoop)
+Install via Microsoft Winget:
+```powershell
+winget install nodewipe
+```
+Or via Scoop:
+```powershell
+scoop install https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/packaging/scoop/nodewipe.json
+```
+
+### 5. Universal Shell Installer
 Interactive installer with support for CLI-only or CLI + Desktop GUI:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash
 ```
 
-### 5. Docker
+### 6. Docker
 Run isolated scans without installing anything on your host machine:
 ```bash
 # Scan current directory:
@@ -90,7 +100,7 @@ docker run --rm -v "$PWD":/scan ghcr.io/joker-53/nodewipe
 docker run --rm -it -v ~/Projects:/scan ghcr.io/joker-53/nodewipe scan
 ```
 
-### 6. Build from Source (Cargo)
+### 7. Build from Source (Cargo)
 ```bash
 cargo build --release
 ./target/release/nodewipe
