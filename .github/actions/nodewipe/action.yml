@@ -1,0 +1,123 @@
+name: 'nodewipe-action'
+description: 'Fast CI/CD runner disk space recovery and artifact cache cleanup across 13+ ecosystems'
+author: 'KADHIRAVANEG'
+branding:
+  icon: 'trash-2'
+  color: 'purple'
+
+inputs:
+  version:
+    description: 'Version of nodewipe to install and run'
+    required: false
+    default: 'v0.9.0'
+  path:
+    description: 'Path or directories to scan and clean'
+    required: false
+    default: '.'
+  mode:
+    description: 'Cleaning mode: delete, dry-run, or dedupe'
+    required: false
+    default: 'delete'
+  older-than:
+    description: 'Filter artifacts older than specified duration (e.g., 24h, 7d)'
+    required: false
+    default: ''
+  exclude-types:
+    description: 'Comma-separated artifact types to exclude from deletion'
+    required: false
+    default: ''
+  summary:
+    description: 'Generate step summary report in GitHub Actions UI'
+    required: false
+    default: 'true'
+
+outputs:
+  reclaimed-bytes:
+    description: 'Total bytes of storage reclaimed'
+    value: ${{ steps.run-nodewipe.outputs.reclaimed-bytes }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download and setup nodewipe
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION="v0.9.0"
+        fi
+
+        OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH_NAME=$(uname -m)
+
+        case "$OS_NAME" in
+          linux*)
+            if [ "$ARCH_NAME" = "aarch64" ] || [ "$ARCH_NAME" = "arm64" ]; then
+              BIN_ASSET="nodewipe-linux-aarch64"
+            else
+              BIN_ASSET="nodewipe-linux-x86_64"
+            fi
+            ;;
+          darwin*)
+            if [ "$ARCH_NAME" = "arm64" ]; then
+              BIN_ASSET="nodewipe-macos-aarch64"
+            else
+              BIN_ASSET="nodewipe-macos-x86_64"
+            fi
+            ;;
+          msys*|mingw*|cygwin*)
+            BIN_ASSET="nodewipe-windows-x86_64.exe"
+            ;;
+          *)
+            BIN_ASSET="nodewipe-linux-x86_64"
+            ;;
+        esac
+
+        INSTALL_DIR="$RUNNER_TEMP/nodewipe-bin"
+        mkdir -p "$INSTALL_DIR"
+
+        URL="https://github.com/KADHIRAVANEG/nodewipe/releases/download/${VERSION}/${BIN_ASSET}"
+        echo "Downloading nodewipe from $URL..."
+        curl -fsSL "$URL" -o "$INSTALL_DIR/nodewipe" || curl -fsSL "https://github.com/KADHIRAVANEG/nodewipe/releases/download/v0.9.0/nodewipe-linux-x86_64" -o "$INSTALL_DIR/nodewipe"
+        chmod +x "$INSTALL_DIR/nodewipe"
+        echo "$INSTALL_DIR" >> $GITHUB_PATH
+
+    - name: Execute nodewipe cleanup
+      id: run-nodewipe
+      shell: bash
+      run: |
+        TARGET="${{ inputs.path }}"
+        MODE="${{ inputs.mode }}"
+        OLDER_THAN="${{ inputs.older-than }}"
+        EXCLUDE="${{ inputs.exclude-types }}"
+
+        ARGS=()
+        if [ -n "$OLDER_THAN" ]; then
+          ARGS+=("--older-than" "$OLDER_THAN")
+        fi
+        if [ -n "$EXCLUDE" ]; then
+          ARGS+=("--exclude-types" "$EXCLUDE")
+        fi
+
+        echo "### Running nodewipe..."
+        if [ "$MODE" = "dedupe" ]; then
+          nodewipe dedupe "$TARGET" "${ARGS[@]}"
+        elif [ "$MODE" = "dry-run" ]; then
+          nodewipe scan "$TARGET" --dry-run "${ARGS[@]}"
+        else
+          nodewipe scan "$TARGET" --yes "${ARGS[@]}"
+        fi
+
+        if [ "${{ inputs.summary }}" = "true" ] && [ -n "$GITHUB_STEP_SUMMARY" ]; then
+          {
+            echo "## 🧹 nodewipe CI Runner Cleanup Summary"
+            echo ""
+            echo "| Parameter | Value |"
+            echo "| :--- | :--- |"
+            echo "| **Target Path** | \`$TARGET\` |"
+            echo "| **Mode** | \`$MODE\` |"
+            echo "| **Execution** | Succeeded ✅ |"
+            echo ""
+            echo "> Cleaned stray build caches, artifacts, and temporary storage using **nodewipe**."
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
