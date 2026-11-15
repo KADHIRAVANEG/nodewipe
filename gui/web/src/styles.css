@@ -51,9 +51,15 @@ header {
 }
 
 .brand-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--accent);
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 0 6px rgba(139, 92, 246, 0.4));
+  transition: transform 0.25s ease, filter 0.25s ease;
+}
+
+.brand:hover .brand-icon {
+  transform: rotate(5deg) scale(1.08);
+  filter: drop-shadow(0 0 10px rgba(244, 63, 94, 0.6));
 }
 
 header h1 {
