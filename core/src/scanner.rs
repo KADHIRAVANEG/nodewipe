@@ -40,6 +40,16 @@ const RULES: &[Rule] = &[
         marker: Marker::None,
     },
     Rule {
+        name: ".ignored",
+        kind: ArtifactKind::PnpmIgnored,
+        marker: Marker::ParentNamed(&["node_modules"]),
+    },
+    Rule {
+        name: ".ignored",
+        kind: ArtifactKind::PnpmIgnored,
+        marker: Marker::ParentHasAny(&["package.json", "pnpm-lock.yaml"]),
+    },
+    Rule {
         name: "venv",
         kind: ArtifactKind::PythonVenv,
         marker: Marker::SelfHasAny(&["pyvenv.cfg"]),
@@ -480,7 +490,13 @@ fn scan_dir_parallel(
 
         if let Some(kind) = classify_path(&child_path) {
             if !opts.exclude_kinds.contains(&kind) {
-                matches.push((kind, child_path));
+                matches.push((kind, child_path.clone()));
+            }
+            if kind == ArtifactKind::NodeModules {
+                let ignored = child_path.join(".ignored");
+                if ignored.is_dir() && !opts.exclude_kinds.contains(&ArtifactKind::PnpmIgnored) {
+                    matches.push((ArtifactKind::PnpmIgnored, ignored));
+                }
             }
             continue;
         }
@@ -534,6 +550,12 @@ fn scan_sequential(opts: &ScanOptions) -> Result<Vec<(ArtifactKind, PathBuf)>> {
             if !opts.exclude_kinds.contains(&kind) {
                 matches.push((kind, entry.path().to_path_buf()));
             }
+            if kind == ArtifactKind::NodeModules {
+                let ignored = entry.path().join(".ignored");
+                if ignored.is_dir() && !opts.exclude_kinds.contains(&ArtifactKind::PnpmIgnored) {
+                    matches.push((ArtifactKind::PnpmIgnored, ignored));
+                }
+            }
             it.skip_current_dir();
         }
     }
@@ -562,7 +584,14 @@ fn build_entry(
     compute_sizes: bool,
     interner: &PathInterner,
 ) -> Entry {
-    let size_bytes = if compute_sizes { dir_size(path) } else { 0 };
+    let mut size_bytes = if compute_sizes { dir_size(path) } else { 0 };
+    if kind == ArtifactKind::NodeModules && compute_sizes {
+        let ignored = path.join(".ignored");
+        if ignored.is_dir() {
+            let ignored_size = dir_size(&ignored);
+            size_bytes = size_bytes.saturating_sub(ignored_size);
+        }
+    }
     let last_modified = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     let package_manager = if kind == ArtifactKind::NodeModules {
         Some(detect_package_manager(path))

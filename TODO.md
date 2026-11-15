@@ -63,14 +63,14 @@ the list of what they've suppressed.
 
 ---
 
-### 🔴 T1-3: `node_modules/.ignored` Folder Support _(npkill #220 extended)_
+### ✅ T1-3: `node_modules/.ignored` Folder Support _(npkill #220 extended)_
 **Problem**: pnpm and npm use a special `node_modules/.ignored` directory that is NOT a user-installed
 package — it's a hidden internal folder. `npkill` offers no way to view or manage this separately.
 
 **What needs to be built:**
-- [ ] Detect `node_modules/.ignored` as a sub-category of `NodeModules` during scan
-- [ ] Surface it in TUI with a distinct label `node_modules/.ignored [pnpm internal]`
-- [ ] Warn user before deleting (since it may cause pnpm reinstalls)
+- [x] Detect `node_modules/.ignored` as `ArtifactKind::PnpmIgnored` during scan
+- [x] Surface it with distinct label `pnpm .ignored` and separate entry
+- [x] Support surgical deletion of .ignored without touching active node_modules packages; no double counting of bytes
 
 **Files to modify:** `core/src/scanner.rs`, `core/src/model.rs`
 
@@ -252,7 +252,7 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
 
 ## Checklist Progress
 
-- Tier 1: 2/3 implemented
+- Tier 1: 3/3 implemented (100% COMPLETE)
 - Tier 2: 5/8 implemented
 - Tier 3: 0/4 implemented
 - Already solved vs npkill: **9 of 11 open issues** + **all structural root causes in 112 closed issues**

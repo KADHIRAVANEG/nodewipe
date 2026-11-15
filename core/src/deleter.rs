@@ -252,6 +252,7 @@ const VALID_ARTIFACT_NAMES: &[&str] = &[
     "zig-out",
     "_build",
     "builddir",
+    ".ignored",
 ];
 
 /// Extracts an archive or reflink snapshot created by `DeleteMode::Archive` back into place.

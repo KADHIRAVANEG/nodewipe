@@ -56,7 +56,7 @@ pub struct Cli {
     /// derived_data, swiftpm_build, cocoapods, gradle_cache, android_build_cache,
     /// playwright_browsers, cypress_cache, astro_cache, sveltekit_cache,
     /// nuxt_cache, docusaurus_cache, vite_cache, cmake_build, zig_cache,
-    /// elixir_build, meson_build.
+    /// elixir_build, meson_build, pnpm_ignored.
     #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
     pub exclude_types: Vec<String>,
 

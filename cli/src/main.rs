@@ -553,6 +553,7 @@ fn cmd_scan(
         let allowed: &[ArtifactKind] = match preset {
             PresetArg::Node | PresetArg::Web | PresetArg::Frontend => &[
                 ArtifactKind::NodeModules,
+                ArtifactKind::PnpmIgnored,
                 ArtifactKind::NextCache,
                 ArtifactKind::TurboCache,
                 ArtifactKind::GenericDist,

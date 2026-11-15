@@ -1410,3 +1410,65 @@ fn test_ignore_management_lifecycle_and_root_safety() {
     let list_after = list_ignored_patterns(temp_dir.path());
     assert!(!list_after.iter().any(|item| item.pattern == sample_str));
 }
+
+#[test]
+fn test_pnpm_ignored_subfolder_detection_and_surgical_deletion() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    // Create a node project with node_modules
+    let proj = root.join("my-pnpm-app");
+    let nm = proj.join("node_modules");
+    let pnpm_ignored = nm.join(".ignored");
+    let active_pkg = nm.join("active-dep");
+
+    std::fs::create_dir_all(&pnpm_ignored).unwrap();
+    std::fs::create_dir_all(&active_pkg).unwrap();
+    std::fs::write(proj.join("package.json"), b"{}").unwrap();
+
+    // Write dummy payloads
+    std::fs::write(pnpm_ignored.join("old-package.js"), vec![0u8; 1000]).unwrap();
+    std::fs::write(active_pkg.join("index.js"), vec![0u8; 500]).unwrap();
+
+    let opts = nodewipe_core::ScanOptions {
+        root: root.to_path_buf(),
+        ..Default::default()
+    };
+
+    let entries = nodewipe_core::scan(&opts).unwrap();
+
+    // Must find both entries: node_modules and node_modules/.ignored
+    let nm_entry = entries
+        .iter()
+        .find(|e| e.kind == ArtifactKind::NodeModules)
+        .expect("Must find node_modules entry");
+    assert!(
+        nm_entry.size_bytes >= 500,
+        "node_modules size must reflect active package payload"
+    );
+    let ignored_entry = entries
+        .iter()
+        .find(|e| e.kind == ArtifactKind::PnpmIgnored)
+        .expect("Must find pnpm .ignored entry");
+
+    assert_eq!(ignored_entry.path, pnpm_ignored);
+    assert!(
+        ignored_entry.size_bytes >= 1000,
+        "ignored size must reflect payload"
+    );
+
+    // Verify surgical delete: deleting ONLY .ignored
+    let res = delete(&pnpm_ignored, DeleteMode::Trash, ignored_entry.size_bytes).unwrap();
+    assert_eq!(res.path, pnpm_ignored);
+    assert!(!pnpm_ignored.exists(), ".ignored must be deleted");
+
+    // Active package must still exist!
+    assert!(
+        active_pkg.exists(),
+        "active-dep must remain intact after deleting .ignored"
+    );
+    assert!(
+        nm.exists(),
+        "parent node_modules must remain intact after deleting .ignored"
+    );
+}
