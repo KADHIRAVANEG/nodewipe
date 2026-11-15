@@ -7,12 +7,13 @@ mod update;
 use anyhow::{Context, Result};
 use clap::Parser;
 pub use cli_def::BANNER;
-use cli_def::{Cli, Command, DeleteModeArg, PresetArg, SortKey};
+use cli_def::{Cli, Command, DeleteModeArg, IgnoreCommand, PresetArg, SortKey};
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
-    ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, annotate_workspace_roots, delete,
-    find_stale_projects, group_by_workspace, history_append, load_config, load_ignore_patterns,
-    restore, scan,
+    ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, add_ignored_pattern,
+    annotate_workspace_roots, delete, find_stale_projects, group_by_workspace, history_append,
+    list_ignored_patterns, load_config, load_ignore_patterns, remove_ignored_pattern, restore,
+    scan,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -169,7 +170,77 @@ fn run(cli: Cli) -> Result<ExitCode> {
             dry_run,
             min_size,
         }) => cmd_dedupe(paths, dry_run, min_size, cli.json),
+        Some(Command::Ignore { command }) => cmd_ignore(command, &root, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
+    }
+}
+
+fn cmd_ignore(command: IgnoreCommand, root: &Path, json: bool) -> Result<ExitCode> {
+    match command {
+        IgnoreCommand::Add { path } => match add_ignored_pattern(&path) {
+            Ok(file) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "status": "ok",
+                            "action": "add",
+                            "path": path.display().to_string(),
+                            "file": file.display().to_string()
+                        })
+                    );
+                } else {
+                    println!("✓ Added '{}' to {}", path.display(), file.display());
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                Ok(ExitCode::FAILURE)
+            }
+        },
+        IgnoreCommand::List => {
+            let patterns = list_ignored_patterns(root);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&patterns)?);
+            } else if patterns.is_empty() {
+                println!("No ignore patterns found in ~/.nodewipeignore or ./nodewipeignore");
+            } else {
+                println!("Ignored patterns:\n─────────────────────────────────────────────");
+                for p in patterns {
+                    let src = match p.source {
+                        nodewipe_core::IgnoreSource::Global => "[global]",
+                        nodewipe_core::IgnoreSource::Local(_) => "[local]",
+                    };
+                    println!("  {:<8} {}", src, p.pattern);
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        IgnoreCommand::Remove { pattern } => match remove_ignored_pattern(&pattern) {
+            Ok(removed) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "status": "ok",
+                            "action": "remove",
+                            "pattern": pattern,
+                            "removed": removed
+                        })
+                    );
+                } else if removed {
+                    println!("✓ Removed pattern '{pattern}' from ~/.nodewipeignore");
+                } else {
+                    println!("Pattern '{pattern}' not found in ~/.nodewipeignore");
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                Ok(ExitCode::FAILURE)
+            }
+        },
     }
 }
 

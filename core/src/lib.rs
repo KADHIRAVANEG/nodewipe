@@ -22,7 +22,10 @@ pub use history::{
     stats_by_ecosystem,
 };
 pub use ignore::gitignore::Gitignore;
-pub use ignorefile::load_patterns as load_ignore_patterns;
+pub use ignorefile::{
+    IgnoreSource, IgnoredPattern, add_ignored_pattern, list_ignored_patterns,
+    load_patterns as load_ignore_patterns, remove_ignored_pattern,
+};
 pub use interner::PathInterner;
 pub use model::{ArtifactKind, Entry, GitStatus, PackageManager, ScanOptions, WorkspaceGroup};
 pub use rebuild::{RebuildPlan, resolve_rebuild_plan};

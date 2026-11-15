@@ -237,6 +237,12 @@ pub enum Command {
         min_size: u64,
     },
 
+    /// Manage ignored directory patterns (.nodewipeignore).
+    Ignore {
+        #[command(subcommand)]
+        command: IgnoreCommand,
+    },
+
     /// Render or install the manual page for nodewipe.
     ///
     /// By default, views the man page or writes to stdout. Pass --install to
@@ -307,4 +313,22 @@ pub enum PresetArg {
     Cpp,
     /// C compilation ecosystems (alias for systems).
     C,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+pub enum IgnoreCommand {
+    /// Add a directory path to ~/.nodewipeignore.
+    Add {
+        /// Directory path to ignore.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+    /// List all currently configured ignore patterns.
+    List,
+    /// Remove an ignored pattern from ~/.nodewipeignore.
+    Remove {
+        /// Pattern to remove.
+        #[arg(value_name = "PATTERN")]
+        pattern: String,
+    },
 }

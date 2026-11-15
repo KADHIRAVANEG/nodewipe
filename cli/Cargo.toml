@@ -21,6 +21,7 @@ clap_complete = "4"
 self_update = { version = "1.2.0", features = ["rustls"] }
 dirs.workspace = true
 clap_mangen = "0.2"
+cli-clipboard = "0.4"
 
 [build-dependencies]
 clap = { version = "4", features = ["derive"] }

@@ -7,7 +7,7 @@ use crossterm::terminal::{
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
     ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, annotate_workspace_roots, delete,
-    history_append, load_config, load_ignore_patterns, restore, scan,
+    group_by_workspace, history_append, load_config, load_ignore_patterns, restore, scan,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -27,7 +27,7 @@ enum ScanMsg {
     Error(String),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 enum Stage {
     Splash,
     SelectTypes,
@@ -36,13 +36,34 @@ enum Stage {
     Results,
     /// Lists *.tar.gz backups for the user to restore.
     Restore,
+    /// Shows ignored path patterns from .nodewipeignore
+    Ignored,
+}
+
+/// A row in the Results list — either a workspace group header or a single artifact entry.
+#[derive(Clone)]
+enum ResultRow {
+    /// A collapsed workspace group: (workspace_root, total_bytes, entry_count, expanded)
+    Group {
+        root: PathBuf,
+        total_bytes: u64,
+        count: usize,
+        expanded: bool,
+    },
+    /// A single artifact entry. entry_index is the index into App::entries.
+    Entry { entry_index: usize },
 }
 
 struct App {
     root: PathBuf,
     stage: Stage,
+    /// All scanned entries, sorted by size descending.
     entries: Vec<Entry>,
+    /// Rendered rows in Results (may be groups + entries or flat entries).
+    rows: Vec<ResultRow>,
+    /// Cursor position in the rows list.
     cursor: usize,
+    /// Selected entry indices (into self.entries).
     selected: HashSet<usize>,
     status: String,
     pending_action: Option<(Vec<usize>, DeleteMode)>,
@@ -61,6 +82,13 @@ struct App {
     restore_cursor: usize,
     restore_status: String,
     dry_run: bool,
+    /// Whether to show grouped (monorepo-collapsed) view.
+    grouped_view: bool,
+    /// Set of workspace roots that are currently collapsed (not expanded).
+    collapsed_groups: HashSet<PathBuf>,
+    /// Ignored path patterns loaded from .nodewipeignore
+    ignored_patterns: Vec<String>,
+    ignored_cursor: usize,
 }
 
 impl App {
@@ -78,6 +106,7 @@ impl App {
             root,
             stage: Stage::Splash,
             entries: Vec::new(),
+            rows: Vec::new(),
             cursor: 0,
             selected: HashSet::new(),
             status: String::new(),
@@ -93,6 +122,10 @@ impl App {
             restore_cursor: 0,
             restore_status: String::new(),
             dry_run: false,
+            grouped_view: false,
+            collapsed_groups: HashSet::new(),
+            ignored_patterns: Vec::new(),
+            ignored_cursor: 0,
         }
     }
 
@@ -145,16 +178,111 @@ impl App {
                     self.selected.clear();
                     self.status = format!("{} artifacts found in {}s", self.entries.len(), elapsed);
                     self.stage = Stage::Results;
+                    self.rebuild_rows();
                 }
                 ScanMsg::Error(e) => {
                     self.status = format!("Scan error: {e}");
                     self.stage = Stage::Results;
+                    self.rebuild_rows();
                 }
             }
             self.scan_rx = None;
             self.scan_started = None;
         }
         self.spinner_tick = self.spinner_tick.wrapping_add(1);
+    }
+
+    /// Rebuilds the rows list based on current grouped_view and collapsed_groups state.
+    fn rebuild_rows(&mut self) {
+        self.rows.clear();
+
+        if !self.grouped_view {
+            // Flat view: one row per entry.
+            for i in 0..self.entries.len() {
+                self.rows.push(ResultRow::Entry { entry_index: i });
+            }
+            return;
+        }
+
+        // Grouped view: build from group_by_workspace output.
+        let groups = group_by_workspace(self.entries.clone());
+
+        for (root_key, group) in &groups {
+            if root_key.is_none() {
+                // Standalone entries — no group header, just list them.
+                for e in &group.entries {
+                    // Find entry index in self.entries
+                    if let Some(idx) = self.entries.iter().position(|x| x.path == e.path) {
+                        self.rows.push(ResultRow::Entry { entry_index: idx });
+                    }
+                }
+            } else {
+                let root = group.root.clone();
+                let is_collapsed = self.collapsed_groups.contains(&root);
+
+                self.rows.push(ResultRow::Group {
+                    root: root.clone(),
+                    total_bytes: group.total_size_bytes,
+                    count: group.entries.len(),
+                    expanded: !is_collapsed,
+                });
+
+                if !is_collapsed {
+                    for e in &group.entries {
+                        if let Some(idx) = self.entries.iter().position(|x| x.path == e.path) {
+                            self.rows.push(ResultRow::Entry { entry_index: idx });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Toggle between flat and grouped view.
+    fn toggle_grouped_view(&mut self) {
+        self.grouped_view = !self.grouped_view;
+        self.cursor = 0;
+        self.rebuild_rows();
+        self.status = if self.grouped_view {
+            "Grouped (monorepo) view ON  — Tab: expand/collapse group".to_string()
+        } else {
+            "Flat view".to_string()
+        };
+    }
+
+    /// Toggle collapse/expand of the workspace group at the current cursor row.
+    fn toggle_group_collapse(&mut self) {
+        if let Some(row) = self.rows.get(self.cursor).cloned() {
+            match row {
+                ResultRow::Group { root, expanded, .. } => {
+                    if expanded {
+                        self.collapsed_groups.insert(root);
+                    } else {
+                        self.collapsed_groups.remove(&root);
+                    }
+                    self.rebuild_rows();
+                }
+                ResultRow::Entry { entry_index } => {
+                    // If cursor is on an entry that belongs to a workspace, collapse its group.
+                    if let Some(ws_root) = self
+                        .entries
+                        .get(entry_index)
+                        .and_then(|e| e.workspace_root.clone())
+                    {
+                        self.collapsed_groups.insert(ws_root.clone());
+                        self.rebuild_rows();
+                        // Move cursor back up to the group header.
+                        self.cursor = self
+                            .rows
+                            .iter()
+                            .position(
+                                |r| matches!(r, ResultRow::Group { root, .. } if root == &ws_root),
+                            )
+                            .unwrap_or(0);
+                    }
+                }
+            }
+        }
     }
 
     fn find_archives(&mut self) {
@@ -179,12 +307,131 @@ impl App {
         };
     }
 
+    /// Load ignored patterns from the global .nodewipeignore file for display.
+    fn load_ignored_patterns(&mut self) {
+        self.ignored_patterns.clear();
+        if let Some(home) = dirs::home_dir() {
+            let path = home.join(".nodewipeignore");
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                        self.ignored_patterns.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+        // Also load local .nodewipeignore
+        let local_path = self.root.join(".nodewipeignore");
+        if let Ok(content) = std::fs::read_to_string(&local_path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                    let entry = format!("[local] {trimmed}");
+                    self.ignored_patterns.push(entry);
+                }
+            }
+        }
+        self.ignored_cursor = 0;
+    }
+
+    /// Add the current entry's path to ~/.nodewipeignore.
+    /// Returns an error message string if it fails.
+    fn ignore_current_entry(&mut self) -> Result<()> {
+        let entry_path = match self.rows.get(self.cursor) {
+            Some(ResultRow::Entry { entry_index }) => {
+                self.entries.get(*entry_index).map(|e| e.path.clone())
+            }
+            _ => None,
+        };
+
+        let path = entry_path.ok_or_else(|| anyhow::anyhow!("No entry selected"))?;
+
+        // Canonicalize to prevent directory traversal — only write inside a valid UTF-8 path.
+        let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        let path_str = canonical
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8"))?;
+
+        // Refuse to add root-like paths to the ignore file.
+        if path_str == "/" || path_str == "\\" || canonical.components().count() <= 1 {
+            return Err(anyhow::anyhow!("Refusing to ignore a root-level path"));
+        }
+
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
+        let ignore_file = home.join(".nodewipeignore");
+
+        // Read existing content to avoid duplicate entries.
+        let existing = std::fs::read_to_string(&ignore_file).unwrap_or_default();
+        if existing.lines().any(|l| l.trim() == path_str) {
+            self.status = format!("Already ignored: {path_str}");
+            return Ok(());
+        }
+
+        // Append with a newline.
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&ignore_file)?;
+        writeln!(file, "{path_str}")?;
+
+        // Reload ignore patterns so the next scan picks them up.
+        self.ignore_patterns = load_ignore_patterns(&self.root);
+        self.status = format!("Ignored: {path_str}  (re-scan to apply)");
+        Ok(())
+    }
+
+    /// Remove an ignored pattern at index from ~/.nodewipeignore.
+    fn remove_ignored_pattern(&mut self, idx: usize) -> Result<()> {
+        // Strip the "[local]" prefix marker if present.
+        let pattern = self
+            .ignored_patterns
+            .get(idx)
+            .ok_or_else(|| anyhow::anyhow!("Index out of range"))?
+            .trim_start_matches("[local] ")
+            .to_string();
+
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
+        let ignore_file = home.join(".nodewipeignore");
+        let content = std::fs::read_to_string(&ignore_file).unwrap_or_default();
+
+        let new_content: String = content
+            .lines()
+            .filter(|l| l.trim() != pattern.as_str())
+            .map(|l| format!("{l}\n"))
+            .collect();
+
+        std::fs::write(&ignore_file, new_content)?;
+        self.ignore_patterns = load_ignore_patterns(&self.root);
+        self.ignored_patterns.remove(idx);
+        if self.ignored_cursor > 0 && self.ignored_cursor >= self.ignored_patterns.len() {
+            self.ignored_cursor = self.ignored_patterns.len().saturating_sub(1);
+        }
+        Ok(())
+    }
+
     fn move_cursor(&mut self, delta: i32) {
-        if self.entries.is_empty() {
+        if self.rows.is_empty() {
             return;
         }
-        let len = self.entries.len() as i32;
+        let len = self.rows.len() as i32;
         self.cursor = (self.cursor as i32 + delta).clamp(0, len - 1) as usize;
+    }
+
+    fn move_cursor_page(&mut self, delta: i32, page_size: usize) {
+        let step = page_size as i32 * delta;
+        self.move_cursor(step);
+    }
+
+    fn move_cursor_home(&mut self) {
+        self.cursor = 0;
+    }
+
+    fn move_cursor_end(&mut self) {
+        if !self.rows.is_empty() {
+            self.cursor = self.rows.len() - 1;
+        }
     }
 
     fn move_restore_cursor(&mut self, delta: i32) {
@@ -195,20 +442,79 @@ impl App {
         self.restore_cursor = (self.restore_cursor as i32 + delta).clamp(0, len - 1) as usize;
     }
 
-    fn toggle_selected(&mut self) {
-        if self.entries.is_empty() {
+    fn move_ignored_cursor(&mut self, delta: i32) {
+        if self.ignored_patterns.is_empty() {
             return;
         }
-        if self.selected.contains(&self.cursor) {
-            self.selected.remove(&self.cursor);
+        let len = self.ignored_patterns.len() as i32;
+        self.ignored_cursor = (self.ignored_cursor as i32 + delta).clamp(0, len - 1) as usize;
+    }
+
+    fn toggle_selected(&mut self) {
+        // Only toggle if cursor is on an entry row.
+        if let Some(ResultRow::Entry { entry_index }) = self.rows.get(self.cursor).cloned() {
+            if self.selected.contains(&entry_index) {
+                self.selected.remove(&entry_index);
+            } else {
+                self.selected.insert(entry_index);
+            }
+        }
+    }
+
+    /// Select all entries or deselect all if everything is already selected.
+    fn toggle_select_all(&mut self) {
+        let all_entry_indices: Vec<usize> = self
+            .rows
+            .iter()
+            .filter_map(|r| {
+                if let ResultRow::Entry { entry_index } = r {
+                    Some(*entry_index)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if all_entry_indices.iter().all(|i| self.selected.contains(i)) {
+            // Everything selected — deselect all.
+            self.selected.clear();
+            self.status = "Deselected all".to_string();
         } else {
-            self.selected.insert(self.cursor);
+            // Select all visible entries.
+            self.selected.extend(all_entry_indices.iter());
+            self.status = format!("Selected all {} entries", all_entry_indices.len());
+        }
+    }
+
+    /// Select all entries in the workspace group at the current cursor row.
+    fn select_group(&mut self) {
+        if let Some(ResultRow::Group { root, .. }) = self.rows.get(self.cursor).cloned() {
+            let count = self
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| {
+                    e.workspace_root
+                        .as_ref()
+                        .map(|r| r == &root)
+                        .unwrap_or(false)
+                })
+                .map(|(i, _)| {
+                    self.selected.insert(i);
+                    i
+                })
+                .count();
+            self.status = format!("Selected {count} entries in group");
         }
     }
 
     fn selected_indices(&self) -> Vec<usize> {
-        if self.selected.is_empty() && !self.entries.is_empty() {
-            vec![self.cursor]
+        if self.selected.is_empty() {
+            // Fall back to cursor entry if cursor is on an Entry row.
+            if let Some(ResultRow::Entry { entry_index }) = self.rows.get(self.cursor) {
+                return vec![*entry_index];
+            }
+            vec![]
         } else {
             let mut v: Vec<usize> = self.selected.iter().copied().collect();
             v.sort_unstable();
@@ -230,6 +536,7 @@ impl App {
 
     fn request_delete(&mut self, indices: Vec<usize>, mode: DeleteMode) {
         if indices.is_empty() {
+            self.status = "Nothing selected".to_string();
             return;
         }
         let warnings = self.risk_warnings(&indices);
@@ -346,9 +653,17 @@ impl App {
             }
         }
         self.selected.clear();
-        if self.cursor >= self.entries.len() && !self.entries.is_empty() {
+        // Cursor may now be out of bounds — clamp.
+        if !self.entries.is_empty() && self.cursor >= self.entries.len() {
             self.cursor = self.entries.len() - 1;
         }
+        // Rebuild rows after deletion.
+        self.rebuild_rows();
+        // Clamp cursor to new row count.
+        if !self.rows.is_empty() && self.cursor >= self.rows.len() {
+            self.cursor = self.rows.len() - 1;
+        }
+
         self.status = if errors == 0 {
             format!("Freed {} ({:?})", human_size(freed), mode)
         } else {
@@ -367,6 +682,51 @@ impl App {
             .filter_map(|i| self.entries.get(*i))
             .map(|e| e.size_bytes)
             .sum()
+    }
+
+    /// Copy current entry path to clipboard. Returns error string on failure.
+    fn copy_path_to_clipboard(&mut self) {
+        let path_str = match self.rows.get(self.cursor) {
+            Some(ResultRow::Entry { entry_index }) => self
+                .entries
+                .get(*entry_index)
+                .map(|e| e.path.display().to_string()),
+            Some(ResultRow::Group { root, .. }) => Some(root.display().to_string()),
+            None => None,
+        };
+
+        match path_str {
+            Some(s) => match cli_clipboard::set_contents(s.clone()) {
+                Ok(()) => {
+                    self.status = format!("✓ Copied to clipboard: {s}");
+                }
+                Err(e) => {
+                    self.status = format!("Clipboard error: {e}");
+                }
+            },
+            None => {
+                self.status = "Nothing to copy".to_string();
+            }
+        }
+    }
+
+    /// Open current entry's parent directory in the system file manager.
+    fn open_in_file_manager(&mut self) {
+        let dir = match self.rows.get(self.cursor) {
+            Some(ResultRow::Entry { entry_index }) => self
+                .entries
+                .get(*entry_index)
+                .and_then(|e| e.path.parent().map(|p| p.to_path_buf())),
+            Some(ResultRow::Group { root, .. }) => Some(root.clone()),
+            None => None,
+        };
+
+        if let Some(d) = dir {
+            open_path(&d);
+            self.status = format!("Opened: {}", d.display());
+        } else {
+            self.status = "Nothing to open".to_string();
+        }
     }
 }
 
@@ -398,12 +758,18 @@ fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut App,
 ) -> Result<()> {
+    // Visible terminal height for page-up/down calculations.
+    let mut page_size: usize = 20;
+
     loop {
         // While scanning, poll for results and redraw with a short timeout
         // so the spinner actually animates.
         if app.stage == Stage::Scanning {
             app.poll_scan();
-            terminal.draw(|f| draw(f, app))?;
+            terminal.draw(|f| {
+                page_size = (f.area().height as usize).saturating_sub(6).max(1);
+                draw(f, app);
+            })?;
             if event::poll(Duration::from_millis(80))?
                 && let Event::Key(key) = event::read()?
                 && key.kind == KeyEventKind::Press
@@ -414,7 +780,10 @@ fn event_loop(
             continue;
         }
 
-        terminal.draw(|f| draw(f, app))?;
+        terminal.draw(|f| {
+            page_size = (f.area().height as usize).saturating_sub(6).max(1);
+            draw(f, app);
+        })?;
 
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
@@ -441,18 +810,25 @@ fn event_loop(
                     _ => {}
                 },
                 Stage::Scanning => {} // handled above
+
                 Stage::Results => {
-                    if key.code == KeyCode::Char('t') {
+                    // ── Global navigation regardless of modal ──────────────────────
+                    if key.code == KeyCode::Char('t') && app.pending_action.is_none() {
                         app.stage = Stage::SelectTypes;
                         continue;
                     }
-                    if key.code == KeyCode::Char('R') {
-                        // Capital R = go to restore screen
+                    if key.code == KeyCode::Char('R') && app.pending_action.is_none() {
                         app.find_archives();
                         app.stage = Stage::Restore;
                         continue;
                     }
+                    if key.code == KeyCode::Char('I') && app.pending_action.is_none() {
+                        app.load_ignored_patterns();
+                        app.stage = Stage::Ignored;
+                        continue;
+                    }
 
+                    // ── Handle pending confirmation modal ──────────────────────────
                     if let Some((pending, mode)) = app.pending_action.clone() {
                         match key.code {
                             KeyCode::Char('y') | KeyCode::Char('Y') => {
@@ -469,12 +845,28 @@ fn event_loop(
                         continue;
                     }
 
+                    // ── Main key dispatch ──────────────────────────────────────────
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => break,
+
+                        // ── Cursor movement ────────────────────────────────────────
                         KeyCode::Down | KeyCode::Char('j') => app.move_cursor(1),
                         KeyCode::Up | KeyCode::Char('k') => app.move_cursor(-1),
+                        KeyCode::PageDown => app.move_cursor_page(1, page_size),
+                        KeyCode::PageUp => app.move_cursor_page(-1, page_size),
+                        KeyCode::Home => app.move_cursor_home(),
+                        KeyCode::End => app.move_cursor_end(),
+
+                        // ── Selection ──────────────────────────────────────────────
                         KeyCode::Char(' ') => app.toggle_selected(),
-                        KeyCode::Char('r') => app.start_scan(),
+                        KeyCode::Char('A') => app.toggle_select_all(),
+                        KeyCode::Enter => app.select_group(),
+
+                        // ── Grouped view ──────────────────────────────────────────
+                        KeyCode::Char('g') => app.toggle_grouped_view(),
+                        KeyCode::Tab => app.toggle_group_collapse(),
+
+                        // ── Delete operations ──────────────────────────────────────
                         KeyCode::Char('d') => {
                             let idx = app.selected_indices();
                             app.request_delete(idx, DeleteMode::Trash);
@@ -487,8 +879,24 @@ fn event_loop(
                             let idx = app.selected_indices();
                             app.request_delete(idx, DeleteMode::Permanent);
                         }
+
+                        // ── Ignore ─────────────────────────────────────────────────
+                        KeyCode::Char('i') => {
+                            if let Err(e) = app.ignore_current_entry() {
+                                app.status = format!("Ignore failed: {e}");
+                            }
+                        }
+
+                        // ── Clipboard & file manager ───────────────────────────────
+                        KeyCode::Char('y') => app.copy_path_to_clipboard(),
+                        KeyCode::Char('o') => app.open_in_file_manager(),
+
+                        // ── Rebuild / dry-run / restore / other ────────────────────
                         KeyCode::Char('b') => {
-                            if let Some(entry) = app.entries.get(app.cursor) {
+                            if let Some(entry) = app.rows.get(app.cursor).and_then(|r| match r {
+                                ResultRow::Entry { entry_index } => app.entries.get(*entry_index),
+                                _ => None,
+                            }) {
                                 if let Some(plan) = nodewipe_core::resolve_rebuild_plan(entry) {
                                     terminal.backend_mut().execute(LeaveAlternateScreen)?;
                                     disable_raw_mode()?;
@@ -549,6 +957,7 @@ fn event_loop(
                                 }
                             }
                         }
+
                         KeyCode::Char('P') => {
                             app.dry_run = !app.dry_run;
                             app.status = if app.dry_run {
@@ -558,6 +967,7 @@ fn event_loop(
                                 "Dry-run preview mode DISABLED".to_string()
                             };
                         }
+                        KeyCode::Char('r') => app.start_scan(),
                         KeyCode::Char('s') | KeyCode::Char('S') => {
                             open_browser("https://github.com/KADHIRAVANEG/nodewipe");
                             app.status = "⭐ Opened https://github.com/KADHIRAVANEG/nodewipe — Thank you for starring!".to_string();
@@ -565,6 +975,7 @@ fn event_loop(
                         _ => {}
                     }
                 }
+
                 Stage::Restore => {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => {
@@ -589,6 +1000,23 @@ fn event_loop(
                         _ => {}
                     }
                 }
+
+                Stage::Ignored => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        app.stage = Stage::Results;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => app.move_ignored_cursor(1),
+                    KeyCode::Up | KeyCode::Char('k') => app.move_ignored_cursor(-1),
+                    KeyCode::Char('d') => {
+                        let idx = app.ignored_cursor;
+                        if let Err(e) = app.remove_ignored_pattern(idx) {
+                            app.status = format!("Failed to remove pattern: {e}");
+                        } else {
+                            app.status = "Pattern removed (re-scan to apply)".to_string();
+                        }
+                    }
+                    _ => {}
+                },
             }
         }
     }
@@ -620,6 +1048,7 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
         Stage::Scanning => draw_scanning(f, app),
         Stage::Results => draw_results(f, app),
         Stage::Restore => draw_restore(f, app),
+        Stage::Ignored => draw_ignored(f, app),
     }
 }
 
@@ -744,75 +1173,126 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         .constraints([
             Constraint::Min(3),
             Constraint::Length(3),
-            Constraint::Length(1),
+            Constraint::Length(2),
         ])
         .split(f.area());
 
     let items: Vec<ListItem> = app
-        .entries
+        .rows
         .iter()
         .enumerate()
-        .map(|(i, e)| {
-            let checked = if app.selected.contains(&i) {
-                "[x]"
-            } else {
-                "[ ]"
-            };
-            let cursor_marker = if i == app.cursor { "> " } else { "  " };
-            let git_info = match &e.git_status {
-                Some(git) => {
-                    let branch = git.branch.as_deref().unwrap_or("?");
-                    let dirty = if git.is_dirty { "*" } else { "" };
-                    let merged = if git.is_merged { " [merged]" } else { "" };
-                    format!("({branch}{dirty}{merged})")
-                }
-                None => String::new(),
-            };
-            let line = if git_info.is_empty() {
-                format!(
-                    "{cursor_marker}{checked} {:>10}  {:<14}  {}",
-                    human_size(e.size_bytes),
-                    e.kind.label(),
-                    e.path.display()
-                )
-            } else {
-                format!(
-                    "{cursor_marker}{checked} {:>10}  {:<14}  {:<20}  {}",
-                    human_size(e.size_bytes),
-                    e.kind.label(),
-                    git_info,
-                    e.path.display()
-                )
-            };
-            let style = if i == app.cursor {
-                Style::default().fg(Color::Black).bg(Color::Yellow)
-            } else {
-                Style::default()
-            };
-            ListItem::new(Line::from(Span::styled(line, style)))
+        .map(|(i, row)| match row {
+            ResultRow::Group {
+                root,
+                total_bytes,
+                count,
+                expanded,
+            } => {
+                let cursor_marker = if i == app.cursor { "> " } else { "  " };
+                let arrow = if *expanded { "▼" } else { "▶" };
+                let line = format!(
+                    "{cursor_marker}{arrow} 📦 {}   [{} items]   {}",
+                    root.display(),
+                    count,
+                    human_size(*total_bytes)
+                );
+                let style = if i == app.cursor {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                };
+                ListItem::new(Line::from(Span::styled(line, style)))
+            }
+            ResultRow::Entry { entry_index } => {
+                let e = match app.entries.get(*entry_index) {
+                    Some(e) => e,
+                    None => return ListItem::new(Line::from("")),
+                };
+                let checked = if app.selected.contains(entry_index) {
+                    "[x]"
+                } else {
+                    "[ ]"
+                };
+                let cursor_marker = if i == app.cursor { "> " } else { "  " };
+                // Indent entries that belong to a group in grouped view.
+                let indent = if app.grouped_view && e.workspace_root.is_some() {
+                    "    "
+                } else {
+                    ""
+                };
+                let git_info = match &e.git_status {
+                    Some(git) => {
+                        let branch = git.branch.as_deref().unwrap_or("?");
+                        let dirty = if git.is_dirty { "*" } else { "" };
+                        let merged = if git.is_merged { " [merged]" } else { "" };
+                        format!("({branch}{dirty}{merged})")
+                    }
+                    None => String::new(),
+                };
+                let line = if git_info.is_empty() {
+                    format!(
+                        "{cursor_marker}{indent}{checked} {:>10}  {:<14}  {}",
+                        human_size(e.size_bytes),
+                        e.kind.label(),
+                        e.path.display()
+                    )
+                } else {
+                    format!(
+                        "{cursor_marker}{indent}{checked} {:>10}  {:<14}  {:<20}  {}",
+                        human_size(e.size_bytes),
+                        e.kind.label(),
+                        git_info,
+                        e.path.display()
+                    )
+                };
+                let style = if i == app.cursor {
+                    Style::default().fg(Color::Black).bg(Color::Yellow)
+                } else if app.selected.contains(entry_index) {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(Span::styled(line, style)))
+            }
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" nodewipe — {} ", app.root.display())),
-    );
+    let group_indicator = if app.grouped_view { " [grouped]" } else { "" };
+    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
+        " nodewipe — {}{group_indicator} ",
+        app.root.display()
+    )));
     let mut list_state = ListState::default();
-    list_state.select(Some(app.cursor));
+    if !app.rows.is_empty() {
+        list_state.select(Some(app.cursor));
+    }
     f.render_stateful_widget(list, chunks[0], &mut list_state);
 
     let total: u64 = app.entries.iter().map(|e| e.size_bytes).sum();
+    let sel_count = app.selected.len();
+    let sel_size = app.total_selected_size();
     let info = Paragraph::new(vec![Line::from(format!(
-        "{} found · {} total · {} selected",
+        "{} found · {} total · {} selected ({} items)",
         app.entries.len(),
         human_size(total),
-        human_size(app.total_selected_size())
+        human_size(sel_size),
+        sel_count,
     ))])
     .block(Block::default().borders(Borders::ALL).title(" Summary "));
     f.render_widget(info, chunks[1]);
 
     let dry_run_indicator = if app.dry_run { " [DRY-RUN ON]" } else { "" };
+    let help1 = "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select";
+    let help2 =
+        "d trash · a archive · p delete · i ignore · y copy · o open · g group · Tab collapse";
+    let help3 =
+        "b rebuild · P dry-run · R restore · I ignored · t types · r rescan · s star · q quit";
+
     let help = if app.pending_action.is_some() {
         format!(
             "{}{}  (y = confirm, any other key = cancel)",
@@ -820,7 +1300,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         )
     } else {
         format!(
-            "{}{}  |  ↑/↓ move · space select · b rebuild · d trash · a archive · p delete · P dry-run · R restore · t types · r rescan · s star · q quit",
+            "{}{}  |  {help1}\n{help2}  |  {help3}",
             app.status, dry_run_indicator
         )
     };
@@ -874,6 +1354,57 @@ fn draw_restore(f: &mut ratatui::Frame, app: &App) {
     f.render_stateful_widget(list, chunks[0], &mut list_state);
     f.render_widget(
         Paragraph::new("↑/↓ move · enter restore · q/esc back to results"),
+        chunks[1],
+    );
+}
+
+fn draw_ignored(f: &mut ratatui::Frame, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(2)])
+        .split(f.area());
+
+    let items: Vec<ListItem> = if app.ignored_patterns.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            "  No ignored patterns found in ~/.nodewipeignore or ./nodewipeignore.",
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        app.ignored_patterns
+            .iter()
+            .enumerate()
+            .map(|(i, pattern)| {
+                let cursor_marker = if i == app.ignored_cursor { "> " } else { "  " };
+                let is_local = pattern.starts_with("[local]");
+                let style = if i == app.ignored_cursor {
+                    Style::default().fg(Color::Black).bg(Color::Red)
+                } else if is_local {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                ListItem::new(Line::from(Span::styled(
+                    format!("{cursor_marker}{pattern}"),
+                    style,
+                )))
+            })
+            .collect()
+    };
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Ignored Paths  (from ~/.nodewipeignore) "),
+    );
+    let mut list_state = ListState::default();
+    if !app.ignored_patterns.is_empty() {
+        list_state.select(Some(app.ignored_cursor));
+    }
+    f.render_stateful_widget(list, chunks[0], &mut list_state);
+    f.render_widget(
+        Paragraph::new(
+            "↑/↓ move · d remove pattern (re-scan to apply) · q/esc back to results\n[local] = from ./nodewipeignore  (global = from ~/.nodewipeignore)",
+        ),
         chunks[1],
     );
 }
@@ -964,5 +1495,21 @@ fn open_browser(url: &str) {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+}
+
+/// Open a filesystem path in the system's default file manager.
+fn open_path(path: &std::path::Path) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer").arg(path).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(path).spawn();
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
     }
 }
