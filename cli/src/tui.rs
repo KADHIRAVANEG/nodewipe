@@ -558,6 +558,10 @@ fn event_loop(
                                 "Dry-run preview mode DISABLED".to_string()
                             };
                         }
+                        KeyCode::Char('s') | KeyCode::Char('S') => {
+                            open_browser("https://github.com/KADHIRAVANEG/nodewipe");
+                            app.status = "⭐ Opened https://github.com/KADHIRAVANEG/nodewipe — Thank you for starring!".to_string();
+                        }
                         _ => {}
                     }
                 }
@@ -816,7 +820,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         )
     } else {
         format!(
-            "{}{}  |  ↑/↓ move · space select · b rebuild · d trash · a archive · p delete · P dry-run · R restore · t types · r rescan · q quit",
+            "{}{}  |  ↑/↓ move · space select · b rebuild · d trash · a archive · p delete · P dry-run · R restore · t types · r rescan · s star · q quit",
             app.status, dry_run_indicator
         )
     };
@@ -944,4 +948,21 @@ fn human_size(bytes: u64) -> String {
         unit += 1;
     }
     format!("{size:.2} {}", UNITS[unit])
+}
+
+fn open_browser(url: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "", url])
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
 }
