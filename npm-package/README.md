@@ -1,5 +1,11 @@
 # nodewipe
 
+[![GitHub stars](https://img.shields.io/github/stars/KADHIRAVANEG/nodewipe?style=flat-square&color=eab308&logo=github)](https://github.com/KADHIRAVANEG/nodewipe)
+[![npm downloads](https://img.shields.io/npm/dt/@joker53/nodewipe?style=flat-square&color=22c55e&logo=npm)](https://www.npmjs.com/package/@joker53/nodewipe)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://github.com/KADHIRAVANEG/nodewipe/blob/main/LICENSE)
+
+> ⭐ **Star on GitHub**: If `nodewipe` saved you gigabytes of storage, please support the project with a star on [GitHub](https://github.com/KADHIRAVANEG/nodewipe)!
+
 Find and reclaim disk space from stray dev artifacts — not just `node_modules`.
 
 ```

@@ -191,6 +191,10 @@ pub fn run(
     println!("    nodewipe delete <path> --mode trash          # safe delete");
     println!("    nodewipe doctor --install-service            # setup weekly background check");
     println!();
+    println!(
+        " ⭐ Enjoying nodewipe? Support us with a star: https://github.com/KADHIRAVANEG/nodewipe"
+    );
+    println!();
 
     Ok(ExitCode::SUCCESS)
 }

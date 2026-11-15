@@ -452,6 +452,10 @@ fn cmd_dedupe(
         println!("\n Run without `--dry-run` to execute hardlink/reflink deduplication.");
     } else {
         println!("\n ✅  Deduplication complete! Hardlinked identical files with zero data loss.");
+        println!(
+            " ⭐ Reclaimed {}! Enjoying nodewipe? Support us with a star: https://github.com/KADHIRAVANEG/nodewipe",
+            human_size(stats.reclaimed_bytes)
+        );
     }
     println!();
 
@@ -834,12 +838,20 @@ fn cmd_delete(
     if json {
         println!("{}", serde_json::to_string_pretty(&results)?);
     } else {
+        let mut total_freed = 0u64;
         for r in &results {
             print!("deleted {} ({:?})", r.path.display(), r.mode);
             if let Some(a) = &r.archive_path {
                 print!(" -> archived at {}", a.display());
             }
             println!();
+            total_freed += r.freed_bytes;
+        }
+        if total_freed > 0 {
+            println!(
+                "\n ⭐ Reclaimed {}! Enjoying nodewipe? Support us with a star: https://github.com/KADHIRAVANEG/nodewipe",
+                human_size(total_freed)
+            );
         }
     }
 
