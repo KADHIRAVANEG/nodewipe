@@ -259,6 +259,12 @@ const RULES: &[Rule] = &[
         kind: ArtifactKind::ViteCache,
         marker: Marker::ParentHasAny(&["vite.config.js", "vite.config.ts", "package.json"]),
     },
+    // Modern Web / Node: Yarn global offline package cache (`.../yarn/v6` or `.../Yarn/v6`)
+    Rule {
+        name: "v6",
+        kind: ArtifactKind::YarnCache,
+        marker: Marker::ParentNamed(&["yarn", "Yarn"]),
+    },
     // Systems / Native: CMake & Ninja build output
     Rule {
         name: "build",

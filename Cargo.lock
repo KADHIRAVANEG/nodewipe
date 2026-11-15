@@ -2549,6 +2549,8 @@ dependencies = [
  "self_update",
  "serde",
  "serde_json",
+ "toml 0.8.2",
+ "unicode-width 0.2.0",
  "walkdir",
 ]
 

@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// User-level defaults loaded from `~/.config/nodewipe/config.toml` (or the
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 /// default_min_mb = 10
 /// default_sort = "size"
 /// ```
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub default_delete_mode: Option<String>,
     pub default_exclude_types: Option<Vec<String>>,
@@ -26,21 +26,92 @@ pub fn config_path() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("nodewipe").join("config.toml"))
 }
 
-/// Loads the config file if present. Missing file or parse errors both
-/// fall back to `Config::default()` (all-None) rather than failing the
-/// whole program — a broken config shouldn't block scanning/deleting.
+pub fn legacy_npkillrc_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".npkillrc"))
+}
+
+/// Loads the config file if present. If ~/.config/nodewipe/config.toml is missing,
+/// checks for a legacy ~/.npkillrc file (npkill #214 compatibility).
 pub fn load_config() -> Config {
-    let Some(path) = config_path() else {
-        return Config::default();
-    };
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return Config::default();
-    };
-    toml::from_str(&content).unwrap_or_else(|e| {
-        eprintln!(
-            "warning: failed to parse {}: {e} (using defaults)",
-            path.display()
-        );
-        Config::default()
-    })
+    if let Some(path) = config_path()
+        && path.exists()
+        && let Ok(content) = std::fs::read_to_string(&path)
+    {
+        return toml::from_str(&content).unwrap_or_else(|e| {
+            eprintln!(
+                "warning: failed to parse {}: {e} (using defaults)",
+                path.display()
+            );
+            Config::default()
+        });
+    }
+
+    // Fall back to legacy .npkillrc if present (npkill #214)
+    if let Some(npkillrc) = legacy_npkillrc_path()
+        && npkillrc.exists()
+        && let Ok(content) = std::fs::read_to_string(&npkillrc)
+        && let Ok(val) = serde_json::from_str::<serde_json::Value>(&content)
+    {
+        let mut cfg = Config::default();
+        if let Some(arr) = val.get("exclude").and_then(|v| v.as_array()) {
+            let excludes: Vec<String> = arr
+                .iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect();
+            if !excludes.is_empty() {
+                cfg.default_exclude_types = Some(excludes);
+            }
+        }
+        return cfg;
+    }
+
+    Config::default()
+}
+
+pub fn save_config(config: &Config) -> std::io::Result<PathBuf> {
+    let path = config_path().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "could not determine config directory",
+        )
+    })?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let toml_str = toml::to_string_pretty(config)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&path, toml_str)?;
+    Ok(path)
+}
+
+pub fn init_default_config() -> std::io::Result<(PathBuf, bool)> {
+    let path = config_path().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "could not determine config directory",
+        )
+    })?;
+    if path.exists() {
+        return Ok((path, false));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let template = r#"# nodewipe configuration file
+# Location: ~/.config/nodewipe/config.toml (or OS equivalent)
+
+# Default deletion mode: "trash" (safe, recoverable), "archive" (tar.gz backup), or "permanent"
+default_delete_mode = "trash"
+
+# Default artifact types to exclude from scanning
+# default_exclude_types = ["rust_target", "generic_dist"]
+
+# Minimum directory size (in megabytes) to show by default
+default_min_mb = 0
+
+# Default sorting order: "size" (biggest first) or "age" (oldest first)
+default_sort = "size"
+"#;
+    std::fs::write(&path, template)?;
+    Ok((path, true))
 }

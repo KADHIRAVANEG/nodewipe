@@ -7,7 +7,7 @@ mod update;
 use anyhow::{Context, Result};
 use clap::Parser;
 pub use cli_def::BANNER;
-use cli_def::{Cli, Command, DeleteModeArg, IgnoreCommand, PresetArg, SortKey};
+use cli_def::{Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PresetArg, SortKey};
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
     ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, add_ignored_pattern,
@@ -190,6 +190,62 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }) => cmd_dedupe(paths, dry_run, min_size, cli.json),
         Some(Command::Ignore { command }) => cmd_ignore(command, &root, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
+        Some(Command::Config { action }) => cmd_config(action, cli.json),
+    }
+}
+
+fn cmd_config(action: Option<ConfigAction>, json: bool) -> Result<ExitCode> {
+    let action = action.unwrap_or(ConfigAction::Show);
+    match action {
+        ConfigAction::Path => {
+            let path = nodewipe_core::config_path().unwrap_or_else(|| PathBuf::from(""));
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "path": path.display().to_string() })
+                );
+            } else {
+                println!("{}", path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        ConfigAction::Show => {
+            let cfg = nodewipe_core::load_config();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&cfg)?);
+            } else {
+                let toml_str = toml::to_string_pretty(&cfg)?;
+                let path = nodewipe_core::config_path();
+                let path_display = path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "unknown".into());
+                let exists = path.as_ref().map(|p| p.exists()).unwrap_or(false);
+                println!(
+                    "# Configuration (file: {}, exists: {})\n{}",
+                    path_display, exists, toml_str
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        ConfigAction::Init => {
+            let (path, created) =
+                nodewipe_core::init_default_config().context("failed to initialize config file")?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "path": path.display().to_string(),
+                        "created": created,
+                    })
+                );
+            } else if created {
+                println!("✓ Created configuration file: {}", path.display());
+            } else {
+                println!("Configuration file already exists: {}", path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -582,6 +638,7 @@ fn cmd_scan(
                 ArtifactKind::NuxtCache,
                 ArtifactKind::DocusaurusCache,
                 ArtifactKind::ViteCache,
+                ArtifactKind::YarnCache,
             ],
             PresetArg::Python => &[
                 ArtifactKind::PythonVenv,
@@ -1229,5 +1286,18 @@ mod tests {
 
         assert_eq!(AgeFilter::All.next(), AgeFilter::Days30);
         assert_eq!(AgeFilter::Year1.next(), AgeFilter::All);
+    }
+
+    #[test]
+    fn test_config_serialization_and_defaults() {
+        let cfg = nodewipe_core::Config {
+            default_delete_mode: Some("archive".into()),
+            default_exclude_types: Some(vec!["venv".into(), "rust_target".into()]),
+            default_min_mb: Some(50),
+            default_sort: Some("age".into()),
+        };
+        let toml_str = toml::to_string(&cfg).unwrap();
+        let loaded: nodewipe_core::Config = toml::from_str(&toml_str).unwrap();
+        assert_eq!(cfg, loaded);
     }
 }

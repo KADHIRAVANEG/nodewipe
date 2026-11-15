@@ -1472,3 +1472,31 @@ fn test_pnpm_ignored_subfolder_detection_and_surgical_deletion() {
         "parent node_modules must remain intact after deleting .ignored"
     );
 }
+
+#[test]
+fn test_yarn_cache_scan_and_delete() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yarn_dir = tmp.path().join(".cache").join("yarn");
+    let v6_dir = yarn_dir.join("v6");
+    std::fs::create_dir_all(&v6_dir).unwrap();
+    std::fs::write(v6_dir.join("npm-pkg-1.0.0.tgz"), vec![0u8; 1500]).unwrap();
+
+    let opts = ScanOptions {
+        root: tmp.path().to_path_buf(),
+        ..Default::default()
+    };
+
+    let entries = scan(&opts).unwrap();
+    let yarn_entry = entries
+        .iter()
+        .find(|e| e.kind == ArtifactKind::YarnCache)
+        .expect("must detect yarn v6 cache directory");
+
+    assert_eq!(yarn_entry.path, v6_dir);
+    assert!(yarn_entry.size_bytes >= 1500);
+
+    let res = delete(&v6_dir, DeleteMode::Trash, yarn_entry.size_bytes).unwrap();
+    assert_eq!(res.path, v6_dir);
+    assert!(!v6_dir.exists());
+    assert!(yarn_dir.exists(), "parent yarn folder must remain intact");
+}

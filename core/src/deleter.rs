@@ -253,6 +253,7 @@ const VALID_ARTIFACT_NAMES: &[&str] = &[
     "_build",
     "builddir",
     ".ignored",
+    "v6",
 ];
 
 /// Extracts an archive or reflink snapshot created by `DeleteMode::Archive` back into place.

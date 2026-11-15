@@ -13,7 +13,7 @@ pub mod scanner;
 pub mod stale;
 pub mod workspace;
 
-pub use config::{Config, load_config};
+pub use config::{Config, config_path, init_default_config, load_config, save_config};
 pub use dedupe::{DedupeOptions, DedupeStats, dedupe_paths};
 pub use deleter::{DeleteMode, DeleteResult, delete, restore};
 pub use git::{annotate_git_status, find_git_repo_root, inspect_git_repo};

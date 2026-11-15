@@ -84,6 +84,8 @@ pub enum ArtifactKind {
     MesonBuild,
     /// Leftover npm packages archived by pnpm in `node_modules/.ignored` or `.ignored`.
     PnpmIgnored,
+    /// Yarn global offline package cache (`~/.cache/yarn/v6` or `~/Library/Caches/Yarn/v6`).
+    YarnCache,
 }
 
 impl ArtifactKind {
@@ -127,6 +129,7 @@ impl ArtifactKind {
         ArtifactKind::ElixirBuild,
         ArtifactKind::MesonBuild,
         ArtifactKind::PnpmIgnored,
+        ArtifactKind::YarnCache,
     ];
 
     /// Short slug used in CLI flags (`--exclude-types venv,pycache`) and JSON.
@@ -170,6 +173,7 @@ impl ArtifactKind {
             ArtifactKind::ElixirBuild => "elixir_build",
             ArtifactKind::MesonBuild => "meson_build",
             ArtifactKind::PnpmIgnored => "pnpm_ignored",
+            ArtifactKind::YarnCache => "yarn_cache",
         }
     }
 
@@ -213,6 +217,7 @@ impl ArtifactKind {
             "elixir_build" | "elixir" | "mix" => ArtifactKind::ElixirBuild,
             "meson_build" | "meson" => ArtifactKind::MesonBuild,
             "pnpm_ignored" | "node_modules_ignored" | "ignored" => ArtifactKind::PnpmIgnored,
+            "yarn_cache" | "yarn" => ArtifactKind::YarnCache,
             _ => return None,
         })
     }
@@ -257,6 +262,7 @@ impl ArtifactKind {
             ArtifactKind::ElixirBuild => "Elixir / Mix build",
             ArtifactKind::MesonBuild => "Meson build",
             ArtifactKind::PnpmIgnored => "pnpm .ignored",
+            ArtifactKind::YarnCache => "Yarn cache",
         }
     }
 
@@ -374,6 +380,9 @@ impl ArtifactKind {
             ArtifactKind::PnpmIgnored => {
                 "Leftover npm packages archived by pnpm in node_modules/.ignored. Safe to delete."
             }
+            ArtifactKind::YarnCache => {
+                "Yarn global package tarball cache (v6). Safe to delete; packages will be re-downloaded if needed."
+            }
         }
     }
 
@@ -409,6 +418,10 @@ impl ArtifactKind {
             ArtifactKind::TorchCache => Some(
                 "This cache stores PyTorch model checkpoints and kernel cache. Deleting \
                  it requires re-downloading pretrained weights on next run.",
+            ),
+            ArtifactKind::YarnCache => Some(
+                "This is Yarn's offline tarball cache. Deleting it frees significant disk space, \
+                 but future yarn installs will re-download packages from the registry.",
             ),
             _ => None,
         }

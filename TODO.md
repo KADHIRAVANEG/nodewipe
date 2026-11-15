@@ -184,12 +184,14 @@ monitoring systems.
 
 ## Tier 3 — NICE TO HAVE (Polish & Additional Ecosystems)
 
-### 🔴 T3-1: Yarn Cache Aware Scan _(npkill #13)_
+### ✅ T3-1: Yarn Cache Aware Scan _(npkill #13)_
 **Problem**: `~/.cache/yarn/v6` can contain 10–80 GB of cached tarballs that never get cleaned.
 npkill reported impossible totals because it misidentified Yarn cache dirs.
 
-- [ ] Add `Yarn Global Cache` as an explicit `ArtifactKind::YarnCache` with `SelfHasAny` marker
-- [ ] Warn: "Deleting Yarn cache will slow down future `yarn install` runs"
+- [x] Add `Yarn Global Cache` as an explicit `ArtifactKind::YarnCache` with parent marker `yarn`/`Yarn`
+- [x] Added `v6` to `VALID_ARTIFACT_NAMES` for secure archive and restore
+- [x] Display clear risk note: "Deleting Yarn cache removes offline tarballs. Future yarn installs will re-download packages from the registry."
+- [x] Tested with integration test `test_yarn_cache_scan_and_delete`
 
 ---
 
@@ -202,15 +204,14 @@ npkill reported impossible totals because it misidentified Yarn cache dirs.
 
 ---
 
-### 🔴 T3-3: `.npkillrc` / Config File Migration _(npkill #214)_
+### ✅ T3-3: `.npkillrc` / Config File Migration _(npkill #214)_
 **Problem**: `npkill` added a `.npkillrc` config file for persistent settings. Users want to
 carry their `--exclude-types`, `--root`, and `--min-size` preferences.
 
-**What's already built:** `nodewipe` has `load_config()` reading a config file.
-
-- [ ] Document the config file format and location in README
-- [ ] Add `nodewipe config` subcommand to view/edit config interactively
-- [ ] Support `~/.config/nodewipe/config.toml` (XDG compliant)
+- [x] Document the config file format and location in ~/.config/nodewipe/config.toml (XDG compliant)
+- [x] Added `nodewipe config` subcommand with `path`, `show`, and `init` actions (with `--json` support)
+- [x] Support automatic migration fallback from legacy `~/.npkillrc` if `config.toml` is not present
+- [x] Tested config serialization, defaults, and roundtrip parsing
 
 ---
 
@@ -257,5 +258,5 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
 
 - Tier 1: 3/3 implemented (100% COMPLETE)
 - Tier 2: 8/8 implemented (100% COMPLETE)
-- Tier 3: 0/4 implemented
+- Tier 3: 2/4 implemented
 - Already solved vs npkill: **9 of 11 open issues** + **all structural root causes in 112 closed issues**

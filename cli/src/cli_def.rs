@@ -267,6 +267,22 @@ pub enum Command {
         #[arg(long)]
         install: bool,
     },
+
+    /// View, locate, or initialize nodewipe configuration settings.
+    Config {
+        #[command(subcommand)]
+        action: Option<ConfigAction>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum ConfigAction {
+    /// Print the path to the configuration file (~/.config/nodewipe/config.toml).
+    Path,
+    /// Display current active configuration settings.
+    Show,
+    /// Initialize a default config.toml file if it does not already exist.
+    Init,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
