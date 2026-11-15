@@ -20,6 +20,7 @@ use std::io::stdout;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
+use unicode_width::UnicodeWidthStr;
 
 // ── Scan result sent from background thread ───────────────────────────────────
 enum ScanMsg {
@@ -1522,6 +1523,21 @@ fn draw_type_select(f: &mut ratatui::Frame, app: &App) {
     );
 }
 
+/// Pad or format a string to an exact visual terminal cell width, correctly accounting for wide Unicode (CJK, emojis).
+pub fn pad_to_width(s: &str, target_width: usize, left_align: bool) -> String {
+    let w = s.width();
+    if w >= target_width {
+        s.to_string()
+    } else {
+        let padding = " ".repeat(target_width - w);
+        if left_align {
+            format!("{s}{padding}")
+        } else {
+            format!("{padding}{s}")
+        }
+    }
+}
+
 fn draw_results(f: &mut ratatui::Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -1596,21 +1612,19 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                     .map(|d| d.as_secs() >= 90 * 86400)
                     .unwrap_or(false);
 
+                let size_col = pad_to_width(&human_size(e.size_bytes), 10, false);
+                let kind_col = pad_to_width(e.kind.label(), 14, true);
+                let age_col = pad_to_width(&age_str, 8, true);
+
                 let line = if git_info.is_empty() {
                     format!(
-                        "{cursor_marker}{indent}{checked} {:>10}  {:<14}  {:<8}  {}",
-                        human_size(e.size_bytes),
-                        e.kind.label(),
-                        age_str,
+                        "{cursor_marker}{indent}{checked} {size_col}  {kind_col}  {age_col}  {}",
                         e.path.display()
                     )
                 } else {
+                    let git_col = pad_to_width(&git_info, 18, true);
                     format!(
-                        "{cursor_marker}{indent}{checked} {:>10}  {:<14}  {:<8}  {:<18}  {}",
-                        human_size(e.size_bytes),
-                        e.kind.label(),
-                        age_str,
-                        git_info,
+                        "{cursor_marker}{indent}{checked} {size_col}  {kind_col}  {age_col}  {git_col}  {}",
                         e.path.display()
                     )
                 };

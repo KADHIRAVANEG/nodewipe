@@ -1300,4 +1300,22 @@ mod tests {
         let loaded: nodewipe_core::Config = toml::from_str(&toml_str).unwrap();
         assert_eq!(cfg, loaded);
     }
+
+    #[test]
+    fn test_unicode_width_padding() {
+        use crate::tui::pad_to_width;
+
+        // ASCII string
+        let padded = pad_to_width("test", 8, true);
+        assert_eq!(padded, "test    ");
+        assert_eq!(padded.len(), 8);
+
+        // Emoji (wide 2 cells)
+        let emoji = pad_to_width("📦", 4, true);
+        assert_eq!(emoji, "📦  "); // 2 width + 2 spaces = 4 terminal cells
+
+        // CJK characters (2 cells each)
+        let cjk = pad_to_width("日本語", 8, false);
+        assert_eq!(cjk, "  日本語"); // 2 spaces + 6 width = 8 terminal cells
+    }
 }
