@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>nodewipe - Precision Developer Environment Cleaner</title>
     <meta name="description" content="Blazingly fast, multi-ecosystem dev-environment cleaner. Find and delete stray node_modules, Rust targets, Python venvs, and more.">
-    <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,17 +22,21 @@
     <nav class="navbar">
         <div class="nav-content">
             <div class="logo">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="30" height="30" class="logo-img">
-                    <g transform="translate(-38, -24)">
-                        <polygon points="120,40 154.64,60 128.66,75 120,70 85.36,90 59.38,75" fill="#18B87A" />
-                        <polygon points="59.38,75 85.36,90 85.36,130 59.38,115" fill="#129E68" />
-                        <polygon points="95.75,104 121.73,119 121.73,147 95.75,132" fill="#129E68" />
-                        <polygon points="59.38,127 120,162 120,188 59.38,153" fill="#15B074" />
-                        <polygon points="120,162 180.62,127 180.62,153 120,188" fill="#0E8759" />
-                        <polygon points="163.3,57 197.94,77 163.3,97 128.66,77" fill="#1FC786" />
-                        <polygon points="128.66,77 163.3,97 163.3,137 128.66,117" fill="#14A86E" />
-                        <polygon points="163.3,97 197.94,77 197.94,117 163.3,137" fill="#0E8759" />
-                    </g>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="28" height="28" class="logo-img">
+                    <defs>
+                        <linearGradient id="logo-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#8b5cf6" />
+                            <stop offset="100%" stop-color="#3b82f6" />
+                        </linearGradient>
+                        <linearGradient id="logo-slash" x1="0%" y1="100%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="#ef4444" />
+                            <stop offset="100%" stop-color="#f97316" />
+                        </linearGradient>
+                    </defs>
+                    <path d="M25 35 L45 35 L55 45 L95 45 A5 5 0 0 1 100 50 L100 90 A5 5 0 0 1 95 95 L25 95 A5 5 0 0 1 20 90 L20 40 A5 5 0 0 1 25 35 Z" fill="none" stroke="url(#logo-gradient)" stroke-width="6" stroke-linejoin="round"/>
+                    <rect x="30" y="55" width="20" height="8" rx="2" fill="url(#logo-gradient)" opacity="0.8"/>
+                    <rect x="30" y="70" width="35" height="8" rx="2" fill="url(#logo-gradient)" opacity="0.8"/>
+                    <path d="M15 105 L105 15" stroke="url(#logo-slash)" stroke-width="8" stroke-linecap="round"/>
                 </svg>
                 <span class="logo-text">nodewipe</span>
             </div>
@@ -48,9 +51,6 @@
 
     <main>
         <section class="hero">
-            <div style="margin-bottom: 1.25rem;">
-                <img src="assets/icon.svg" alt="nodewipe logo" width="84" height="84" style="filter: drop-shadow(0 0 24px rgba(24, 184, 122, 0.45));">
-            </div>
             <div class="pill-badge">
                 <span class="indicator"></span> v0.9.0 Available
             </div>
@@ -108,10 +108,6 @@
                             <span class="tag">Rust</span>
                             <span class="tag">Node</span>
                             <span class="tag">Python</span>
-                            <span class="tag">C/C++</span>
-                            <span class="tag">Xcode</span>
-                            <span class="tag">Android</span>
-                            <span class="tag">AI/ML</span>
                             <span class="tag">Java</span>
                             <span class="tag">Go</span>
                             <span class="tag">.NET</span>
@@ -208,17 +204,6 @@
                 <div class="bento-card">
                     <div class="card-inner">
                         <div class="card-header">
-                            <span class="card-icon">🦀</span>
-                            <h3>Cargo (Crates.io)</h3>
-                        </div>
-                        <p>Compile and install directly from crates.io using your local Rust toolchain.</p>
-                        <code style="background: #000; padding: 0.5rem; border-radius: 4px; display: block; font-size: 0.85rem; color: var(--accent-primary);">cargo install nodewipe</code>
-                    </div>
-                </div>
-
-                <div class="bento-card">
-                    <div class="card-inner">
-                        <div class="card-header">
                             <span class="card-icon">🪟</span>
                             <h3>Windows (Winget & Scoop)</h3>
                         </div>
@@ -281,17 +266,11 @@
     <footer>
         <div class="footer-content">
             <div class="footer-brand">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="24" height="24">
-                    <g transform="translate(-38, -24)">
-                        <polygon points="120,40 154.64,60 128.66,75 120,70 85.36,90 59.38,75" fill="#18B87A" />
-                        <polygon points="59.38,75 85.36,90 85.36,130 59.38,115" fill="#129E68" />
-                        <polygon points="95.75,104 121.73,119 121.73,147 95.75,132" fill="#129E68" />
-                        <polygon points="59.38,127 120,162 120,188 59.38,153" fill="#15B074" />
-                        <polygon points="120,162 180.62,127 180.62,153 120,188" fill="#0E8759" />
-                        <polygon points="163.3,57 197.94,77 163.3,97 128.66,77" fill="#1FC786" />
-                        <polygon points="128.66,77 163.3,97 163.3,137 128.66,117" fill="#14A86E" />
-                        <polygon points="163.3,97 197.94,77 197.94,117 163.3,137" fill="#0E8759" />
-                    </g>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="24" height="24">
+                    <path d="M25 35 L45 35 L55 45 L95 45 A5 5 0 0 1 100 50 L100 90 A5 5 0 0 1 95 95 L25 95 A5 5 0 0 1 20 90 L20 40 A5 5 0 0 1 25 35 Z" fill="none" stroke="#8b5cf6" stroke-width="6" stroke-linejoin="round"/>
+                    <rect x="30" y="55" width="20" height="8" rx="2" fill="#8b5cf6" opacity="0.8"/>
+                    <rect x="30" y="70" width="35" height="8" rx="2" fill="#8b5cf6" opacity="0.8"/>
+                    <path d="M15 105 L105 15" stroke="#ef4444" stroke-width="8" stroke-linecap="round"/>
                 </svg>
                 <span>nodewipe</span>
             </div>
@@ -300,7 +279,6 @@
                 <a href="https://github.com/KADHIRAVANEG/homebrew-nodewipe">Homebrew</a>
                 <a href="https://npmjs.com/package/@joker53/nodewipe">NPM</a>
                 <a href="https://aur.archlinux.org/packages/nodewipe">AUR</a>
-                <a href="https://crates.io/crates/nodewipe">Crates.io</a>
             </div>
         </div>
     </footer>
