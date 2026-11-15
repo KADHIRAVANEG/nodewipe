@@ -27,6 +27,20 @@ enum ScanMsg {
     Error(String),
 }
 
+enum DeleteMsg {
+    Progress {
+        completed: usize,
+        total: usize,
+        current_name: String,
+        freed_so_far: u64,
+    },
+    Done {
+        freed: u64,
+        errors: usize,
+        deleted_indices: Vec<usize>,
+    },
+}
+
 #[derive(PartialEq, Clone, Copy)]
 enum Stage {
     Splash,
@@ -38,6 +52,8 @@ enum Stage {
     Restore,
     /// Shows ignored path patterns from .nodewipeignore
     Ignored,
+    /// Active background deletion with progress bar.
+    Deleting,
 }
 
 /// A row in the Results list — either a workspace group header or a single artifact entry.
@@ -89,6 +105,8 @@ struct App {
     /// Ignored path patterns loaded from .nodewipeignore
     ignored_patterns: Vec<String>,
     ignored_cursor: usize,
+    delete_rx: Option<mpsc::Receiver<DeleteMsg>>,
+    deleting_info: Option<(usize, usize, String, u64, DeleteMode)>,
 }
 
 impl App {
@@ -126,6 +144,8 @@ impl App {
             collapsed_groups: HashSet::new(),
             ignored_patterns: Vec::new(),
             ignored_cursor: 0,
+            delete_rx: None,
+            deleting_info: None,
         }
     }
 
@@ -626,13 +646,37 @@ impl App {
             return;
         }
 
-        let mut freed = 0u64;
-        let mut errors = 0;
         let mut sorted = indices.to_vec();
         sorted.sort_unstable_by(|a, b| b.cmp(a));
 
-        for &idx in &sorted {
-            if let Some(entry) = self.entries.get(idx).cloned() {
+        let items: Vec<(usize, Entry)> = sorted
+            .iter()
+            .filter_map(|&idx| self.entries.get(idx).cloned().map(|e| (idx, e)))
+            .collect();
+
+        if items.is_empty() {
+            return;
+        }
+
+        let total = items.len();
+        let (tx, rx) = mpsc::channel();
+        self.delete_rx = Some(rx);
+        self.deleting_info = Some((0, total, String::new(), 0, mode));
+        self.stage = Stage::Deleting;
+
+        std::thread::spawn(move || {
+            let mut freed = 0u64;
+            let mut errors = 0;
+            let mut deleted_indices = Vec::new();
+
+            for (i, (idx, entry)) in items.into_iter().enumerate() {
+                let _ = tx.send(DeleteMsg::Progress {
+                    completed: i,
+                    total,
+                    current_name: entry.path.display().to_string(),
+                    freed_so_far: freed,
+                });
+
                 match delete(&entry.path, mode, entry.size_bytes) {
                     Ok(res) => {
                         let ts = now_unix();
@@ -646,34 +690,81 @@ impl App {
                             mode: format!("{mode:?}").to_lowercase(),
                         });
                         freed += res.freed_bytes;
-                        self.entries.remove(idx);
+                        deleted_indices.push(idx);
                     }
-                    Err(_) => errors += 1,
+                    Err(_) => {
+                        errors += 1;
+                    }
+                }
+            }
+
+            let _ = tx.send(DeleteMsg::Done {
+                freed,
+                errors,
+                deleted_indices,
+            });
+        });
+    }
+
+    fn poll_delete(&mut self) {
+        if let Some(rx) = &self.delete_rx {
+            while let Ok(msg) = rx.try_recv() {
+                match msg {
+                    DeleteMsg::Progress {
+                        completed,
+                        total,
+                        current_name,
+                        freed_so_far,
+                    } => {
+                        if let Some((_, _, _, _, mode)) = self.deleting_info {
+                            self.deleting_info =
+                                Some((completed, total, current_name, freed_so_far, mode));
+                        }
+                    }
+                    DeleteMsg::Done {
+                        freed,
+                        errors,
+                        mut deleted_indices,
+                    } => {
+                        deleted_indices.sort_unstable_by(|a, b| b.cmp(a));
+                        for idx in deleted_indices {
+                            if idx < self.entries.len() {
+                                self.entries.remove(idx);
+                            }
+                        }
+                        self.selected.clear();
+                        if !self.entries.is_empty() && self.cursor >= self.entries.len() {
+                            self.cursor = self.entries.len() - 1;
+                        }
+                        self.rebuild_rows();
+                        if !self.rows.is_empty() && self.cursor >= self.rows.len() {
+                            self.cursor = self.rows.len() - 1;
+                        }
+
+                        let mode_str = self
+                            .deleting_info
+                            .as_ref()
+                            .map(|(_, _, _, _, m)| format!("{m:?}"))
+                            .unwrap_or_else(|| "delete".to_string());
+
+                        self.status = if errors == 0 {
+                            format!("Freed {} ({})", human_size(freed), mode_str)
+                        } else {
+                            format!(
+                                "Freed {} ({}), {} failed",
+                                human_size(freed),
+                                mode_str,
+                                errors
+                            )
+                        };
+                        self.stage = Stage::Results;
+                        self.delete_rx = None;
+                        self.deleting_info = None;
+                        return;
+                    }
                 }
             }
         }
-        self.selected.clear();
-        // Cursor may now be out of bounds — clamp.
-        if !self.entries.is_empty() && self.cursor >= self.entries.len() {
-            self.cursor = self.entries.len() - 1;
-        }
-        // Rebuild rows after deletion.
-        self.rebuild_rows();
-        // Clamp cursor to new row count.
-        if !self.rows.is_empty() && self.cursor >= self.rows.len() {
-            self.cursor = self.rows.len() - 1;
-        }
-
-        self.status = if errors == 0 {
-            format!("Freed {} ({:?})", human_size(freed), mode)
-        } else {
-            format!(
-                "Freed {} ({:?}), {} failed",
-                human_size(freed),
-                mode,
-                errors
-            )
-        };
     }
 
     fn total_selected_size(&self) -> u64 {
@@ -780,6 +871,17 @@ fn event_loop(
             continue;
         }
 
+        // While deleting in background, poll progress and redraw.
+        if app.stage == Stage::Deleting {
+            app.poll_delete();
+            terminal.draw(|f| {
+                page_size = (f.area().height as usize).saturating_sub(6).max(1);
+                draw(f, app);
+            })?;
+            let _ = event::poll(Duration::from_millis(50));
+            continue;
+        }
+
         terminal.draw(|f| {
             page_size = (f.area().height as usize).saturating_sub(6).max(1);
             draw(f, app);
@@ -810,6 +912,7 @@ fn event_loop(
                     _ => {}
                 },
                 Stage::Scanning => {} // handled above
+                Stage::Deleting => {} // handled above
 
                 Stage::Results => {
                     // ── Global navigation regardless of modal ──────────────────────
@@ -1049,6 +1152,7 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
         Stage::Results => draw_results(f, app),
         Stage::Restore => draw_restore(f, app),
         Stage::Ignored => draw_ignored(f, app),
+        Stage::Deleting => draw_deleting(f, app),
     }
 }
 
@@ -1119,6 +1223,67 @@ fn draw_scanning(f: &mut ratatui::Frame, app: &App) {
             .alignment(Alignment::Center)
             .block(Block::default()),
         chunks[1],
+    );
+}
+
+fn draw_deleting(f: &mut ratatui::Frame, app: &App) {
+    let area = f.area();
+    let (completed, total, current_name, freed_so_far, mode) = match &app.deleting_info {
+        Some(info) => info.clone(),
+        None => (0, 1, String::new(), 0, DeleteMode::Trash),
+    };
+
+    let pct = if total > 0 {
+        ((completed as f64 / total as f64) * 100.0) as u16
+    } else {
+        0
+    };
+
+    let bar_width: usize = 30;
+    let filled = ((pct as f64 / 100.0) * bar_width as f64) as usize;
+    let empty = bar_width.saturating_sub(filled);
+    let bar_str = format!("[{}{}] {}%", "█".repeat(filled), "░".repeat(empty), pct);
+
+    let lines = vec![
+        Line::from(Span::styled(
+            format!("Deleting {completed} of {total} items ({mode:?})"),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(bar_str, Style::default().fg(Color::Cyan))),
+        Line::from(""),
+        Line::from(format!("Freed: {}", human_size(freed_so_far))),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Target: {current_name}"),
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let width = (area.width as f32 * 0.75).min(75.0) as u16;
+    let height = 11u16.min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let box_area = Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+
+    f.render_widget(Clear, box_area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .title(" Deletion in Progress "),
+            )
+            .alignment(Alignment::Center),
+        box_area,
     );
 }
 
