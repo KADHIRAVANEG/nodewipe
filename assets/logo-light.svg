@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 160" width="100%" height="100%">
+  <!-- Isometric Icon Mark -->
+  <g transform="translate(-45, -34)">
+    <!-- Top-Left L-Bracket Cap -->
+    <polygon points="120,40 154.64,60 128.66,75 120,70 85.36,90 59.38,75" fill="#18B87A" />
+    <!-- Upper Left Vertical Wall -->
+    <polygon points="59.38,75 85.36,90 85.36,130 59.38,115" fill="#129E68" />
+    <!-- Inner Small Node Facet -->
+    <polygon points="95.75,104 121.73,119 121.73,147 95.75,132" fill="#129E68" />
+    <!-- Bottom V-Bracket Left Face -->
+    <polygon points="59.38,127 120,162 120,188 59.38,153" fill="#15B074" />
+    <!-- Bottom V-Bracket Right Face -->
+    <polygon points="120,162 180.62,127 180.62,153 120,188" fill="#0E8759" />
+
+    <!-- Detached / Wiped Isometric Cube (Top-Right) -->
+    <polygon points="163.3,57 197.94,77 163.3,97 128.66,77" fill="#1FC786" />
+    <polygon points="128.66,77 163.3,97 163.3,137 128.66,117" fill="#14A86E" />
+    <polygon points="163.3,97 197.94,77 197.94,117 163.3,137" fill="#0E8759" />
+  </g>
+
+  <!-- Wordmark (Light mode: Dark Slate) -->
+  <text x="180" y="102" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="#0D1117">nodewipe</text>
+</svg>
