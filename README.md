@@ -1,8 +1,12 @@
 <div align="center">
 
-  <img src="logo.svg" alt="nodewipe logo" width="130" height="130">
-
-  # nodewipe
+  <p align="center">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="./assets/logo-dark.svg">
+      <source media="(prefers-color-scheme: light)" srcset="./assets/logo-light.svg">
+      <img alt="nodewipe" src="./assets/logo-dark.svg" width="340">
+    </picture>
+  </p>
 
   **The surgical, blazing-fast dev-environment cleaner written in Rust.**  
   *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and native/mobile build caches across 37+ ecosystems.*
