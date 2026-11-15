@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="gLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="gRight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="gSlash" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f43f5e"/>
+      <stop offset="50%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#facc15"/>
+    </linearGradient>
+  </defs>
+  <!-- Left Pillar -->
+  <path d="M7 25 L7 9 C7 7.5 8 6.5 9.5 6.5 L13 6.5 C14 6.5 15 7.2 15.2 8.2 L15.2 16.5 L7 25 Z" fill="url(#gLeft)"/>
+  <!-- Right Pillar -->
+  <path d="M25 7 L25 23 C25 24.5 24 25.5 22.5 25.5 L19 25.5 C18 25.5 17 24.8 16.8 23.8 L16.8 15.5 L25 7 Z" fill="url(#gRight)"/>
+  <!-- Excision Laser Blade -->
+  <line x1="3" y1="29" x2="29" y2="3" stroke="url(#gSlash)" stroke-width="2.6" stroke-linecap="round"/>
+  <line x1="3" y1="29" x2="29" y2="3" stroke="#ffffff" stroke-width="0.8" stroke-linecap="round"/>
+  <!-- Sparkles -->
+  <circle cx="27" cy="5" r="1.2" fill="#facc15"/>
+  <circle cx="5" cy="27" r="1.2" fill="#f43f5e"/>
+</svg>
