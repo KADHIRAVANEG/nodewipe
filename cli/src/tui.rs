@@ -19,7 +19,7 @@ use std::collections::HashSet;
 use std::io::stdout;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 // ── Scan result sent from background thread ───────────────────────────────────
 enum ScanMsg {
@@ -54,6 +54,92 @@ enum Stage {
     Ignored,
     /// Active background deletion with progress bar.
     Deleting,
+}
+
+/// Age filter presets for filtering artifacts by last-modified timestamp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgeFilter {
+    All,
+    Days30,
+    Days60,
+    Days90,
+    Days180,
+    Year1,
+}
+
+impl AgeFilter {
+    pub fn next(self) -> Self {
+        match self {
+            AgeFilter::All => AgeFilter::Days30,
+            AgeFilter::Days30 => AgeFilter::Days60,
+            AgeFilter::Days60 => AgeFilter::Days90,
+            AgeFilter::Days90 => AgeFilter::Days180,
+            AgeFilter::Days180 => AgeFilter::Year1,
+            AgeFilter::Year1 => AgeFilter::All,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AgeFilter::All => "All",
+            AgeFilter::Days30 => ">30d",
+            AgeFilter::Days60 => ">60d",
+            AgeFilter::Days90 => ">90d",
+            AgeFilter::Days180 => ">180d",
+            AgeFilter::Year1 => ">1y",
+        }
+    }
+
+    pub fn min_duration(self) -> Option<Duration> {
+        match self {
+            AgeFilter::All => None,
+            AgeFilter::Days30 => Some(Duration::from_secs(30 * 86400)),
+            AgeFilter::Days60 => Some(Duration::from_secs(60 * 86400)),
+            AgeFilter::Days90 => Some(Duration::from_secs(90 * 86400)),
+            AgeFilter::Days180 => Some(Duration::from_secs(180 * 86400)),
+            AgeFilter::Year1 => Some(Duration::from_secs(365 * 86400)),
+        }
+    }
+
+    pub fn matches(self, last_modified: Option<SystemTime>) -> bool {
+        let Some(min_dur) = self.min_duration() else {
+            return true;
+        };
+        let Some(lm) = last_modified else {
+            return false;
+        };
+        SystemTime::now()
+            .duration_since(lm)
+            .map(|d| d >= min_dur)
+            .unwrap_or(false)
+    }
+}
+
+fn format_age(last_modified: Option<SystemTime>) -> String {
+    match last_modified {
+        Some(t) => {
+            if let Ok(dur) = SystemTime::now().duration_since(t) {
+                let days = dur.as_secs() / 86400;
+                if days == 0 {
+                    "today".to_string()
+                } else if days < 30 {
+                    format!("{days}d ago")
+                } else if days < 365 {
+                    format!("{}mo ago", days / 30)
+                } else {
+                    let yrs = days as f64 / 365.0;
+                    if yrs < 1.1 {
+                        "1y ago".to_string()
+                    } else {
+                        format!("{yrs:.1}y ago")
+                    }
+                }
+            } else {
+                "recent".to_string()
+            }
+        }
+        None => "-".to_string(),
+    }
 }
 
 /// A row in the Results list — either a workspace group header or a single artifact entry.
@@ -107,18 +193,27 @@ struct App {
     ignored_cursor: usize,
     delete_rx: Option<mpsc::Receiver<DeleteMsg>>,
     deleting_info: Option<(usize, usize, String, u64, DeleteMode)>,
+    age_filter: AgeFilter,
 }
 
 impl App {
-    fn new(root: PathBuf) -> Self {
+    fn new(
+        root: PathBuf,
+        initial_excluded: Option<HashSet<ArtifactKind>>,
+        initial_age_filter: Option<AgeFilter>,
+    ) -> Self {
         let ignore_patterns = load_ignore_patterns(&root);
         let config = load_config();
-        let excluded_kinds: HashSet<ArtifactKind> = config
+        let mut excluded_kinds: HashSet<ArtifactKind> = config
             .default_exclude_types
             .unwrap_or_default()
             .iter()
             .filter_map(|s| ArtifactKind::from_slug(s.trim()))
             .collect();
+
+        if let Some(ie) = initial_excluded {
+            excluded_kinds.extend(ie);
+        }
 
         App {
             root,
@@ -146,6 +241,7 @@ impl App {
             ignored_cursor: 0,
             delete_rx: None,
             deleting_info: None,
+            age_filter: initial_age_filter.unwrap_or(AgeFilter::All),
         }
     }
 
@@ -212,20 +308,34 @@ impl App {
         self.spinner_tick = self.spinner_tick.wrapping_add(1);
     }
 
-    /// Rebuilds the rows list based on current grouped_view and collapsed_groups state.
+    /// Rebuilds the rows list based on current grouped_view, collapsed_groups, and age_filter state.
     fn rebuild_rows(&mut self) {
         self.rows.clear();
 
         if !self.grouped_view {
-            // Flat view: one row per entry.
-            for i in 0..self.entries.len() {
-                self.rows.push(ResultRow::Entry { entry_index: i });
+            // Flat view: one row per matching entry.
+            for (i, e) in self.entries.iter().enumerate() {
+                if self.age_filter.matches(e.last_modified) {
+                    self.rows.push(ResultRow::Entry { entry_index: i });
+                }
+            }
+            if self.rows.is_empty() {
+                self.cursor = 0;
+            } else if self.cursor >= self.rows.len() {
+                self.cursor = self.rows.len() - 1;
             }
             return;
         }
 
-        // Grouped view: build from group_by_workspace output.
-        let groups = group_by_workspace(self.entries.clone());
+        // Grouped view: only group entries that match the age filter.
+        let matching_entries: Vec<Entry> = self
+            .entries
+            .iter()
+            .filter(|e| self.age_filter.matches(e.last_modified))
+            .cloned()
+            .collect();
+
+        let groups = group_by_workspace(matching_entries);
 
         for (root_key, group) in &groups {
             if root_key.is_none() {
@@ -255,6 +365,12 @@ impl App {
                     }
                 }
             }
+        }
+
+        if self.rows.is_empty() {
+            self.cursor = 0;
+        } else if self.cursor >= self.rows.len() {
+            self.cursor = self.rows.len() - 1;
         }
     }
 
@@ -821,7 +937,11 @@ impl App {
     }
 }
 
-pub fn run(root: PathBuf) -> Result<()> {
+pub fn run(
+    root: PathBuf,
+    initial_excluded: Option<HashSet<ArtifactKind>>,
+    initial_age_filter: Option<AgeFilter>,
+) -> Result<()> {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
@@ -836,7 +956,7 @@ pub fn run(root: PathBuf) -> Result<()> {
     let backend = CrosstermBackend::new(out);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(root);
+    let mut app = App::new(root, initial_excluded, initial_age_filter);
     let result = event_loop(&mut terminal, &mut app);
 
     let _ = disable_raw_mode();
@@ -904,10 +1024,13 @@ fn event_loop(
                     KeyCode::Down | KeyCode::Char('j') => app.move_filter_cursor(1),
                     KeyCode::Up | KeyCode::Char('k') => app.move_filter_cursor(-1),
                     KeyCode::Char(' ') => app.toggle_filter_kind(),
+                    KeyCode::Char('s') => app.solo_filter_kind(),
+                    KeyCode::Char('i') => app.invert_filter_kinds(),
                     KeyCode::Char('a') => app.excluded_kinds.clear(),
                     KeyCode::Char('n') => {
                         app.excluded_kinds = ArtifactKind::ALL.iter().copied().collect();
                     }
+                    KeyCode::Char('f') => app.cycle_age_filter(),
                     KeyCode::Enter => app.start_scan(),
                     _ => {}
                 },
@@ -989,6 +1112,9 @@ fn event_loop(
                                 app.status = format!("Ignore failed: {e}");
                             }
                         }
+
+                        // ── Age filter ─────────────────────────────────────────────
+                        KeyCode::Char('f') => app.cycle_age_filter(),
 
                         // ── Clipboard & file manager ───────────────────────────────
                         KeyCode::Char('y') => app.copy_path_to_clipboard(),
@@ -1141,6 +1267,44 @@ impl App {
             self.excluded_kinds.insert(kind);
         }
     }
+
+    fn solo_filter_kind(&mut self) {
+        let solo_kind = ArtifactKind::ALL[self.filter_cursor];
+        self.excluded_kinds = ArtifactKind::ALL
+            .iter()
+            .copied()
+            .filter(|&k| k != solo_kind)
+            .collect();
+    }
+
+    fn invert_filter_kinds(&mut self) {
+        let mut new_excluded = HashSet::new();
+        for &k in ArtifactKind::ALL {
+            if !self.excluded_kinds.contains(&k) {
+                new_excluded.insert(k);
+            }
+        }
+        self.excluded_kinds = new_excluded;
+    }
+
+    fn cycle_age_filter(&mut self) {
+        self.age_filter = self.age_filter.next();
+        self.cursor = 0;
+        self.rebuild_rows();
+        let visible = self.visible_entry_count();
+        let total = self.entries.len();
+        self.status = format!(
+            "Age filter: {} (showing {visible} of {total} artifacts)",
+            self.age_filter.label()
+        );
+    }
+
+    fn visible_entry_count(&self) -> usize {
+        self.rows
+            .iter()
+            .filter(|r| matches!(r, ResultRow::Entry { .. }))
+            .count()
+    }
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
@@ -1290,7 +1454,11 @@ fn draw_deleting(f: &mut ratatui::Frame, app: &App) {
 fn draw_type_select(f: &mut ratatui::Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(3),
+            Constraint::Length(2),
+            Constraint::Length(1),
+        ])
         .split(f.area());
 
     let items: Vec<ListItem> = ArtifactKind::ALL
@@ -1324,11 +1492,33 @@ fn draw_type_select(f: &mut ratatui::Frame, app: &App) {
     let mut list_state = ListState::default();
     list_state.select(Some(app.filter_cursor));
     f.render_stateful_widget(list, chunks[0], &mut list_state);
+
+    let age_presets = ["All", ">30d", ">60d", ">90d", ">180d", ">1y"];
+    let preset_spans: Vec<Span> = age_presets
+        .iter()
+        .map(|&p| {
+            if p == app.age_filter.label() {
+                Span::styled(
+                    format!(" [{p}] "),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                Span::styled(format!("  {p}  "), Style::default().fg(Color::DarkGray))
+            }
+        })
+        .collect();
+    let mut line_spans = vec![Span::raw(" Age Filter (press 'f' to cycle): ")];
+    line_spans.extend(preset_spans);
+    f.render_widget(Paragraph::new(Line::from(line_spans)), chunks[1]);
+
     f.render_widget(
         Paragraph::new(
-            "↑/↓ move · space toggle · a select all · n select none · enter scan · q quit",
+            "↑/↓ move · space toggle · s solo · i invert · a all · n none · f age filter · enter scan · q quit",
         ),
-        chunks[1],
+        chunks[2],
     );
 }
 
@@ -1399,18 +1589,27 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                     }
                     None => String::new(),
                 };
+                let age_str = format_age(e.last_modified);
+                let is_stale = e
+                    .last_modified
+                    .and_then(|t| SystemTime::now().duration_since(t).ok())
+                    .map(|d| d.as_secs() >= 90 * 86400)
+                    .unwrap_or(false);
+
                 let line = if git_info.is_empty() {
                     format!(
-                        "{cursor_marker}{indent}{checked} {:>10}  {:<14}  {}",
+                        "{cursor_marker}{indent}{checked} {:>10}  {:<14}  {:<8}  {}",
                         human_size(e.size_bytes),
                         e.kind.label(),
+                        age_str,
                         e.path.display()
                     )
                 } else {
                     format!(
-                        "{cursor_marker}{indent}{checked} {:>10}  {:<14}  {:<20}  {}",
+                        "{cursor_marker}{indent}{checked} {:>10}  {:<14}  {:<8}  {:<18}  {}",
                         human_size(e.size_bytes),
                         e.kind.label(),
+                        age_str,
                         git_info,
                         e.path.display()
                     )
@@ -1419,6 +1618,8 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                     Style::default().fg(Color::Black).bg(Color::Yellow)
                 } else if app.selected.contains(entry_index) {
                     Style::default().fg(Color::Green)
+                } else if is_stale {
+                    Style::default().fg(Color::DarkGray)
                 } else {
                     Style::default()
                 };
@@ -1441,12 +1642,20 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     let total: u64 = app.entries.iter().map(|e| e.size_bytes).sum();
     let sel_count = app.selected.len();
     let sel_size = app.total_selected_size();
+    let visible_count = app.visible_entry_count();
+    let filter_indicator = if app.age_filter != AgeFilter::All {
+        format!(" · filter: {}", app.age_filter.label())
+    } else {
+        String::new()
+    };
     let info = Paragraph::new(vec![Line::from(format!(
-        "{} found · {} total · {} selected ({} items)",
+        "{} found ({} visible) · {} total · {} selected ({} items){}",
         app.entries.len(),
+        visible_count,
         human_size(total),
         human_size(sel_size),
         sel_count,
+        filter_indicator,
     ))])
     .block(Block::default().borders(Borders::ALL).title(" Summary "));
     f.render_widget(info, chunks[1]);
@@ -1455,8 +1664,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     let help1 = "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select";
     let help2 =
         "d trash · a archive · p delete · i ignore · y copy · o open · g group · Tab collapse";
-    let help3 =
-        "b rebuild · P dry-run · R restore · I ignored · t types · r rescan · s star · q quit";
+    let help3 = "b rebuild · f age-filter · P dry-run · R restore · I ignored · t types · r rescan · s star · q quit";
 
     let help = if app.pending_action.is_some() {
         format!(

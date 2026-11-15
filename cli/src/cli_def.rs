@@ -60,6 +60,21 @@ pub struct Cli {
     #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
     pub exclude_types: Vec<String>,
 
+    /// Comma-separated artifact types to target exclusively (inverse of --exclude-types).
+    /// When specified, only these artifact types will be scanned. Aliased as `--target`.
+    #[arg(
+        long,
+        global = true,
+        value_delimiter = ',',
+        value_name = "TYPES",
+        alias = "target"
+    )]
+    pub types: Vec<String>,
+
+    /// Alias for --types.
+    #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
+    pub include_types: Vec<String>,
+
     /// Skip loading .nodewipeignore files.
     #[arg(long, global = true)]
     pub no_ignore_file: bool,

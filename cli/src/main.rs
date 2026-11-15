@@ -15,6 +15,7 @@ use nodewipe_core::{
     list_ignored_patterns, load_config, load_ignore_patterns, remove_ignored_pattern, restore,
     scan,
 };
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime};
@@ -44,7 +45,19 @@ fn run(cli: Cli) -> Result<ExitCode> {
     let config = load_config();
     let root = cli.path.clone().unwrap_or_else(|| cli.root.clone());
 
+    let mut raw_includes = cli.types.clone();
+    raw_includes.extend(cli.include_types.clone());
+
     let mut exclude_kinds = parse_exclude_types(&cli.exclude_types)?;
+    if !raw_includes.is_empty() {
+        let include_kinds: HashSet<ArtifactKind> =
+            parse_exclude_types(&raw_includes)?.into_iter().collect();
+        for &k in ArtifactKind::ALL {
+            if !include_kinds.contains(&k) && !exclude_kinds.contains(&k) {
+                exclude_kinds.push(k);
+            }
+        }
+    }
     if let Some(defaults) = &config.default_exclude_types {
         exclude_kinds.extend(parse_exclude_types(defaults)?);
     }
@@ -80,7 +93,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     !cli.no_git,
                 )
             } else {
-                tui::run(root)?;
+                let initial_excluded = if exclude_kinds.is_empty() {
+                    None
+                } else {
+                    Some(exclude_kinds.into_iter().collect())
+                };
+                tui::run(root, initial_excluded, None)?;
                 Ok(ExitCode::SUCCESS)
             }
         }
@@ -1168,5 +1186,48 @@ mod tests {
         assert_eq!(parse_size_threshold("1024KB").unwrap(), 1024 * 1024);
         assert_eq!(parse_size_threshold("1048576B").unwrap(), 1048576);
         assert_eq!(parse_size_threshold("5").unwrap(), 5 * 1024 * 1024 * 1024); // defaults to GB
+    }
+
+    #[test]
+    fn test_include_types_resolution() {
+        let types = vec!["node_modules".to_string(), "rust_target".to_string()];
+        let include_kinds: HashSet<ArtifactKind> =
+            parse_exclude_types(&types).unwrap().into_iter().collect();
+        let mut exclude_kinds = Vec::new();
+        for &k in ArtifactKind::ALL {
+            if !include_kinds.contains(&k) {
+                exclude_kinds.push(k);
+            }
+        }
+        assert!(!exclude_kinds.contains(&ArtifactKind::NodeModules));
+        assert!(!exclude_kinds.contains(&ArtifactKind::RustTarget));
+        assert!(exclude_kinds.contains(&ArtifactKind::PythonVenv));
+        assert!(exclude_kinds.contains(&ArtifactKind::GoModCache));
+    }
+
+    #[test]
+    fn test_age_filter_logic() {
+        use crate::tui::AgeFilter;
+
+        let now = SystemTime::now();
+        let days10 = now - Duration::from_secs(10 * 86400);
+        let days45 = now - Duration::from_secs(45 * 86400);
+        let days100 = now - Duration::from_secs(100 * 86400);
+        let days400 = now - Duration::from_secs(400 * 86400);
+
+        assert!(AgeFilter::All.matches(Some(days10)));
+        assert!(AgeFilter::All.matches(None));
+
+        assert!(!AgeFilter::Days30.matches(Some(days10)));
+        assert!(AgeFilter::Days30.matches(Some(days45)));
+
+        assert!(!AgeFilter::Days90.matches(Some(days45)));
+        assert!(AgeFilter::Days90.matches(Some(days100)));
+
+        assert!(!AgeFilter::Year1.matches(Some(days100)));
+        assert!(AgeFilter::Year1.matches(Some(days400)));
+
+        assert_eq!(AgeFilter::All.next(), AgeFilter::Days30);
+        assert_eq!(AgeFilter::Year1.next(), AgeFilter::All);
     }
 }

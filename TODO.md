@@ -115,27 +115,29 @@ page-level navigation since `npkill` v0.3.
 
 ---
 
-### 🔴 T2-4: Progress Indicator During Deletion _(npkill #58, #82)_
+### ✅ T2-4: Progress Indicator During Deletion _(npkill #58, #82)_
 **Problem**: Large deletions (20+ GB) show no feedback while in progress, leaving users uncertain
 if the tool is working or frozen.
 
 **What needs to be built:**
-- [ ] Show a deletion progress bar during active deletion: `Deleting... 2.1 GB / 8.4 GB ████░░`
-- [ ] Run deletion in a background thread and stream progress via `mpsc` channel
-- [ ] Update row status per-entry: `Deleting…` → `✓ Deleted (1.2 GB freed)`
+- [x] Show a deletion progress bar during active deletion: `Deleting... 2.1 GB / 8.4 GB ████░░`
+- [x] Run deletion in a background thread and stream progress via `mpsc` channel
+- [x] Non-blocking 60 FPS event loop with live progress updates, completed count, and freed bytes
+- [x] Update row status per-entry and recalculate grouped views seamlessly
 
 **Files to modify:** `cli/src/tui.rs`, `core/src/deleter.rs`
 
 ---
 
-### 🔴 T2-5: `--older-than` Age Filter in TUI _(npkill #257, #76, #64)_
+### ✅ T2-5: `--older-than` Age Filter in TUI _(npkill #257, #76, #64)_
 **Problem**: Users want to delete only artifacts from long-abandoned projects (e.g. untouched for
 3+ months). This already exists in CLI but not wired into TUI filter screen.
 
 **What needs to be built:**
-- [ ] Wire `older_than` age filter into TUI's `SelectTypes` filter screen
-- [ ] Add a date-range input widget (e.g. `>30d`, `>3m`, `>1y`)
-- [ ] Highlight stale entries visually (dim color if `> 90 days old`)
+- [x] Wire `AgeFilter` presets into TUI's `SelectTypes` screen (`All`, `>30d`, `>60d`, `>90d`, `>180d`, `>1y`) with `f` cycle key
+- [x] Live age filter cycling in Results screen with `f` key, dynamically updating rows and summary visibility
+- [x] Display age column for every artifact (`12d ago`, `3mo ago`, `1.2y ago`, `today`)
+- [x] Highlight stale entries visually (>90 days dimmed in `Color::DarkGray` to prevent accidental deletion of fresh active projects)
 
 **Files to modify:** `cli/src/tui.rs`
 
@@ -168,12 +170,13 @@ monitoring systems.
 
 ---
 
-### 🔴 T2-8: `--target` Support for Multiple Artifact Types _(npkill #173)_
+### ✅ T2-8: `--target` Support for Multiple Artifact Types _(npkill #173)_
 **Problem**: Users want to target only specific artifact types in one scan instead of excluding everything else.
 
 **What needs to be built:**
-- [ ] Add `--include-types` / `--types` CLI flag as the inverse of `--exclude-types`
-- [ ] Update TUI filter screen to offer an "include only" toggle vs "exclude" mode
+- [x] Add `--include-types` / `--types` and `--target` CLI flags as the inverse of `--exclude-types`
+- [x] Support `s` (solo) and `i` (invert selection) in TUI `SelectTypes` screen
+- [x] Automatically invert exclusion map when target types are specified
 
 **Files to modify:** `cli/src/cli_def.rs`, `cli/src/main.rs`, `cli/src/tui.rs`
 
@@ -253,6 +256,6 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
 ## Checklist Progress
 
 - Tier 1: 3/3 implemented (100% COMPLETE)
-- Tier 2: 5/8 implemented
+- Tier 2: 8/8 implemented (100% COMPLETE)
 - Tier 3: 0/4 implemented
 - Already solved vs npkill: **9 of 11 open issues** + **all structural root causes in 112 closed issues**
