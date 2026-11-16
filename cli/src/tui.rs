@@ -423,18 +423,9 @@ impl App {
     }
 
     fn find_archives(&mut self) {
-        self.archives = walkdir::WalkDir::new(&self.root)
-            .max_depth(6)
+        self.archives = nodewipe_core::find_archives(&self.root)
             .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_type().is_file()
-                    && e.file_name()
-                        .to_str()
-                        .map(|n| n.ends_with("-backup.tar.gz"))
-                        .unwrap_or(false)
-            })
-            .map(|e| e.path().to_path_buf())
+            .map(|a| a.path)
             .collect();
         self.restore_cursor = 0;
         self.restore_status = if self.archives.is_empty() {

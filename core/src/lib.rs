@@ -15,7 +15,7 @@ pub mod workspace;
 
 pub use config::{Config, config_path, init_default_config, load_config, save_config};
 pub use dedupe::{DedupeOptions, DedupeStats, dedupe_paths};
-pub use deleter::{DeleteMode, DeleteResult, delete, restore};
+pub use deleter::{DeleteMode, DeleteResult, DiscoveredArchive, delete, find_archives, restore};
 pub use git::{annotate_git_status, find_git_repo_root, inspect_git_repo};
 pub use history::{
     EcosystemStats, HistoryEntry, append as history_append, load as history_load,
