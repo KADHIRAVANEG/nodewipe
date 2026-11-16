@@ -2,14 +2,17 @@ use nodewipe_core::history::{daily_totals, format_date, now_unix, stats_by_ecosy
 use nodewipe_core::{
     DeleteMode, Entry, HistoryEntry, ScanOptions, WorkspaceGroup, annotate_workspace_roots,
     delete as core_delete, doctor::build_report, find_archives as core_find_archives,
-    group_by_workspace, history_append, history_load, restore as core_restore, scan as core_scan,
+    group_by_workspace, history_append, history_load, load_ignore_patterns,
+    restore as core_restore, scan as core_scan,
 };
 use std::path::PathBuf;
 
 #[tauri::command(async)]
 fn scan_command(root: String) -> Result<Vec<Entry>, String> {
+    let root_path = PathBuf::from(root);
     let opts = ScanOptions {
-        root: PathBuf::from(root),
+        ignore_patterns: load_ignore_patterns(&root_path),
+        root: root_path,
         ..Default::default()
     };
     let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
@@ -20,8 +23,10 @@ fn scan_command(root: String) -> Result<Vec<Entry>, String> {
 
 #[tauri::command(async)]
 fn scan_grouped_command(root: String) -> Result<Vec<WorkspaceGroup>, String> {
+    let root_path = PathBuf::from(root);
     let opts = ScanOptions {
-        root: PathBuf::from(root),
+        ignore_patterns: load_ignore_patterns(&root_path),
+        root: root_path,
         ..Default::default()
     };
     let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
@@ -128,8 +133,10 @@ fn home_dir_command() -> Result<String, String> {
 
 #[tauri::command(async)]
 fn doctor_command(root: String) -> Result<serde_json::Value, String> {
+    let root_path = PathBuf::from(root);
     let opts = ScanOptions {
-        root: PathBuf::from(root),
+        ignore_patterns: load_ignore_patterns(&root_path),
+        root: root_path,
         ..Default::default()
     };
     let entries = core_scan(&opts).map_err(|e| e.to_string())?;
