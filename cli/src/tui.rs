@@ -510,32 +510,40 @@ impl App {
         Ok(())
     }
 
-    /// Remove an ignored pattern at index from ~/.nodewipeignore.
+    /// Remove an ignored pattern at index from ~/.nodewipeignore or ./.nodewipeignore.
     fn remove_ignored_pattern(&mut self, idx: usize) -> Result<()> {
-        // Strip the "[local]" prefix marker if present.
-        let pattern = self
+        let raw = self
             .ignored_patterns
             .get(idx)
-            .ok_or_else(|| anyhow::anyhow!("Index out of range"))?
-            .trim_start_matches("[local] ")
-            .to_string();
+            .ok_or_else(|| anyhow::anyhow!("Index out of range"))?;
 
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
-        let ignore_file = home.join(".nodewipeignore");
-        let content = std::fs::read_to_string(&ignore_file).unwrap_or_default();
+        let is_local = raw.starts_with("[local] ");
+        let pattern = raw.trim_start_matches("[local] ").to_string();
 
-        let new_content: String = content
-            .lines()
-            .filter(|l| l.trim() != pattern.as_str())
-            .map(|l| format!("{l}\n"))
-            .collect();
+        let ignore_file = if is_local {
+            self.root.join(".nodewipeignore")
+        } else {
+            let home =
+                dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
+            home.join(".nodewipeignore")
+        };
 
-        std::fs::write(&ignore_file, new_content)?;
+        if ignore_file.exists() {
+            let content = std::fs::read_to_string(&ignore_file).unwrap_or_default();
+            let new_content: String = content
+                .lines()
+                .filter(|l| l.trim() != pattern.as_str())
+                .map(|l| format!("{l}\n"))
+                .collect();
+            std::fs::write(&ignore_file, new_content)?;
+        }
+
         self.ignore_patterns = load_ignore_patterns(&self.root);
         self.ignored_patterns.remove(idx);
         if self.ignored_cursor > 0 && self.ignored_cursor >= self.ignored_patterns.len() {
             self.ignored_cursor = self.ignored_patterns.len().saturating_sub(1);
         }
+        self.status = format!("Removed ignore pattern: {pattern}");
         Ok(())
     }
 

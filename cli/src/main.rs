@@ -12,8 +12,8 @@ use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
     ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, add_ignored_pattern,
     annotate_workspace_roots, delete, find_stale_projects, group_by_workspace, history_append,
-    list_ignored_patterns, load_config, load_ignore_patterns, remove_ignored_pattern, restore,
-    scan,
+    list_ignored_patterns, load_config, load_ignore_patterns, remove_ignored_pattern_from_root,
+    restore, scan,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -291,7 +291,8 @@ fn cmd_ignore(command: IgnoreCommand, root: &Path, json: bool) -> Result<ExitCod
             }
             Ok(ExitCode::SUCCESS)
         }
-        IgnoreCommand::Remove { pattern } => match remove_ignored_pattern(&pattern) {
+        IgnoreCommand::Remove { pattern } => match remove_ignored_pattern_from_root(root, &pattern)
+        {
             Ok(removed) => {
                 if json {
                     println!(
@@ -304,9 +305,9 @@ fn cmd_ignore(command: IgnoreCommand, root: &Path, json: bool) -> Result<ExitCod
                         })
                     );
                 } else if removed {
-                    println!("✓ Removed pattern '{pattern}' from ~/.nodewipeignore");
+                    println!("✓ Removed pattern '{pattern}' from ignore list");
                 } else {
-                    println!("Pattern '{pattern}' not found in ~/.nodewipeignore");
+                    println!("Pattern '{pattern}' not found in .nodewipeignore files");
                 }
                 Ok(ExitCode::SUCCESS)
             }

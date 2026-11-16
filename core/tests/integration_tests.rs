@@ -1409,6 +1409,24 @@ fn test_ignore_management_lifecycle_and_root_safety() {
     // 6. Verify removed
     let list_after = list_ignored_patterns(temp_dir.path());
     assert!(!list_after.iter().any(|item| item.pattern == sample_str));
+
+    // 7. Verify local ignore file removal support
+    let local_ignore = temp_dir.path().join(".nodewipeignore");
+    std::fs::write(&local_ignore, "local_ignored_dir\nanother_dir\n").unwrap();
+    let local_list = list_ignored_patterns(temp_dir.path());
+    assert!(
+        local_list
+            .iter()
+            .any(|item| item.pattern == "local_ignored_dir")
+    );
+
+    let removed_local =
+        nodewipe_core::remove_ignored_pattern_from_root(temp_dir.path(), "local_ignored_dir")
+            .unwrap();
+    assert!(removed_local, "Local ignore pattern must be removed");
+    let content_after = std::fs::read_to_string(&local_ignore).unwrap();
+    assert!(!content_after.contains("local_ignored_dir"));
+    assert!(content_after.contains("another_dir"));
 }
 
 #[test]
