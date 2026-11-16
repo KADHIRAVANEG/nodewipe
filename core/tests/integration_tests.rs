@@ -507,6 +507,43 @@ fn test_restore_rejects_path_traversal() {
 
 #[cfg(unix)]
 #[test]
+fn test_restore_refuses_overwrite_on_broken_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // 1. Create a valid node_modules directory, archive it
+    let nm = root.join("node_modules");
+    fs::create_dir(&nm).unwrap();
+    fs::write(nm.join("index.js"), b"console.log('hello');").unwrap();
+
+    let res = delete(&nm, DeleteMode::Archive, 100).unwrap();
+    let archive_path = res.archive_path.unwrap();
+    assert!(archive_path.exists());
+    assert!(!nm.exists());
+
+    // 2. Create a broken symlink at 'node_modules' pointing to a non-existent path
+    let broken_target = root.join("non_existent_folder");
+    symlink(&broken_target, &nm).unwrap();
+
+    // In regular Path::exists(), a broken symlink returns false!
+    assert!(!nm.exists());
+    assert!(std::fs::symlink_metadata(&nm).is_ok());
+
+    // 3. Attempting to restore must refuse because a filesystem entry already exists!
+    let restore_err = restore(&archive_path).unwrap_err();
+    assert!(restore_err.to_string().contains("already exists"));
+
+    // Cleanup broken symlink and restore must then succeed
+    std::fs::remove_file(&nm).unwrap();
+    let restored = restore(&archive_path).unwrap();
+    assert_eq!(restored, nm);
+    assert!(nm.exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn test_symlink_delete_does_not_wipe_target() {
     use std::os::unix::fs::symlink;
 

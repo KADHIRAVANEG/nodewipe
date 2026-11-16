@@ -365,7 +365,7 @@ fn restore_snapshot(snapshot_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
     }
 
     let target = dest_dir.join(&original_name);
-    if target.exists() {
+    if std::fs::symlink_metadata(&target).is_ok() {
         anyhow::bail!(
             "refusing to restore: {} already exists (delete it first if you really want to overwrite)",
             target.display()
@@ -471,7 +471,7 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
 
     let restored_path = dest_dir.join(&restored_name);
 
-    if restored_path.exists() {
+    if std::fs::symlink_metadata(&restored_path).is_ok() {
         anyhow::bail!(
             "refusing to restore: {} already exists (delete it first if you really want to overwrite)",
             restored_path.display()
