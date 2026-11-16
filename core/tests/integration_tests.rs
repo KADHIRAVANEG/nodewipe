@@ -2,7 +2,7 @@ use nodewipe_core::history::{daily_totals, format_date, stats_by_ecosystem};
 use nodewipe_core::workspace::{annotate_workspace_roots, group_by_workspace};
 use nodewipe_core::{
     ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, classify_path, delete,
-    load_ignore_patterns, restore, scan,
+    find_archives, load_ignore_patterns, restore, scan,
 };
 use std::fs::{self, File};
 use std::io::Write;
@@ -1499,4 +1499,46 @@ fn test_yarn_cache_scan_and_delete() {
     assert_eq!(res.path, v6_dir);
     assert!(!v6_dir.exists());
     assert!(yarn_dir.exists(), "parent yarn folder must remain intact");
+}
+
+#[test]
+fn test_find_archives_discovers_both_tar_and_snapshots() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    // Create a mock .tar.gz archive
+    let tar_archive = root.join("project-a-node_modules-backup.tar.gz");
+    std::fs::write(&tar_archive, b"mock_tar_gz_bytes").unwrap();
+
+    // Create a mock .snapshot archive directory
+    let snapshot_archive = root.join("project-b-target-backup.snapshot");
+    std::fs::create_dir_all(&snapshot_archive).unwrap();
+    std::fs::write(snapshot_archive.join("dummy_file"), vec![0u8; 500]).unwrap();
+
+    // Create unrelated non-archive files/folders that should NOT be detected
+    let random_file = root.join("some-backup.txt");
+    std::fs::write(&random_file, b"not an archive").unwrap();
+    let random_dir = root.join("random.snapshot");
+    std::fs::create_dir_all(&random_dir).unwrap();
+
+    let archives = find_archives(root);
+    assert_eq!(
+        archives.len(),
+        2,
+        "must discover exactly the 2 valid backup archives"
+    );
+
+    let tar_found = archives
+        .iter()
+        .find(|a| a.path == tar_archive)
+        .expect("tar archive must be found");
+    assert!(!tar_found.is_snapshot);
+    assert_eq!(tar_found.size_bytes, b"mock_tar_gz_bytes".len() as u64);
+
+    let snapshot_found = archives
+        .iter()
+        .find(|a| a.path == snapshot_archive)
+        .expect("snapshot archive must be found");
+    assert!(snapshot_found.is_snapshot);
+    assert!(snapshot_found.size_bytes >= 500);
 }
