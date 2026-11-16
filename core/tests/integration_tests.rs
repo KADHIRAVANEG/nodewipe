@@ -423,6 +423,51 @@ fn test_history_stats_and_formatting() {
 }
 
 #[test]
+fn test_history_corruption_self_healing_and_recovery() {
+    use nodewipe_core::history::{append_to_path, load_from_path};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let history_file = tmp.path().join("history.json");
+
+    // 1. Write corrupted/truncated JSON
+    std::fs::write(&history_file, b"{\"truncated\": [").unwrap();
+
+    // 2. load_from_path must not fail; it must recover, back up the corrupt file, and return empty list
+    let loaded = load_from_path(&history_file).unwrap();
+    assert_eq!(loaded.len(), 0);
+
+    // Corrupted file was backed up
+    let has_backup = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("history.json.corrupt.")
+        });
+    assert!(
+        has_backup,
+        "Corrupted history file must be preserved as backup"
+    );
+
+    // 3. Appending a new entry must succeed cleanly on the healed database
+    let new_entry = HistoryEntry {
+        deleted_at: 1700000000,
+        date: "2023-11-14".into(),
+        path: "/path/to/recovered".into(),
+        kind: "node_modules".into(),
+        size_bytes: 1024,
+        mode: "trash".into(),
+    };
+    append_to_path(&history_file, new_entry).unwrap();
+
+    let reloaded = load_from_path(&history_file).unwrap();
+    assert_eq!(reloaded.len(), 1);
+    assert_eq!(reloaded[0].path, "/path/to/recovered");
+    assert_eq!(reloaded[0].size_bytes, 1024);
+}
+
+#[test]
 fn test_restore_rejects_path_traversal() {
     let dir = tempdir().unwrap();
     let root = dir.path();
