@@ -108,16 +108,14 @@ pub fn list_ignored_patterns(root: &Path) -> Vec<IgnoredPattern> {
     results
 }
 
-/// Removes a pattern from ~/.nodewipeignore.
-pub fn remove_ignored_pattern(pattern: &str) -> Result<bool, String> {
-    let home = dirs::home_dir().ok_or_else(|| "Cannot find user home directory".to_string())?;
-    let global_ignore = home.join(".nodewipeignore");
-    if !global_ignore.exists() {
+/// Removes a pattern from a specific ignore file.
+pub fn remove_ignored_pattern_from_file(ignore_file: &Path, pattern: &str) -> Result<bool, String> {
+    if !ignore_file.exists() {
         return Ok(false);
     }
 
-    let content = std::fs::read_to_string(&global_ignore)
-        .map_err(|e| format!("Failed to read {}: {e}", global_ignore.display()))?;
+    let content = std::fs::read_to_string(ignore_file)
+        .map_err(|e| format!("Failed to read {}: {e}", ignore_file.display()))?;
 
     let mut found = false;
     let mut new_lines = Vec::new();
@@ -134,11 +132,35 @@ pub fn remove_ignored_pattern(pattern: &str) -> Result<bool, String> {
         if !new_content.is_empty() {
             new_content.push('\n');
         }
-        std::fs::write(&global_ignore, new_content)
-            .map_err(|e| format!("Failed to write {}: {e}", global_ignore.display()))?;
+        std::fs::write(ignore_file, new_content)
+            .map_err(|e| format!("Failed to write {}: {e}", ignore_file.display()))?;
     }
 
     Ok(found)
+}
+
+/// Removes a pattern from either the local `./.nodewipeignore` under `root` or the global `~/.nodewipeignore`.
+pub fn remove_ignored_pattern_from_root(root: &Path, pattern: &str) -> Result<bool, String> {
+    let mut removed = false;
+
+    let local_ignore = root.join(".nodewipeignore");
+    if local_ignore.exists() && remove_ignored_pattern_from_file(&local_ignore, pattern)? {
+        removed = true;
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        let global_ignore = home.join(".nodewipeignore");
+        if global_ignore.exists() && remove_ignored_pattern_from_file(&global_ignore, pattern)? {
+            removed = true;
+        }
+    }
+
+    Ok(removed)
+}
+
+/// Removes a pattern from ~/.nodewipeignore or the current directory's .nodewipeignore.
+pub fn remove_ignored_pattern(pattern: &str) -> Result<bool, String> {
+    remove_ignored_pattern_from_root(Path::new("."), pattern)
 }
 
 pub fn is_ignored(path: &Path, ignore: &Gitignore) -> bool {

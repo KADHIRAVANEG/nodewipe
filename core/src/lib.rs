@@ -25,6 +25,7 @@ pub use ignore::gitignore::Gitignore;
 pub use ignorefile::{
     IgnoreSource, IgnoredPattern, add_ignored_pattern, list_ignored_patterns,
     load_patterns as load_ignore_patterns, remove_ignored_pattern,
+    remove_ignored_pattern_from_file, remove_ignored_pattern_from_root,
 };
 pub use interner::PathInterner;
 pub use model::{ArtifactKind, Entry, GitStatus, PackageManager, ScanOptions, WorkspaceGroup};
