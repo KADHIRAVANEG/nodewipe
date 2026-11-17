@@ -9,7 +9,7 @@ inputs:
   version:
     description: 'Version of nodewipe to install and run'
     required: false
-    default: 'v0.9.2'
+    default: 'v0.9.3'
   path:
     description: 'Path or directories to scan and clean'
     required: false

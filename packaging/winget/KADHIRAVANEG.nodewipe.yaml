@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
 PackageIdentifier: KADHIRAVANEG.nodewipe
-PackageVersion: 0.9.2
+PackageVersion: 0.9.3
 PackageName: nodewipe
 Publisher: KADHIRAVANEG
 PublisherUrl: https://github.com/KADHIRAVANEG
@@ -25,7 +25,7 @@ Commands:
 Installers:
   - Architecture: x64
     InstallerType: portable
-    InstallerUrl: https://github.com/KADHIRAVANEG/nodewipe/releases/download/v0.9.2/nodewipe-windows-x86_64.exe
+    InstallerUrl: https://github.com/KADHIRAVANEG/nodewipe/releases/download/v0.9.3/nodewipe-windows-x86_64.exe
     InstallerSha256: 523cbea6d3fbc1348787499a3e1d71fbc0419f0c3a5d157a81480e075096b904
     Commands:
       - nodewipe
