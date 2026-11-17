@@ -31,7 +31,7 @@ pub fn legacy_npkillrc_path() -> Option<PathBuf> {
 }
 
 /// Loads the config file if present. If ~/.config/nodewipe/config.toml is missing,
-/// checks for a legacy ~/.npkillrc file (npkill #214 compatibility).
+/// checks for a legacy ~/.npkillrc file for smooth configuration migration.
 pub fn load_config() -> Config {
     if let Some(path) = config_path()
         && path.exists()
@@ -46,7 +46,7 @@ pub fn load_config() -> Config {
         });
     }
 
-    // Fall back to legacy .npkillrc if present (npkill #214)
+    // Fall back to legacy .npkillrc if present for backwards compatibility
     if let Some(npkillrc) = legacy_npkillrc_path()
         && npkillrc.exists()
         && let Ok(content) = std::fs::read_to_string(&npkillrc)

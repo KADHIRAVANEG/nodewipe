@@ -522,8 +522,8 @@ impl Default for ScanOptions {
     }
 }
 
-/// Grouped view of entries under a common workspace root (fixes npkill#104:
-/// monorepos flooding the flat result list).
+/// Grouped view of entries under a common workspace root (prevents
+/// monorepos from flooding the flat result list).
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceGroup {
     pub root: PathBuf,

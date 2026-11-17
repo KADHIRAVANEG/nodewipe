@@ -14,7 +14,7 @@ const WORKSPACE_MARKERS: &[&str] = &[
 /// parent) looking for a monorepo marker file, or a `package.json` containing
 /// a `"workspaces"` field. The nearest match becomes `workspace_root`.
 ///
-/// This is what fixes npkill#104: instead of a flat list of 50 node_modules
+/// Enables monorepo workspace collapsing: instead of a flat list of 50 artifact directories
 /// in a monorepo, the caller (CLI/GUI) can render one collapsible group per
 /// workspace root.
 pub fn annotate_workspace_roots(entries: &mut [Entry], scan_root: &Path) {

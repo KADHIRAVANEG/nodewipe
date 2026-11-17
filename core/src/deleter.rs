@@ -12,12 +12,12 @@ pub struct DiscoveredArchive {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum DeleteMode {
-    /// Moves to the OS trash/recycle bin — recoverable. Fixes npkill#60.
+    /// Moves to the OS trash/recycle bin — recoverable.
     Trash,
     /// Compresses to a `.tar.gz` next to the directory before permanently
-    /// removing the original. Fixes npkill#46.
+    /// removing the original.
     Archive,
-    /// Immediate, unrecoverable removal (the only option npkill has today).
+    /// Immediate, unrecoverable removal.
     Permanent,
 }
 

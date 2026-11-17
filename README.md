@@ -251,7 +251,7 @@ nodewipe doctor ~
 
  Ecosystem               Count        Total   Oldest      Oldest path
  ────────────────────────────────────────────────────────────────────────────────
- Cargo target                1      10.8 GB   20 days     /home/kadhir/Projects/npkill-rs/target
+ Cargo target                1      10.8 GB   20 days     /home/kadhir/Projects/nodewipe/target
  Python venv                12       1.8 GB  145 days     /home/kadhir/Projects/.../venv
  node_modules               17       1.4 GB  114 days     /home/kadhir/Projects/.../node_modules
  Go build cache              1     211.5 MB   18 days     /home/kadhir/.cache/go-build
@@ -263,7 +263,7 @@ nodewipe doctor ~
  ────────────────────────────────────────────────────────────────────────────────
 
  Top space consumers:
-   10.8 GB  (20d ago)  /home/kadhir/Projects/npkill-rs/target
+   10.8 GB  (20d ago)  /home/kadhir/Projects/nodewipe/target
     1.2 GB  (13d ago)  /home/kadhir/Projects/crashandlearn/venv
    211.5 MB (18d ago)  /home/kadhir/.cache/go-build
 ```
@@ -384,11 +384,11 @@ default_exclude_types = ["venv", "rust_target"]
 
 ---
 
-## 🥊 Comparison with npkill
+## 🥊 Performance & Architecture Comparison
 
-`nodewipe` was built to address long-standing limitations in original Node-based cleanup utilities:
+`nodewipe` is engineered from the ground up for modern, high-volume developer workspaces and multi-language stacks:
 
-| Feature / Issue | `npkill` | `nodewipe` |
+| Feature / Architecture | Legacy Node Cleaners | `nodewipe` |
 |---|:---:|:---:|
 | **Language & Engine** | Node.js (V8 runtime) | **Pure Rust (`rayon` multithreaded)** |
 | **Supported Ecosystems** | `node_modules` only | **39+ (Node, Rust, Python, Java, Go, .NET, PHP, Caches, AI/ML, Mobile, Native)** |

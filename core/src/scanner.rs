@@ -372,17 +372,16 @@ fn classify(entry: &DirEntry) -> Option<ArtifactKind> {
 /// Walks `opts.root` and returns every discovered disposable artifact
 /// directory (node_modules, venvs, build outputs, caches, ...).
 ///
-/// Correctness notes (these are the specific bugs this fixes vs. npkill):
+/// Correctness and traversal principles:
 ///
 /// 1. Once a directory is classified as an artifact, we DO NOT recurse into
-///    it. Big perf win (npkill#172/#121), and avoids ever reporting something
+///    it. This is a critical performance win and avoids ever reporting something
 ///    *inside* an artifact (e.g. pnpm's internal `.pnpm` store inside `node_modules`)
 ///    as if it were a separate deletable unit.
 ///
 /// 2. Skipping recursion into a matched directory does NOT stop the walk
-///    from continuing into *sibling* directories — this is what fixes
-///    npkill#199/#191: excluding/skipping one artifact must never cause
-///    nested project directories elsewhere (e.g. `apps/*/node_modules` in a
+///    from continuing into *sibling* directories. Excluding or skipping one artifact
+///    must never cause nested project directories elsewhere (e.g. `apps/*/node_modules` in a
 ///    monorepo) to be missed.
 ///
 /// 3. Symlinks are not followed by default, avoiding infinite loops and
@@ -640,7 +639,7 @@ pub fn dir_size(path: &Path) -> u64 {
 }
 
 /// Looks at the parent directory of `node_modules` for lockfiles to infer
-/// which package manager created it (fixes ambiguity behind npkill#75).
+/// which package manager created it.
 fn detect_package_manager(node_modules_path: &Path) -> PackageManager {
     let project_root = match node_modules_path.parent() {
         Some(p) => p,
