@@ -7,6 +7,7 @@ const path = require("path");
 
 const REPO = "KADHIRAVANEG/nodewipe"; 
 const BIN_DIR = path.join(__dirname, "..", "bin");
+const PKG = require("../package.json");
 
 function assetNameForPlatform() {
   const platform = process.platform;
@@ -42,14 +43,21 @@ function download(url, dest, redirectsLeft = 5) {
 
 async function main() {
   const asset = assetNameForPlatform();
-  const url = `https://github.com/${REPO}/releases/latest/download/${asset}`;
+  const version = PKG.version;
+  const versionedUrl = `https://github.com/${REPO}/releases/download/v${version}/${asset}`;
+  const latestUrl = `https://github.com/${REPO}/releases/latest/download/${asset}`;
   const binName = process.platform === "win32" ? "nodewipe.exe" : "nodewipe";
   const dest = path.join(BIN_DIR, binName);
 
   fs.mkdirSync(BIN_DIR, { recursive: true });
 
-  console.log(`nodewipe: downloading ${asset} ...`);
-  await download(url, dest);
+  console.log(`nodewipe: downloading ${asset} (v${version}) ...`);
+  try {
+    await download(versionedUrl, dest);
+  } catch (err) {
+    console.warn(`nodewipe: exact version v${version} asset not found (${err.message}), falling back to latest release...`);
+    await download(latestUrl, dest);
+  }
 
   if (process.platform !== "win32") {
     fs.chmodSync(dest, 0o755);

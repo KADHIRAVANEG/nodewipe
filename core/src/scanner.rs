@@ -494,12 +494,22 @@ fn scan_dir_parallel(
         }
 
         if let Some(kind) = classify_path(&child_path) {
+            let matched_nm = kind == ArtifactKind::NodeModules;
+            let nm_included =
+                matched_nm && !opts.exclude_kinds.contains(&ArtifactKind::NodeModules);
+
             if !opts.exclude_kinds.contains(&kind) {
                 matches.push((kind, child_path.clone()));
             }
-            if kind == ArtifactKind::NodeModules {
+            // Only discover child .ignored if parent node_modules is not an active deletion target.
+            // When parent node_modules is deleted, it already deletes .ignored; returning both
+            // creates overlapping deletion targets and double-counts storage.
+            if matched_nm
+                && !nm_included
+                && !opts.exclude_kinds.contains(&ArtifactKind::PnpmIgnored)
+            {
                 let ignored = child_path.join(".ignored");
-                if ignored.is_dir() && !opts.exclude_kinds.contains(&ArtifactKind::PnpmIgnored) {
+                if ignored.is_dir() {
                     matches.push((ArtifactKind::PnpmIgnored, ignored));
                 }
             }
@@ -552,12 +562,19 @@ fn scan_sequential(opts: &ScanOptions) -> Result<Vec<(ArtifactKind, PathBuf)>> {
         }
 
         if let Some(kind) = classify(&entry) {
+            let matched_nm = kind == ArtifactKind::NodeModules;
+            let nm_included =
+                matched_nm && !opts.exclude_kinds.contains(&ArtifactKind::NodeModules);
+
             if !opts.exclude_kinds.contains(&kind) {
                 matches.push((kind, entry.path().to_path_buf()));
             }
-            if kind == ArtifactKind::NodeModules {
+            if matched_nm
+                && !nm_included
+                && !opts.exclude_kinds.contains(&ArtifactKind::PnpmIgnored)
+            {
                 let ignored = entry.path().join(".ignored");
-                if ignored.is_dir() && !opts.exclude_kinds.contains(&ArtifactKind::PnpmIgnored) {
+                if ignored.is_dir() {
                     matches.push((ArtifactKind::PnpmIgnored, ignored));
                 }
             }
@@ -589,14 +606,7 @@ fn build_entry(
     compute_sizes: bool,
     interner: &PathInterner,
 ) -> Entry {
-    let mut size_bytes = if compute_sizes { dir_size(path) } else { 0 };
-    if kind == ArtifactKind::NodeModules && compute_sizes {
-        let ignored = path.join(".ignored");
-        if ignored.is_dir() {
-            let ignored_size = dir_size(&ignored);
-            size_bytes = size_bytes.saturating_sub(ignored_size);
-        }
-    }
+    let size_bytes = if compute_sizes { dir_size(path) } else { 0 };
     let last_modified = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     let package_manager = if kind == ArtifactKind::NodeModules {
         Some(detect_package_manager(path))

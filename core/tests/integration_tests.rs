@@ -513,6 +513,50 @@ fn test_history_corruption_self_healing_and_recovery() {
 }
 
 #[test]
+fn test_concurrent_history_appends_lossless() {
+    use nodewipe_core::history::{append_to_path, load_from_path};
+    use std::sync::Arc;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let history_file = Arc::new(tmp.path().join("concurrent_history.json"));
+
+    let num_threads = 20;
+    let mut handles = Vec::new();
+
+    for i in 0..num_threads {
+        let path_clone = Arc::clone(&history_file);
+        handles.push(std::thread::spawn(move || {
+            let entry = HistoryEntry {
+                deleted_at: 1700000000 + i as u64,
+                date: "2026-11-17".into(),
+                path: format!("/path/to/project_{i}"),
+                kind: "node_modules".into(),
+                size_bytes: 1000 + i as u64,
+                mode: "trash".into(),
+            };
+            append_to_path(&path_clone, entry).expect("concurrent append must succeed");
+        }));
+    }
+
+    for h in handles {
+        h.join().expect("thread should join cleanly");
+    }
+
+    let entries = load_from_path(&history_file).expect("history must load cleanly");
+    assert_eq!(
+        entries.len(),
+        num_threads,
+        "Every concurrent entry must be safely preserved without race conditions"
+    );
+
+    // Verify all 20 unique paths are present
+    let paths: std::collections::HashSet<String> = entries.into_iter().map(|e| e.path).collect();
+    for i in 0..num_threads {
+        assert!(paths.contains(&format!("/path/to/project_{i}")));
+    }
+}
+
+#[test]
 fn test_restore_rejects_path_traversal() {
     let dir = tempdir().unwrap();
     let root = dir.path();
@@ -1677,34 +1721,42 @@ fn test_pnpm_ignored_subfolder_detection_and_surgical_deletion() {
     std::fs::write(pnpm_ignored.join("old-package.js"), vec![0u8; 1000]).unwrap();
     std::fs::write(active_pkg.join("index.js"), vec![0u8; 500]).unwrap();
 
-    let opts = nodewipe_core::ScanOptions {
+    // 1. Default scan: returns node_modules (which contains the full package payload)
+    // without returning overlapping child targets
+    let default_opts = nodewipe_core::ScanOptions {
         root: root.to_path_buf(),
         ..Default::default()
     };
-
-    let entries = nodewipe_core::scan(&opts).unwrap();
-
-    // Must find both entries: node_modules and node_modules/.ignored
-    let nm_entry = entries
-        .iter()
-        .find(|e| e.kind == ArtifactKind::NodeModules)
-        .expect("Must find node_modules entry");
-    assert!(
-        nm_entry.size_bytes >= 500,
-        "node_modules size must reflect active package payload"
+    let entries = nodewipe_core::scan(&default_opts).unwrap();
+    assert_eq!(
+        entries.len(),
+        1,
+        "Default scan must not return overlapping parent & child entries"
     );
-    let ignored_entry = entries
-        .iter()
-        .find(|e| e.kind == ArtifactKind::PnpmIgnored)
-        .expect("Must find pnpm .ignored entry");
+    let nm_entry = &entries[0];
+    assert_eq!(nm_entry.kind, ArtifactKind::NodeModules);
+    assert!(
+        nm_entry.size_bytes >= 1500,
+        "node_modules size must reflect full directory payload"
+    );
 
+    // 2. Surgical scan targeting only pnpm_ignored (with NodeModules excluded)
+    let surgical_opts = nodewipe_core::ScanOptions {
+        root: root.to_path_buf(),
+        exclude_kinds: vec![ArtifactKind::NodeModules],
+        ..Default::default()
+    };
+    let surgical_entries = nodewipe_core::scan(&surgical_opts).unwrap();
+    assert_eq!(surgical_entries.len(), 1);
+    let ignored_entry = &surgical_entries[0];
+    assert_eq!(ignored_entry.kind, ArtifactKind::PnpmIgnored);
     assert_eq!(ignored_entry.path, pnpm_ignored);
     assert!(
         ignored_entry.size_bytes >= 1000,
         "ignored size must reflect payload"
     );
 
-    // Verify surgical delete: deleting ONLY .ignored
+    // 3. Verify surgical delete: deleting ONLY .ignored
     let res = delete(&pnpm_ignored, DeleteMode::Trash, ignored_entry.size_bytes).unwrap();
     assert_eq!(res.path, pnpm_ignored);
     assert!(!pnpm_ignored.exists(), ".ignored must be deleted");
