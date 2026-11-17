@@ -250,6 +250,11 @@ pub enum Command {
         /// Minimum file size in bytes to consider for deduplication (default: 64).
         #[arg(long, default_value_t = 64)]
         min_size: u64,
+
+        /// Allow hardlinks when Copy-on-Write (reflink) is unsupported by the filesystem.
+        /// WARNING: Hardlinks cause subsequent in-place edits to affect all linked files.
+        #[arg(long)]
+        allow_hardlinks: bool,
     },
 
     /// Manage ignored directory patterns (.nodewipeignore).

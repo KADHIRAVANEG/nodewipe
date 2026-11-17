@@ -187,7 +187,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             paths,
             dry_run,
             min_size,
-        }) => cmd_dedupe(paths, dry_run, min_size, cli.json),
+            allow_hardlinks,
+        }) => cmd_dedupe(paths, dry_run, min_size, allow_hardlinks, cli.json),
         Some(Command::Ignore { command }) => cmd_ignore(command, &root, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
         Some(Command::Config { action }) => cmd_config(action, cli.json),
@@ -548,6 +549,7 @@ fn cmd_dedupe(
     mut paths: Vec<PathBuf>,
     dry_run: bool,
     min_size: u64,
+    allow_hardlinks: bool,
     json: bool,
 ) -> Result<ExitCode> {
     if paths.is_empty() {
@@ -563,12 +565,17 @@ fn cmd_dedupe(
             println!(
                 " [DRY-RUN MODE] Previewing potential storage savings without modifying files.\n"
             );
+        } else if allow_hardlinks {
+            eprintln!(
+                " ⚠️  Warning: --allow-hardlinks enabled. Linked files will share inodes; in-place edits to one file will affect all linked copies.\n"
+            );
         }
     }
 
     let opts = nodewipe_core::DedupeOptions {
         dry_run,
         min_size_bytes: min_size,
+        allow_hardlinks,
     };
 
     let stats =
