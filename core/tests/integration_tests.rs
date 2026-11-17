@@ -1721,34 +1721,42 @@ fn test_pnpm_ignored_subfolder_detection_and_surgical_deletion() {
     std::fs::write(pnpm_ignored.join("old-package.js"), vec![0u8; 1000]).unwrap();
     std::fs::write(active_pkg.join("index.js"), vec![0u8; 500]).unwrap();
 
-    let opts = nodewipe_core::ScanOptions {
+    // 1. Default scan: returns node_modules (which contains the full package payload)
+    // without returning overlapping child targets
+    let default_opts = nodewipe_core::ScanOptions {
         root: root.to_path_buf(),
         ..Default::default()
     };
-
-    let entries = nodewipe_core::scan(&opts).unwrap();
-
-    // Must find both entries: node_modules and node_modules/.ignored
-    let nm_entry = entries
-        .iter()
-        .find(|e| e.kind == ArtifactKind::NodeModules)
-        .expect("Must find node_modules entry");
-    assert!(
-        nm_entry.size_bytes >= 500,
-        "node_modules size must reflect active package payload"
+    let entries = nodewipe_core::scan(&default_opts).unwrap();
+    assert_eq!(
+        entries.len(),
+        1,
+        "Default scan must not return overlapping parent & child entries"
     );
-    let ignored_entry = entries
-        .iter()
-        .find(|e| e.kind == ArtifactKind::PnpmIgnored)
-        .expect("Must find pnpm .ignored entry");
+    let nm_entry = &entries[0];
+    assert_eq!(nm_entry.kind, ArtifactKind::NodeModules);
+    assert!(
+        nm_entry.size_bytes >= 1500,
+        "node_modules size must reflect full directory payload"
+    );
 
+    // 2. Surgical scan targeting only pnpm_ignored (with NodeModules excluded)
+    let surgical_opts = nodewipe_core::ScanOptions {
+        root: root.to_path_buf(),
+        exclude_kinds: vec![ArtifactKind::NodeModules],
+        ..Default::default()
+    };
+    let surgical_entries = nodewipe_core::scan(&surgical_opts).unwrap();
+    assert_eq!(surgical_entries.len(), 1);
+    let ignored_entry = &surgical_entries[0];
+    assert_eq!(ignored_entry.kind, ArtifactKind::PnpmIgnored);
     assert_eq!(ignored_entry.path, pnpm_ignored);
     assert!(
         ignored_entry.size_bytes >= 1000,
         "ignored size must reflect payload"
     );
 
-    // Verify surgical delete: deleting ONLY .ignored
+    // 3. Verify surgical delete: deleting ONLY .ignored
     let res = delete(&pnpm_ignored, DeleteMode::Trash, ignored_entry.size_bytes).unwrap();
     assert_eq!(res.path, pnpm_ignored);
     assert!(!pnpm_ignored.exists(), ".ignored must be deleted");
