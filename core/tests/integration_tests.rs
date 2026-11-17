@@ -505,6 +505,59 @@ fn test_restore_rejects_path_traversal() {
     assert!(err.to_string().contains("parent directory component '..'"));
 }
 
+#[test]
+fn test_restore_rejects_entries_outside_artifact_root() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Existing project file that must never be overwritten
+    let pkg_json = root.join("package.json");
+    std::fs::write(&pkg_json, b"ORIGINAL_CONTENT").unwrap();
+
+    // Craft tar archive containing both node_modules/a.txt and package.json
+    let multi_archive = root.join("multi-node_modules-backup.tar.gz");
+    let file = File::create(&multi_archive).unwrap();
+    let enc = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+    let mut builder = tar::Builder::new(enc);
+
+    // 1. Valid entry under node_modules
+    let mut header1 = tar::Header::new_gnu();
+    header1.set_size(5);
+    header1.set_mode(0o644);
+    header1.set_cksum();
+    builder
+        .append_data(&mut header1, "node_modules/a.txt", b"hello".as_slice())
+        .unwrap();
+
+    // 2. Malicious entry attempting to overwrite package.json outside node_modules
+    let mut header2 = tar::Header::new_gnu();
+    header2.set_size(11);
+    header2.set_mode(0o644);
+    header2.set_cksum();
+    builder
+        .append_data(&mut header2, "package.json", b"OVERWRITTEN".as_slice())
+        .unwrap();
+
+    let enc = builder.into_inner().unwrap();
+    enc.finish().unwrap();
+
+    // Attempting restore must fail before extracting or overwriting
+    let err = restore(&multi_archive).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("outside the permitted artifact directory"),
+        "error must mention outside permitted artifact directory, got: {err}"
+    );
+
+    // Verify package.json is 100% untouched
+    assert_eq!(
+        std::fs::read_to_string(&pkg_json).unwrap(),
+        "ORIGINAL_CONTENT"
+    );
+    // Verify node_modules was not partially left behind in root
+    assert!(!root.join("node_modules").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn test_restore_refuses_overwrite_on_broken_symlink() {

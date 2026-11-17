@@ -448,10 +448,28 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
             );
         }
 
-        if restored_name.is_none()
-            && let Some(first) = path.components().next()
-        {
-            restored_name = Some(first.as_os_str().to_string_lossy().to_string());
+        // Validate top-level containment: every entry must belong to the exact same artifact root
+        let top_level = path.components().find_map(|c| match c {
+            std::path::Component::CurDir => None,
+            std::path::Component::Normal(s) => Some(s.to_string_lossy().to_string()),
+            _ => None,
+        });
+
+        if let Some(comp) = top_level {
+            match &restored_name {
+                None => {
+                    restored_name = Some(comp);
+                }
+                Some(expected) => {
+                    if &comp != expected {
+                        anyhow::bail!(
+                            "malicious archive: entry '{}' is outside the permitted artifact directory '{}'",
+                            path.display(),
+                            expected
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -478,13 +496,33 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
         );
     }
 
-    // Re-open and unpack safely
+    // Unpack into an isolated staging directory in dest_dir first, then atomically install
+    let staging_dir = tempfile::Builder::new()
+        .prefix(".nodewipe_restore_staging_")
+        .tempdir_in(dest_dir)
+        .context("creating secure staging directory for restore")?;
+
     let file = File::open(archive_path)?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
     archive
-        .unpack(dest_dir)
+        .unpack(staging_dir.path())
         .with_context(|| format!("failed to extract {}", archive_path.display()))?;
+
+    let staged_artifact = staging_dir.path().join(&restored_name);
+    if std::fs::symlink_metadata(&staged_artifact).is_err() {
+        anyhow::bail!(
+            "archive extraction did not produce expected directory '{}'",
+            restored_name
+        );
+    }
+
+    std::fs::rename(&staged_artifact, &restored_path).with_context(|| {
+        format!(
+            "failed to install restored directory to {}",
+            restored_path.display()
+        )
+    })?;
 
     Ok(restored_path)
 }
