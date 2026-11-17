@@ -1472,6 +1472,7 @@ fn test_dedupe_dry_run_and_execution() {
     let dry_opts = DedupeOptions {
         dry_run: true,
         min_size_bytes: 10,
+        allow_hardlinks: false,
     };
     let dry_stats = dedupe_paths(&[root.to_path_buf()], &dry_opts).unwrap();
     assert_eq!(dry_stats.files_scanned, 3);
@@ -1479,15 +1480,30 @@ fn test_dedupe_dry_run_and_execution() {
     assert_eq!(dry_stats.duplicate_files_linked, 0);
     assert_eq!(dry_stats.reclaimed_bytes, payload.len() as u64);
 
-    // 2. Real deduplication run
-    let real_opts = DedupeOptions {
+    // 2. Safe default: allow_hardlinks: false (refuses hardlinking independent files)
+    let safe_opts = DedupeOptions {
         dry_run: false,
         min_size_bytes: 10,
+        allow_hardlinks: false,
     };
-    let real_stats = dedupe_paths(&[root.to_path_buf()], &real_opts).unwrap();
-    assert_eq!(real_stats.duplicate_files_found, 1);
-    assert_eq!(real_stats.duplicate_files_linked, 1);
-    assert_eq!(real_stats.reclaimed_bytes, payload.len() as u64);
+    let safe_stats = dedupe_paths(&[root.to_path_buf()], &safe_opts).unwrap();
+    assert_eq!(safe_stats.duplicate_files_found, 1);
+    // On systems without reflink (such as standard CI / ext4 / tmpfs), no hardlinks are forced
+    if !nodewipe_core::supports_reflink(root) {
+        assert_eq!(safe_stats.duplicate_files_linked, 0);
+        assert_eq!(safe_stats.reclaimed_bytes, 0);
+    }
+
+    // 3. Explicit opt-in: allow_hardlinks: true
+    let hardlink_opts = DedupeOptions {
+        dry_run: false,
+        min_size_bytes: 10,
+        allow_hardlinks: true,
+    };
+    let hardlink_stats = dedupe_paths(&[root.to_path_buf()], &hardlink_opts).unwrap();
+    assert_eq!(hardlink_stats.duplicate_files_found, 1);
+    assert_eq!(hardlink_stats.duplicate_files_linked, 1);
+    assert_eq!(hardlink_stats.reclaimed_bytes, payload.len() as u64);
 
     // Verify both files still exist and have intact identical content
     assert_eq!(fs::read(&file1).unwrap(), payload);
@@ -1501,8 +1517,8 @@ fn test_dedupe_dry_run_and_execution() {
         assert_eq!(m1.ino(), m2.ino(), "deduplicated files must share inode");
     }
 
-    // 3. Re-running on already-deduplicated files detects 0 duplicates
-    let second_run = dedupe_paths(&[root.to_path_buf()], &real_opts).unwrap();
+    // 4. Re-running on already-deduplicated files detects 0 duplicates
+    let second_run = dedupe_paths(&[root.to_path_buf()], &hardlink_opts).unwrap();
     assert_eq!(second_run.duplicate_files_found, 0);
     assert_eq!(second_run.duplicate_files_linked, 0);
 }
