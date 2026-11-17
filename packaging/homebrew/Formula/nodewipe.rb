@@ -1,7 +1,7 @@
 class Nodewipe < Formula
-  desc "Find and reclaim disk space from stray dev artifacts across 13+ ecosystems"
+  desc "Find and reclaim disk space from stray dev artifacts across 39+ ecosystems"
   homepage "https://github.com/KADHIRAVANEG/nodewipe"
-  version "0.9.0"
+  version "0.9.1"
   license "MIT"
 
   on_macos do
