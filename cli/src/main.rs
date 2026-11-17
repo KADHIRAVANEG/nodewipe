@@ -362,18 +362,19 @@ fn parse_duration(s: &str) -> Result<Duration> {
         Some(c) if c.is_ascii_alphabetic() => (&s[..s.len() - 1], c.to_ascii_lowercase()),
         _ => (s, 'd'),
     };
-    let n: u64 = num_part
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid duration '{s}', expected e.g. 30d, 2w, 6m, 1y"))?;
+    let n: u64 = num_part.parse().map_err(|_| {
+        anyhow::anyhow!("invalid duration '{s}', expected e.g. 24h, 30d, 2w, 6m, 1y")
+    })?;
 
-    let days = match unit {
-        'd' => n,
-        'w' => n * 7,
-        'm' => n * 30,
-        'y' => n * 365,
-        _ => anyhow::bail!("invalid duration unit in '{s}', expected d/w/m/y"),
+    let secs = match unit {
+        'h' => n * 3600,
+        'd' => n * 86400,
+        'w' => n * 7 * 86400,
+        'm' => n * 30 * 86400,
+        'y' => n * 365 * 86400,
+        _ => anyhow::bail!("invalid duration unit in '{s}', expected h/d/w/m/y"),
     };
-    Ok(Duration::from_secs(days * 24 * 60 * 60))
+    Ok(Duration::from_secs(secs))
 }
 
 fn atty_stdout() -> bool {
@@ -1129,6 +1130,10 @@ mod tests {
 
     #[test]
     fn test_parse_duration() {
+        assert_eq!(
+            parse_duration("24h").unwrap(),
+            Duration::from_secs(24 * 3600)
+        );
         assert_eq!(
             parse_duration("10d").unwrap(),
             Duration::from_secs(10 * 86400)
