@@ -73,9 +73,12 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
 
             if use_reflink {
                 let snapshot = snapshot_path_for(path);
-                crate::reflink::reflink_dir(path, &snapshot).with_context(|| {
-                    format!("failed to create reflink snapshot of {}", path.display())
-                })?;
+                if let Err(e) = crate::reflink::reflink_dir(path, &snapshot) {
+                    let _ = std::fs::remove_dir_all(&snapshot);
+                    return Err(e).with_context(|| {
+                        format!("failed to create reflink snapshot of {}", path.display())
+                    });
+                }
                 if let Some(artifact_name) = path.file_name() {
                     let _ = std::fs::write(
                         snapshot.join(".nodewipe_snapshot_meta"),
@@ -88,8 +91,10 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
                 Some(snapshot)
             } else {
                 let archive = archive_path_for(path);
-                create_archive(path, &archive)
-                    .with_context(|| format!("failed to archive {}", path.display()))?;
+                if let Err(e) = create_archive(path, &archive) {
+                    let _ = std::fs::remove_file(&archive);
+                    return Err(e).with_context(|| format!("failed to archive {}", path.display()));
+                }
                 std::fs::remove_dir_all(path).with_context(|| {
                     format!("failed to remove {} after archiving", path.display())
                 })?;
@@ -207,15 +212,37 @@ fn archive_path_for(artifact_path: &Path) -> PathBuf {
 
 fn create_archive(src_dir: &Path, dest_tar_gz: &Path) -> Result<()> {
     // Open with create_new or check to protect existing archives
-    let file = File::create(dest_tar_gz)?;
+    let file = File::create(dest_tar_gz)
+        .with_context(|| format!("failed to create archive file {}", dest_tar_gz.display()))?;
     let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
     let mut builder = tar::Builder::new(encoder);
+
+    // Safety: Preserve symlinks as symlinks rather than following them.
+    // Following symlinks can dereference external directories, inflating archives
+    // and copying arbitrary parent trees outside the artifact.
+    builder.follow_symlinks(false);
+
     let archive_entry_name = src_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("artifact");
-    builder.append_dir_all(archive_entry_name, src_dir)?;
-    builder.finish()?;
+    builder
+        .append_dir_all(archive_entry_name, src_dir)
+        .with_context(|| format!("failed to add {} to archive", src_dir.display()))?;
+    builder
+        .finish()
+        .with_context(|| format!("failed to finish tar archive for {}", src_dir.display()))?;
+
+    // Explicitly finalize the underlying gzip stream.
+    // GzEncoder only flushes its final compression blocks and CRC32/ISIZE footer on finish().
+    // If not explicitly finished, errors during final compression write are dropped during Drop,
+    // which could lead to deleting the original directory when the archive is corrupt.
+    let encoder = builder
+        .into_inner()
+        .context("retrieving gzip encoder from tar builder")?;
+    let file = encoder.finish().context("finalizing gzip stream")?;
+    file.sync_all().context("syncing archive to disk")?;
+
     Ok(())
 }
 
@@ -448,10 +475,28 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
             );
         }
 
-        if restored_name.is_none()
-            && let Some(first) = path.components().next()
-        {
-            restored_name = Some(first.as_os_str().to_string_lossy().to_string());
+        // Validate top-level containment: every entry must belong to the exact same artifact root
+        let top_level = path.components().find_map(|c| match c {
+            std::path::Component::CurDir => None,
+            std::path::Component::Normal(s) => Some(s.to_string_lossy().to_string()),
+            _ => None,
+        });
+
+        if let Some(comp) = top_level {
+            match &restored_name {
+                None => {
+                    restored_name = Some(comp);
+                }
+                Some(expected) => {
+                    if &comp != expected {
+                        anyhow::bail!(
+                            "malicious archive: entry '{}' is outside the permitted artifact directory '{}'",
+                            path.display(),
+                            expected
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -478,13 +523,33 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
         );
     }
 
-    // Re-open and unpack safely
+    // Unpack into an isolated staging directory in dest_dir first, then atomically install
+    let staging_dir = tempfile::Builder::new()
+        .prefix(".nodewipe_restore_staging_")
+        .tempdir_in(dest_dir)
+        .context("creating secure staging directory for restore")?;
+
     let file = File::open(archive_path)?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
     archive
-        .unpack(dest_dir)
+        .unpack(staging_dir.path())
         .with_context(|| format!("failed to extract {}", archive_path.display()))?;
+
+    let staged_artifact = staging_dir.path().join(&restored_name);
+    if std::fs::symlink_metadata(&staged_artifact).is_err() {
+        anyhow::bail!(
+            "archive extraction did not produce expected directory '{}'",
+            restored_name
+        );
+    }
+
+    std::fs::rename(&staged_artifact, &restored_path).with_context(|| {
+        format!(
+            "failed to install restored directory to {}",
+            restored_path.display()
+        )
+    })?;
 
     Ok(restored_path)
 }

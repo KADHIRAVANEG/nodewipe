@@ -30,6 +30,9 @@ pub struct DedupeOptions {
     pub dry_run: bool,
     /// Minimum file size in bytes to consider for deduplication (default: 64B).
     pub min_size_bytes: u64,
+    /// Explicitly allow hardlinks when Copy-on-Write (reflink) is unsupported by the filesystem.
+    /// WARNING: Hardlinks cause subsequent in-place edits to affect all linked files.
+    pub allow_hardlinks: bool,
 }
 
 impl Default for DedupeOptions {
@@ -37,6 +40,7 @@ impl Default for DedupeOptions {
         Self {
             dry_run: false,
             min_size_bytes: 64,
+            allow_hardlinks: false,
         }
     }
 }
@@ -96,10 +100,12 @@ pub fn dedupe_paths(targets: &[PathBuf], opts: &DedupeOptions) -> io::Result<Ded
                 }
 
                 duplicate_files_found += 1;
-                reclaimed_bytes += size;
 
-                if !opts.dry_run && link_duplicate_to_original(original, dup).is_ok() {
+                if opts.dry_run {
+                    reclaimed_bytes += size;
+                } else if link_duplicate_to_original(original, dup, opts.allow_hardlinks).is_ok() {
                     duplicate_files_linked += 1;
+                    reclaimed_bytes += size;
                 }
             }
         }
@@ -224,7 +230,11 @@ fn are_same_file(a: &Path, b: &Path) -> bool {
     false
 }
 
-fn link_duplicate_to_original(original: &Path, dup: &Path) -> io::Result<()> {
+fn link_duplicate_to_original(
+    original: &Path,
+    dup: &Path,
+    allow_hardlinks: bool,
+) -> io::Result<()> {
     let parent = match dup.parent() {
         Some(p) => p,
         None => return Err(io::Error::other("no parent dir")),
@@ -245,9 +255,15 @@ fn link_duplicate_to_original(original: &Path, dup: &Path) -> io::Result<()> {
         let _ = fs::remove_file(&temp_link);
     }
 
-    // 2. Fall back to atomic hardlink replacement
-    fs::hard_link(original, &temp_link)?;
-    fs::rename(&temp_link, dup)?;
+    // 2. Fall back to hardlinks ONLY if explicitly opted in by user
+    if allow_hardlinks {
+        fs::hard_link(original, &temp_link)?;
+        fs::rename(&temp_link, dup)?;
+        return Ok(());
+    }
 
-    Ok(())
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "filesystem does not support reflink and allow_hardlinks is false",
+    ))
 }

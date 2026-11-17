@@ -187,7 +187,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             paths,
             dry_run,
             min_size,
-        }) => cmd_dedupe(paths, dry_run, min_size, cli.json),
+            allow_hardlinks,
+        }) => cmd_dedupe(paths, dry_run, min_size, allow_hardlinks, cli.json),
         Some(Command::Ignore { command }) => cmd_ignore(command, &root, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
         Some(Command::Config { action }) => cmd_config(action, cli.json),
@@ -361,18 +362,19 @@ fn parse_duration(s: &str) -> Result<Duration> {
         Some(c) if c.is_ascii_alphabetic() => (&s[..s.len() - 1], c.to_ascii_lowercase()),
         _ => (s, 'd'),
     };
-    let n: u64 = num_part
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid duration '{s}', expected e.g. 30d, 2w, 6m, 1y"))?;
+    let n: u64 = num_part.parse().map_err(|_| {
+        anyhow::anyhow!("invalid duration '{s}', expected e.g. 24h, 30d, 2w, 6m, 1y")
+    })?;
 
-    let days = match unit {
-        'd' => n,
-        'w' => n * 7,
-        'm' => n * 30,
-        'y' => n * 365,
-        _ => anyhow::bail!("invalid duration unit in '{s}', expected d/w/m/y"),
+    let secs = match unit {
+        'h' => n * 3600,
+        'd' => n * 86400,
+        'w' => n * 7 * 86400,
+        'm' => n * 30 * 86400,
+        'y' => n * 365 * 86400,
+        _ => anyhow::bail!("invalid duration unit in '{s}', expected h/d/w/m/y"),
     };
-    Ok(Duration::from_secs(days * 24 * 60 * 60))
+    Ok(Duration::from_secs(secs))
 }
 
 fn atty_stdout() -> bool {
@@ -548,6 +550,7 @@ fn cmd_dedupe(
     mut paths: Vec<PathBuf>,
     dry_run: bool,
     min_size: u64,
+    allow_hardlinks: bool,
     json: bool,
 ) -> Result<ExitCode> {
     if paths.is_empty() {
@@ -563,12 +566,17 @@ fn cmd_dedupe(
             println!(
                 " [DRY-RUN MODE] Previewing potential storage savings without modifying files.\n"
             );
+        } else if allow_hardlinks {
+            eprintln!(
+                " ⚠️  Warning: --allow-hardlinks enabled. Linked files will share inodes; in-place edits to one file will affect all linked copies.\n"
+            );
         }
     }
 
     let opts = nodewipe_core::DedupeOptions {
         dry_run,
         min_size_bytes: min_size,
+        allow_hardlinks,
     };
 
     let stats =
@@ -1122,6 +1130,10 @@ mod tests {
 
     #[test]
     fn test_parse_duration() {
+        assert_eq!(
+            parse_duration("24h").unwrap(),
+            Duration::from_secs(24 * 3600)
+        );
         assert_eq!(
             parse_duration("10d").unwrap(),
             Duration::from_secs(10 * 86400)

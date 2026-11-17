@@ -334,6 +334,13 @@ function render() {
 }
 
 function updateButtons() {
+  const visible = allVisibleEntries();
+  const visiblePaths = new Set(visible.map(keyFor));
+  for (const path of selected) {
+    if (!visiblePaths.has(path)) {
+      selected.delete(path);
+    }
+  }
   const hasSelection = selected.size > 0;
   trashBtn.disabled = !hasSelection;
   archiveBtn.disabled = !hasSelection;
@@ -366,8 +373,15 @@ async function doScan() {
 }
 
 function selectedEntryObjects() {
-  const all = viewMode === "flat" ? flatEntries : groups.flatMap((g) => g.entries);
-  return all.filter((e) => selected.has(keyFor(e)));
+  const visible = allVisibleEntries();
+  const visiblePaths = new Set(visible.map(keyFor));
+  // Purge any hidden or filtered-out entries from the selection set
+  for (const path of selected) {
+    if (!visiblePaths.has(path)) {
+      selected.delete(path);
+    }
+  }
+  return visible.filter((e) => selected.has(keyFor(e)));
 }
 
 async function performDelete(mode) {
@@ -420,11 +434,12 @@ function requestDelete(mode) {
   const targets = selectedEntryObjects();
   if (targets.length === 0) return;
   const risky = riskyNotesFor(targets);
+  const targetPreview = targets.map((t) => ` • ${t.path}`).slice(0, 5).join("\n") + (targets.length > 5 ? `\n ... and ${targets.length - 5} more` : "");
 
   if (mode === "permanent") {
     pendingMode = "permanent";
     const count = targets.length;
-    let body = `Permanently delete ${count} folder${count === 1 ? "" : "s"}? This cannot be undone.`;
+    let body = `Permanently delete ${count} visible folder${count === 1 ? "" : "s"}? This cannot be undone.\n\nTarget paths:\n${targetPreview}`;
     if (risky.length) body += `\n\n⚠ ${risky.join("\n\n⚠ ")}`;
     modalBody.textContent = body;
     modalConfirm.textContent = "Delete permanently";
@@ -435,7 +450,7 @@ function requestDelete(mode) {
   if (risky.length) {
     pendingMode = mode;
     const label = mode === "trash" ? "move to trash" : "archive then delete";
-    modalBody.textContent = `⚠ ${risky.join("\n\n⚠ ")}\n\nProceed to ${label}?`;
+    modalBody.textContent = `⚠ ${risky.join("\n\n⚠ ")}\n\nTarget paths:\n${targetPreview}\n\nProceed to ${label}?`;
     modalConfirm.textContent = mode === "trash" ? "Move to trash" : "Archive then delete";
     modalBackdrop.classList.remove("hidden");
     return;

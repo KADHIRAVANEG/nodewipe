@@ -11,23 +11,27 @@ pub struct ReflinkDirStats {
 }
 
 /// Checks whether the filesystem at `dir` supports Copy-on-Write (FICLONE/clonefile) reflinks.
-/// Probes by writing a 1-byte file and attempting a reflink copy.
+/// Probes by writing a 1-byte file in an isolated temporary directory and attempting a reflink copy.
 pub fn supports_reflink(dir: &Path) -> bool {
-    let probe_src = dir.join(".nodewipe_reflink_probe_src");
-    let probe_dst = dir.join(".nodewipe_reflink_probe_dst");
+    let temp_dir = match tempfile::Builder::new()
+        .prefix(".nodewipe_reflink_probe_")
+        .tempdir_in(dir)
+    {
+        Ok(td) => td,
+        Err(_) => return false,
+    };
+
+    let probe_src = temp_dir.path().join("probe_src");
+    let probe_dst = temp_dir.path().join("probe_dst");
 
     let supported = (|| -> Result<bool> {
         fs::write(&probe_src, b"0")?;
         let res = reflink_copy::reflink(&probe_src, &probe_dst);
-        let ok = res.is_ok();
-        let _ = fs::remove_file(&probe_src);
-        let _ = fs::remove_file(&probe_dst);
-        Ok(ok)
+        Ok(res.is_ok())
     })()
     .unwrap_or(false);
 
-    let _ = fs::remove_file(&probe_src);
-    let _ = fs::remove_file(&probe_dst);
+    // temp_dir is cleanly deleted when dropped via RAII
     supported
 }
 
@@ -62,20 +66,37 @@ fn reflink_dir_recursive(src: &Path, dst: &Path, stats: &mut ReflinkDirStats) ->
             stats.dirs_created += 1;
             reflink_dir_recursive(&child_src, &child_dst, stats)?;
         } else if file_type.is_symlink() {
+            let target = fs::read_link(&child_src).with_context(|| {
+                format!("failed to read symlink target of {}", child_src.display())
+            })?;
             #[cfg(unix)]
             {
-                if let Ok(target) = fs::read_link(&child_src) {
-                    let _ = std::os::unix::fs::symlink(target, &child_dst);
-                }
+                std::os::unix::fs::symlink(&target, &child_dst).with_context(|| {
+                    format!(
+                        "failed to recreate symlink {} -> {}",
+                        child_dst.display(),
+                        target.display()
+                    )
+                })?;
             }
             #[cfg(windows)]
             {
-                if let Ok(target) = fs::read_link(&child_src) {
-                    if child_src.is_dir() {
-                        let _ = std::os::windows::fs::symlink_dir(target, &child_dst);
-                    } else {
-                        let _ = std::os::windows::fs::symlink_file(target, &child_dst);
-                    }
+                if child_src.is_dir() {
+                    std::os::windows::fs::symlink_dir(&target, &child_dst).with_context(|| {
+                        format!(
+                            "failed to recreate dir symlink {} -> {}",
+                            child_dst.display(),
+                            target.display()
+                        )
+                    })?;
+                } else {
+                    std::os::windows::fs::symlink_file(&target, &child_dst).with_context(|| {
+                        format!(
+                            "failed to recreate file symlink {} -> {}",
+                            child_dst.display(),
+                            target.display()
+                        )
+                    })?;
                 }
             }
         } else if file_type.is_file() {

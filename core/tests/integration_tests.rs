@@ -379,6 +379,51 @@ fn test_archive_and_restore_cycle() {
     assert_eq!(fs::read(nm.join("hello.txt")).unwrap(), b"content");
 }
 
+#[cfg(unix)]
+#[test]
+fn test_archive_preserves_symlinks_without_dereference() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    let project = root.join("app_with_symlinks");
+    let nm = project.join("node_modules");
+    fs::create_dir_all(&nm).unwrap();
+
+    let real_file = nm.join("target_file.js");
+    fs::write(&real_file, b"original payload").unwrap();
+
+    let link_file = nm.join("symlink.js");
+    std::os::unix::fs::symlink(std::path::Path::new("target_file.js"), &link_file).unwrap();
+
+    // Verify it is indeed a symlink initially
+    assert!(
+        fs::symlink_metadata(&link_file)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+
+    // Archive and restore
+    let res = delete(&nm, DeleteMode::Archive, 7).unwrap();
+    assert!(!nm.exists());
+    let archive_path = res.archive_path.expect("archive_path should be set");
+
+    let restored = restore(&archive_path).unwrap();
+    assert_eq!(restored, nm);
+
+    // Verify that the restored link is still a symlink, NOT dereferenced into a regular file
+    let restored_link = nm.join("symlink.js");
+    assert!(restored_link.exists());
+    assert!(
+        fs::symlink_metadata(&restored_link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "archived symlink must be restored as a symlink, not dereferenced"
+    );
+    assert_eq!(fs::read(&restored_link).unwrap(), b"original payload");
+}
+
 #[test]
 fn test_history_stats_and_formatting() {
     assert_eq!(format_date(1700000000), "2023-11-14");
@@ -503,6 +548,59 @@ fn test_restore_rejects_path_traversal() {
 
     let err = restore(&evil_archive).unwrap_err();
     assert!(err.to_string().contains("parent directory component '..'"));
+}
+
+#[test]
+fn test_restore_rejects_entries_outside_artifact_root() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Existing project file that must never be overwritten
+    let pkg_json = root.join("package.json");
+    std::fs::write(&pkg_json, b"ORIGINAL_CONTENT").unwrap();
+
+    // Craft tar archive containing both node_modules/a.txt and package.json
+    let multi_archive = root.join("multi-node_modules-backup.tar.gz");
+    let file = File::create(&multi_archive).unwrap();
+    let enc = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+    let mut builder = tar::Builder::new(enc);
+
+    // 1. Valid entry under node_modules
+    let mut header1 = tar::Header::new_gnu();
+    header1.set_size(5);
+    header1.set_mode(0o644);
+    header1.set_cksum();
+    builder
+        .append_data(&mut header1, "node_modules/a.txt", b"hello".as_slice())
+        .unwrap();
+
+    // 2. Malicious entry attempting to overwrite package.json outside node_modules
+    let mut header2 = tar::Header::new_gnu();
+    header2.set_size(11);
+    header2.set_mode(0o644);
+    header2.set_cksum();
+    builder
+        .append_data(&mut header2, "package.json", b"OVERWRITTEN".as_slice())
+        .unwrap();
+
+    let enc = builder.into_inner().unwrap();
+    enc.finish().unwrap();
+
+    // Attempting restore must fail before extracting or overwriting
+    let err = restore(&multi_archive).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("outside the permitted artifact directory"),
+        "error must mention outside permitted artifact directory, got: {err}"
+    );
+
+    // Verify package.json is 100% untouched
+    assert_eq!(
+        std::fs::read_to_string(&pkg_json).unwrap(),
+        "ORIGINAL_CONTENT"
+    );
+    // Verify node_modules was not partially left behind in root
+    assert!(!root.join("node_modules").exists());
 }
 
 #[cfg(unix)]
@@ -1006,6 +1104,34 @@ fn test_parallel_traversal_benchmark() {
 }
 
 #[test]
+fn test_supports_reflink_isolation_and_non_destructive() {
+    use nodewipe_core::reflink::supports_reflink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    // User or third-party files that happen to share old probe names
+    let probe_src = root.join(".nodewipe_reflink_probe_src");
+    let probe_dst = root.join(".nodewipe_reflink_probe_dst");
+    fs::write(&probe_src, b"USER_DATA_SRC_UNTOUCHED").unwrap();
+    fs::write(&probe_dst, b"USER_DATA_DST_UNTOUCHED").unwrap();
+
+    let _supported = supports_reflink(root);
+
+    // Existing files must be 100% intact and untouched
+    assert_eq!(
+        fs::read(&probe_src).unwrap(),
+        b"USER_DATA_SRC_UNTOUCHED",
+        "supports_reflink must never overwrite user files"
+    );
+    assert_eq!(
+        fs::read(&probe_dst).unwrap(),
+        b"USER_DATA_DST_UNTOUCHED",
+        "supports_reflink must never overwrite or delete user files"
+    );
+}
+
+#[test]
 fn test_reflink_snapshot_and_restore_cycle() {
     use nodewipe_core::reflink::{reflink_dir, supports_reflink};
 
@@ -1419,6 +1545,7 @@ fn test_dedupe_dry_run_and_execution() {
     let dry_opts = DedupeOptions {
         dry_run: true,
         min_size_bytes: 10,
+        allow_hardlinks: false,
     };
     let dry_stats = dedupe_paths(&[root.to_path_buf()], &dry_opts).unwrap();
     assert_eq!(dry_stats.files_scanned, 3);
@@ -1426,15 +1553,30 @@ fn test_dedupe_dry_run_and_execution() {
     assert_eq!(dry_stats.duplicate_files_linked, 0);
     assert_eq!(dry_stats.reclaimed_bytes, payload.len() as u64);
 
-    // 2. Real deduplication run
-    let real_opts = DedupeOptions {
+    // 2. Safe default: allow_hardlinks: false (refuses hardlinking independent files)
+    let safe_opts = DedupeOptions {
         dry_run: false,
         min_size_bytes: 10,
+        allow_hardlinks: false,
     };
-    let real_stats = dedupe_paths(&[root.to_path_buf()], &real_opts).unwrap();
-    assert_eq!(real_stats.duplicate_files_found, 1);
-    assert_eq!(real_stats.duplicate_files_linked, 1);
-    assert_eq!(real_stats.reclaimed_bytes, payload.len() as u64);
+    let safe_stats = dedupe_paths(&[root.to_path_buf()], &safe_opts).unwrap();
+    assert_eq!(safe_stats.duplicate_files_found, 1);
+    // On systems without reflink (such as standard CI / ext4 / tmpfs), no hardlinks are forced
+    if !nodewipe_core::supports_reflink(root) {
+        assert_eq!(safe_stats.duplicate_files_linked, 0);
+        assert_eq!(safe_stats.reclaimed_bytes, 0);
+    }
+
+    // 3. Explicit opt-in: allow_hardlinks: true
+    let hardlink_opts = DedupeOptions {
+        dry_run: false,
+        min_size_bytes: 10,
+        allow_hardlinks: true,
+    };
+    let hardlink_stats = dedupe_paths(&[root.to_path_buf()], &hardlink_opts).unwrap();
+    assert_eq!(hardlink_stats.duplicate_files_found, 1);
+    assert_eq!(hardlink_stats.duplicate_files_linked, 1);
+    assert_eq!(hardlink_stats.reclaimed_bytes, payload.len() as u64);
 
     // Verify both files still exist and have intact identical content
     assert_eq!(fs::read(&file1).unwrap(), payload);
@@ -1448,54 +1590,59 @@ fn test_dedupe_dry_run_and_execution() {
         assert_eq!(m1.ino(), m2.ino(), "deduplicated files must share inode");
     }
 
-    // 3. Re-running on already-deduplicated files detects 0 duplicates
-    let second_run = dedupe_paths(&[root.to_path_buf()], &real_opts).unwrap();
+    // 4. Re-running on already-deduplicated files detects 0 duplicates
+    let second_run = dedupe_paths(&[root.to_path_buf()], &hardlink_opts).unwrap();
     assert_eq!(second_run.duplicate_files_found, 0);
     assert_eq!(second_run.duplicate_files_linked, 0);
 }
 
 #[test]
 fn test_ignore_management_lifecycle_and_root_safety() {
-    use nodewipe_core::{add_ignored_pattern, list_ignored_patterns, remove_ignored_pattern};
+    use nodewipe_core::{
+        add_ignored_pattern_to_file, list_ignored_patterns_from_file,
+        remove_ignored_pattern_from_file,
+    };
     use std::path::Path;
 
-    // 1. Safety check: refusing root paths
-    assert!(add_ignored_pattern(Path::new("/")).is_err());
-    #[cfg(windows)]
-    assert!(add_ignored_pattern(Path::new("C:\\")).is_err());
-
-    // 2. Add temporary valid test directory
     let temp_dir = tempfile::tempdir().unwrap();
+    let test_ignore_file = temp_dir.path().join("isolated_ignore_file");
+
+    // 1. Safety check: refusing root paths
+    assert!(add_ignored_pattern_to_file(&test_ignore_file, Path::new("/")).is_err());
+    #[cfg(windows)]
+    assert!(add_ignored_pattern_to_file(&test_ignore_file, Path::new("C:\\")).is_err());
+
+    // 2. Add temporary valid test directory to isolated ignore file
     let sample_path = temp_dir.path().join("safe_test_artifact");
     std::fs::create_dir_all(&sample_path).unwrap();
 
-    let res = add_ignored_pattern(&sample_path);
+    let res = add_ignored_pattern_to_file(&test_ignore_file, &sample_path);
     assert!(
         res.is_ok(),
-        "add_ignored_pattern must succeed for valid path"
+        "add_ignored_pattern_to_file must succeed for valid path"
     );
 
     // 3. Duplicate addition is idempotent
-    let res_dup = add_ignored_pattern(&sample_path);
+    let res_dup = add_ignored_pattern_to_file(&test_ignore_file, &sample_path);
     assert!(res_dup.is_ok());
 
-    // 4. Verify listed
-    let list = list_ignored_patterns(temp_dir.path());
+    // 4. Verify listed in isolated file
+    let list = list_ignored_patterns_from_file(&test_ignore_file);
     let sample_str = sample_path.canonicalize().unwrap().display().to_string();
     assert!(list.iter().any(|item| item.pattern == sample_str));
 
-    // 5. Remove pattern
-    let removed = remove_ignored_pattern(&sample_str).unwrap();
+    // 5. Remove pattern from isolated file
+    let removed = remove_ignored_pattern_from_file(&test_ignore_file, &sample_str).unwrap();
     assert!(removed, "Pattern must be reported as removed");
 
-    // 6. Verify removed
-    let list_after = list_ignored_patterns(temp_dir.path());
+    // 6. Verify removed from isolated file
+    let list_after = list_ignored_patterns_from_file(&test_ignore_file);
     assert!(!list_after.iter().any(|item| item.pattern == sample_str));
 
-    // 7. Verify local ignore file removal support
+    // 7. Verify local ignore file removal support in project root
     let local_ignore = temp_dir.path().join(".nodewipeignore");
     std::fs::write(&local_ignore, "local_ignored_dir\nanother_dir\n").unwrap();
-    let local_list = list_ignored_patterns(temp_dir.path());
+    let local_list = nodewipe_core::list_ignored_patterns(temp_dir.path());
     assert!(
         local_list
             .iter()
