@@ -7,13 +7,15 @@ mod update;
 use anyhow::{Context, Result};
 use clap::Parser;
 pub use cli_def::BANNER;
-use cli_def::{Cli, Command, DeleteModeArg, PresetArg, SortKey};
+use cli_def::{Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PresetArg, SortKey};
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
-    ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, annotate_workspace_roots, delete,
-    find_stale_projects, group_by_workspace, history_append, load_config, load_ignore_patterns,
+    ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, add_ignored_pattern,
+    annotate_workspace_roots, delete, find_stale_projects, group_by_workspace, history_append,
+    list_ignored_patterns, load_config, load_ignore_patterns, remove_ignored_pattern_from_root,
     restore, scan,
 };
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime};
@@ -43,7 +45,19 @@ fn run(cli: Cli) -> Result<ExitCode> {
     let config = load_config();
     let root = cli.path.clone().unwrap_or_else(|| cli.root.clone());
 
+    let mut raw_includes = cli.types.clone();
+    raw_includes.extend(cli.include_types.clone());
+
     let mut exclude_kinds = parse_exclude_types(&cli.exclude_types)?;
+    if !raw_includes.is_empty() {
+        let include_kinds: HashSet<ArtifactKind> =
+            parse_exclude_types(&raw_includes)?.into_iter().collect();
+        for &k in ArtifactKind::ALL {
+            if !include_kinds.contains(&k) && !exclude_kinds.contains(&k) {
+                exclude_kinds.push(k);
+            }
+        }
+    }
     if let Some(defaults) = &config.default_exclude_types {
         exclude_kinds.extend(parse_exclude_types(defaults)?);
     }
@@ -79,7 +93,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     !cli.no_git,
                 )
             } else {
-                tui::run(root)?;
+                let initial_excluded = if exclude_kinds.is_empty() {
+                    None
+                } else {
+                    Some(exclude_kinds.into_iter().collect())
+                };
+                tui::run(root, initial_excluded, None)?;
                 Ok(ExitCode::SUCCESS)
             }
         }
@@ -169,7 +188,134 @@ fn run(cli: Cli) -> Result<ExitCode> {
             dry_run,
             min_size,
         }) => cmd_dedupe(paths, dry_run, min_size, cli.json),
+        Some(Command::Ignore { command }) => cmd_ignore(command, &root, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
+        Some(Command::Config { action }) => cmd_config(action, cli.json),
+    }
+}
+
+fn cmd_config(action: Option<ConfigAction>, json: bool) -> Result<ExitCode> {
+    let action = action.unwrap_or(ConfigAction::Show);
+    match action {
+        ConfigAction::Path => {
+            let path = nodewipe_core::config_path().unwrap_or_else(|| PathBuf::from(""));
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "path": path.display().to_string() })
+                );
+            } else {
+                println!("{}", path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        ConfigAction::Show => {
+            let cfg = nodewipe_core::load_config();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&cfg)?);
+            } else {
+                let toml_str = toml::to_string_pretty(&cfg)?;
+                let path = nodewipe_core::config_path();
+                let path_display = path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "unknown".into());
+                let exists = path.as_ref().map(|p| p.exists()).unwrap_or(false);
+                println!(
+                    "# Configuration (file: {}, exists: {})\n{}",
+                    path_display, exists, toml_str
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        ConfigAction::Init => {
+            let (path, created) =
+                nodewipe_core::init_default_config().context("failed to initialize config file")?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "path": path.display().to_string(),
+                        "created": created,
+                    })
+                );
+            } else if created {
+                println!("✓ Created configuration file: {}", path.display());
+            } else {
+                println!("Configuration file already exists: {}", path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+fn cmd_ignore(command: IgnoreCommand, root: &Path, json: bool) -> Result<ExitCode> {
+    match command {
+        IgnoreCommand::Add { path } => match add_ignored_pattern(&path) {
+            Ok(file) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "status": "ok",
+                            "action": "add",
+                            "path": path.display().to_string(),
+                            "file": file.display().to_string()
+                        })
+                    );
+                } else {
+                    println!("✓ Added '{}' to {}", path.display(), file.display());
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                Ok(ExitCode::FAILURE)
+            }
+        },
+        IgnoreCommand::List => {
+            let patterns = list_ignored_patterns(root);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&patterns)?);
+            } else if patterns.is_empty() {
+                println!("No ignore patterns found in ~/.nodewipeignore or ./nodewipeignore");
+            } else {
+                println!("Ignored patterns:\n─────────────────────────────────────────────");
+                for p in patterns {
+                    let src = match p.source {
+                        nodewipe_core::IgnoreSource::Global => "[global]",
+                        nodewipe_core::IgnoreSource::Local(_) => "[local]",
+                    };
+                    println!("  {:<8} {}", src, p.pattern);
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        IgnoreCommand::Remove { pattern } => match remove_ignored_pattern_from_root(root, &pattern)
+        {
+            Ok(removed) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "status": "ok",
+                            "action": "remove",
+                            "pattern": pattern,
+                            "removed": removed
+                        })
+                    );
+                } else if removed {
+                    println!("✓ Removed pattern '{pattern}' from ignore list");
+                } else {
+                    println!("Pattern '{pattern}' not found in .nodewipeignore files");
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                Ok(ExitCode::FAILURE)
+            }
+        },
     }
 }
 
@@ -482,6 +628,7 @@ fn cmd_scan(
         let allowed: &[ArtifactKind] = match preset {
             PresetArg::Node | PresetArg::Web | PresetArg::Frontend => &[
                 ArtifactKind::NodeModules,
+                ArtifactKind::PnpmIgnored,
                 ArtifactKind::NextCache,
                 ArtifactKind::TurboCache,
                 ArtifactKind::GenericDist,
@@ -492,6 +639,7 @@ fn cmd_scan(
                 ArtifactKind::NuxtCache,
                 ArtifactKind::DocusaurusCache,
                 ArtifactKind::ViteCache,
+                ArtifactKind::YarnCache,
             ],
             PresetArg::Python => &[
                 ArtifactKind::PythonVenv,
@@ -1096,5 +1244,79 @@ mod tests {
         assert_eq!(parse_size_threshold("1024KB").unwrap(), 1024 * 1024);
         assert_eq!(parse_size_threshold("1048576B").unwrap(), 1048576);
         assert_eq!(parse_size_threshold("5").unwrap(), 5 * 1024 * 1024 * 1024); // defaults to GB
+    }
+
+    #[test]
+    fn test_include_types_resolution() {
+        let types = vec!["node_modules".to_string(), "rust_target".to_string()];
+        let include_kinds: HashSet<ArtifactKind> =
+            parse_exclude_types(&types).unwrap().into_iter().collect();
+        let mut exclude_kinds = Vec::new();
+        for &k in ArtifactKind::ALL {
+            if !include_kinds.contains(&k) {
+                exclude_kinds.push(k);
+            }
+        }
+        assert!(!exclude_kinds.contains(&ArtifactKind::NodeModules));
+        assert!(!exclude_kinds.contains(&ArtifactKind::RustTarget));
+        assert!(exclude_kinds.contains(&ArtifactKind::PythonVenv));
+        assert!(exclude_kinds.contains(&ArtifactKind::GoModCache));
+    }
+
+    #[test]
+    fn test_age_filter_logic() {
+        use crate::tui::AgeFilter;
+
+        let now = SystemTime::now();
+        let days10 = now - Duration::from_secs(10 * 86400);
+        let days45 = now - Duration::from_secs(45 * 86400);
+        let days100 = now - Duration::from_secs(100 * 86400);
+        let days400 = now - Duration::from_secs(400 * 86400);
+
+        assert!(AgeFilter::All.matches(Some(days10)));
+        assert!(AgeFilter::All.matches(None));
+
+        assert!(!AgeFilter::Days30.matches(Some(days10)));
+        assert!(AgeFilter::Days30.matches(Some(days45)));
+
+        assert!(!AgeFilter::Days90.matches(Some(days45)));
+        assert!(AgeFilter::Days90.matches(Some(days100)));
+
+        assert!(!AgeFilter::Year1.matches(Some(days100)));
+        assert!(AgeFilter::Year1.matches(Some(days400)));
+
+        assert_eq!(AgeFilter::All.next(), AgeFilter::Days30);
+        assert_eq!(AgeFilter::Year1.next(), AgeFilter::All);
+    }
+
+    #[test]
+    fn test_config_serialization_and_defaults() {
+        let cfg = nodewipe_core::Config {
+            default_delete_mode: Some("archive".into()),
+            default_exclude_types: Some(vec!["venv".into(), "rust_target".into()]),
+            default_min_mb: Some(50),
+            default_sort: Some("age".into()),
+        };
+        let toml_str = toml::to_string(&cfg).unwrap();
+        let loaded: nodewipe_core::Config = toml::from_str(&toml_str).unwrap();
+        assert_eq!(cfg, loaded);
+    }
+
+    #[test]
+    fn test_unicode_width_padding() {
+        use crate::tui::pad_to_width;
+
+        // ASCII string
+        let padded = pad_to_width("test", 8, true);
+        assert_eq!(padded, "test    ");
+        assert_eq!(padded.len(), 8);
+
+        // Emoji (wide 2 cells)
+        let emoji = pad_to_width("📦", 4, true);
+        assert_eq!(emoji, "📦  "); // 2 width + 2 spaces = 4 terminal cells
+
+        // CJK characters (2 cells each)
+        let cjk = pad_to_width("日本語", 8, false);
+        assert_eq!(cjk, "  日本語"); // 2 spaces + 6 width = 8 terminal cells
     }
 }

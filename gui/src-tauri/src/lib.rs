@@ -1,16 +1,18 @@
 use nodewipe_core::history::{daily_totals, format_date, now_unix, stats_by_ecosystem};
 use nodewipe_core::{
     DeleteMode, Entry, HistoryEntry, ScanOptions, WorkspaceGroup, annotate_workspace_roots,
-    delete as core_delete, doctor::build_report, group_by_workspace, history_append, history_load,
+    delete as core_delete, doctor::build_report, find_archives as core_find_archives,
+    group_by_workspace, history_append, history_load, load_ignore_patterns,
     restore as core_restore, scan as core_scan,
 };
 use std::path::PathBuf;
-use walkdir::WalkDir;
 
 #[tauri::command(async)]
 fn scan_command(root: String) -> Result<Vec<Entry>, String> {
+    let root_path = PathBuf::from(root);
     let opts = ScanOptions {
-        root: PathBuf::from(root),
+        ignore_patterns: load_ignore_patterns(&root_path),
+        root: root_path,
         ..Default::default()
     };
     let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
@@ -21,8 +23,10 @@ fn scan_command(root: String) -> Result<Vec<Entry>, String> {
 
 #[tauri::command(async)]
 fn scan_grouped_command(root: String) -> Result<Vec<WorkspaceGroup>, String> {
+    let root_path = PathBuf::from(root);
     let opts = ScanOptions {
-        root: PathBuf::from(root),
+        ignore_patterns: load_ignore_patterns(&root_path),
+        root: root_path,
         ..Default::default()
     };
     let mut entries = core_scan(&opts).map_err(|e| e.to_string())?;
@@ -98,21 +102,14 @@ fn delete_command(
 
 #[tauri::command(async)]
 fn find_archives_command(root: String) -> Result<Vec<serde_json::Value>, String> {
-    let archives: Vec<serde_json::Value> = WalkDir::new(&root)
-        .max_depth(6)
+    let archives: Vec<serde_json::Value> = core_find_archives(&PathBuf::from(root))
         .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_type().is_file()
-                && e.file_name()
-                    .to_str()
-                    .map(|n| n.ends_with("-backup.tar.gz"))
-                    .unwrap_or(false)
-        })
-        .map(|e| {
-            let path = e.path().to_string_lossy().to_string();
-            let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-            serde_json::json!({ "path": path, "size_bytes": size })
+        .map(|a| {
+            serde_json::json!({
+                "path": a.path.to_string_lossy().to_string(),
+                "size_bytes": a.size_bytes,
+                "is_snapshot": a.is_snapshot,
+            })
         })
         .collect();
     Ok(archives)
@@ -136,8 +133,10 @@ fn home_dir_command() -> Result<String, String> {
 
 #[tauri::command(async)]
 fn doctor_command(root: String) -> Result<serde_json::Value, String> {
+    let root_path = PathBuf::from(root);
     let opts = ScanOptions {
-        root: PathBuf::from(root),
+        ignore_patterns: load_ignore_patterns(&root_path),
+        root: root_path,
         ..Default::default()
     };
     let entries = core_scan(&opts).map_err(|e| e.to_string())?;

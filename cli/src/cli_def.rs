@@ -56,9 +56,24 @@ pub struct Cli {
     /// derived_data, swiftpm_build, cocoapods, gradle_cache, android_build_cache,
     /// playwright_browsers, cypress_cache, astro_cache, sveltekit_cache,
     /// nuxt_cache, docusaurus_cache, vite_cache, cmake_build, zig_cache,
-    /// elixir_build, meson_build.
+    /// elixir_build, meson_build, pnpm_ignored.
     #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
     pub exclude_types: Vec<String>,
+
+    /// Comma-separated artifact types to target exclusively (inverse of --exclude-types).
+    /// When specified, only these artifact types will be scanned. Aliased as `--target`.
+    #[arg(
+        long,
+        global = true,
+        value_delimiter = ',',
+        value_name = "TYPES",
+        alias = "target"
+    )]
+    pub types: Vec<String>,
+
+    /// Alias for --types.
+    #[arg(long, global = true, value_delimiter = ',', value_name = "TYPES")]
+    pub include_types: Vec<String>,
 
     /// Skip loading .nodewipeignore files.
     #[arg(long, global = true)]
@@ -237,6 +252,12 @@ pub enum Command {
         min_size: u64,
     },
 
+    /// Manage ignored directory patterns (.nodewipeignore).
+    Ignore {
+        #[command(subcommand)]
+        command: IgnoreCommand,
+    },
+
     /// Render or install the manual page for nodewipe.
     ///
     /// By default, views the man page or writes to stdout. Pass --install to
@@ -246,6 +267,22 @@ pub enum Command {
         #[arg(long)]
         install: bool,
     },
+
+    /// View, locate, or initialize nodewipe configuration settings.
+    Config {
+        #[command(subcommand)]
+        action: Option<ConfigAction>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum ConfigAction {
+    /// Print the path to the configuration file (~/.config/nodewipe/config.toml).
+    Path,
+    /// Display current active configuration settings.
+    Show,
+    /// Initialize a default config.toml file if it does not already exist.
+    Init,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -307,4 +344,22 @@ pub enum PresetArg {
     Cpp,
     /// C compilation ecosystems (alias for systems).
     C,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+pub enum IgnoreCommand {
+    /// Add a directory path to ~/.nodewipeignore.
+    Add {
+        /// Directory path to ignore.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+    /// List all currently configured ignore patterns.
+    List,
+    /// Remove an ignored pattern from ~/.nodewipeignore.
+    Remove {
+        /// Pattern to remove.
+        #[arg(value_name = "PATTERN")]
+        pattern: String,
+    },
 }

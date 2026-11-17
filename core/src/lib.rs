@@ -13,16 +13,20 @@ pub mod scanner;
 pub mod stale;
 pub mod workspace;
 
-pub use config::{Config, load_config};
+pub use config::{Config, config_path, init_default_config, load_config, save_config};
 pub use dedupe::{DedupeOptions, DedupeStats, dedupe_paths};
-pub use deleter::{DeleteMode, DeleteResult, delete, restore};
+pub use deleter::{DeleteMode, DeleteResult, DiscoveredArchive, delete, find_archives, restore};
 pub use git::{annotate_git_status, find_git_repo_root, inspect_git_repo};
 pub use history::{
     EcosystemStats, HistoryEntry, append as history_append, load as history_load,
     stats_by_ecosystem,
 };
 pub use ignore::gitignore::Gitignore;
-pub use ignorefile::load_patterns as load_ignore_patterns;
+pub use ignorefile::{
+    IgnoreSource, IgnoredPattern, add_ignored_pattern, list_ignored_patterns,
+    load_patterns as load_ignore_patterns, remove_ignored_pattern,
+    remove_ignored_pattern_from_file, remove_ignored_pattern_from_root,
+};
 pub use interner::PathInterner;
 pub use model::{ArtifactKind, Entry, GitStatus, PackageManager, ScanOptions, WorkspaceGroup};
 pub use rebuild::{RebuildPlan, resolve_rebuild_plan};

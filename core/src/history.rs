@@ -47,35 +47,44 @@ pub fn history_path() -> Option<PathBuf> {
 
 // ── read / write ──────────────────────────────────────────────────────────────
 
-/// Load all history entries. Returns an empty Vec if the file doesn't exist yet.
-pub fn load() -> Result<Vec<HistoryEntry>> {
-    let path = match history_path() {
-        Some(p) => p,
-        None => return Ok(Vec::new()),
-    };
+/// Load all history entries from a specific path. Automatically recovers from corrupted JSON.
+pub fn load_from_path(path: &Path) -> Result<Vec<HistoryEntry>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let raw = std::fs::read_to_string(&path)
+    let raw = std::fs::read_to_string(path)
         .with_context(|| format!("reading history file {}", path.display()))?;
-    let entries: Vec<HistoryEntry> = serde_json::from_str(&raw)
-        .with_context(|| format!("parsing history file {}", path.display()))?;
-    Ok(entries)
+    if raw.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    match serde_json::from_str::<Vec<HistoryEntry>>(&raw) {
+        Ok(entries) => Ok(entries),
+        Err(e) => {
+            let ts = now_unix();
+            let parent = path.parent().unwrap_or(Path::new("."));
+            let corrupt_backup = parent.join(format!("history.json.corrupt.{ts}"));
+            let _ = std::fs::rename(path, &corrupt_backup);
+            eprintln!(
+                "warning: history file was corrupted ({e}); backed up to {} and reset",
+                corrupt_backup.display()
+            );
+            Ok(Vec::new())
+        }
+    }
 }
 
-/// Append a single entry to the history file, creating it if needed.
-pub fn append(entry: HistoryEntry) -> Result<()> {
-    let path = match history_path() {
-        Some(p) => p,
-        None => return Ok(()), // no data dir — silently skip
-    };
-
+/// Append a single entry to a specific history file, creating it if needed.
+pub fn append_to_path(path: &Path, entry: HistoryEntry) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating history dir {}", parent.display()))?;
     }
 
-    let mut entries = if path.exists() { load()? } else { Vec::new() };
+    let mut entries = if path.exists() {
+        load_from_path(path)?
+    } else {
+        Vec::new()
+    };
     entries.push(entry);
 
     let serialized = serde_json::to_string_pretty(&entries).context("serializing history")?;
@@ -86,12 +95,30 @@ pub fn append(entry: HistoryEntry) -> Result<()> {
     std::fs::write(&temp_file, serialized)
         .with_context(|| format!("writing temp history file {}", temp_file.display()))?;
 
-    if let Err(e) = std::fs::rename(&temp_file, &path) {
+    if let Err(e) = std::fs::rename(&temp_file, path) {
         let _ = std::fs::remove_file(&temp_file);
         return Err(e).with_context(|| format!("renaming temp history to {}", path.display()));
     }
 
     Ok(())
+}
+
+/// Load all history entries. Returns an empty Vec if the file doesn't exist yet.
+pub fn load() -> Result<Vec<HistoryEntry>> {
+    let path = match history_path() {
+        Some(p) => p,
+        None => return Ok(Vec::new()),
+    };
+    load_from_path(&path)
+}
+
+/// Append a single entry to the history file, creating it if needed.
+pub fn append(entry: HistoryEntry) -> Result<()> {
+    let path = match history_path() {
+        Some(p) => p,
+        None => return Ok(()), // no data dir — silently skip
+    };
+    append_to_path(&path, entry)
 }
 
 // ── aggregation ───────────────────────────────────────────────────────────────

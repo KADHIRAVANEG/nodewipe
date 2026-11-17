@@ -230,12 +230,6 @@ fn link_duplicate_to_original(original: &Path, dup: &Path) -> io::Result<()> {
         None => return Err(io::Error::other("no parent dir")),
     };
 
-    // 1. If CoW reflinks are supported on this filesystem, prefer reflink
-    if supports_reflink(parent) && reflink_copy::reflink_or_copy(original, dup).is_ok() {
-        return Ok(());
-    }
-
-    // 2. Fall back to atomic hardlink replacement
     let temp_name = format!(
         ".nodewipe_dedupe_{}_{}",
         std::process::id(),
@@ -243,6 +237,15 @@ fn link_duplicate_to_original(original: &Path, dup: &Path) -> io::Result<()> {
     );
     let temp_link = parent.join(temp_name);
 
+    // 1. If CoW reflinks are supported on this filesystem, prefer reflink via temp link + atomic rename
+    if supports_reflink(parent) && reflink_copy::reflink_or_copy(original, &temp_link).is_ok() {
+        if fs::rename(&temp_link, dup).is_ok() {
+            return Ok(());
+        }
+        let _ = fs::remove_file(&temp_link);
+    }
+
+    // 2. Fall back to atomic hardlink replacement
     fs::hard_link(original, &temp_link)?;
     fs::rename(&temp_link, dup)?;
 

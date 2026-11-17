@@ -2,7 +2,7 @@ use nodewipe_core::history::{daily_totals, format_date, stats_by_ecosystem};
 use nodewipe_core::workspace::{annotate_workspace_roots, group_by_workspace};
 use nodewipe_core::{
     ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, classify_path, delete,
-    load_ignore_patterns, restore, scan,
+    find_archives, load_ignore_patterns, restore, scan,
 };
 use std::fs::{self, File};
 use std::io::Write;
@@ -423,6 +423,51 @@ fn test_history_stats_and_formatting() {
 }
 
 #[test]
+fn test_history_corruption_self_healing_and_recovery() {
+    use nodewipe_core::history::{append_to_path, load_from_path};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let history_file = tmp.path().join("history.json");
+
+    // 1. Write corrupted/truncated JSON
+    std::fs::write(&history_file, b"{\"truncated\": [").unwrap();
+
+    // 2. load_from_path must not fail; it must recover, back up the corrupt file, and return empty list
+    let loaded = load_from_path(&history_file).unwrap();
+    assert_eq!(loaded.len(), 0);
+
+    // Corrupted file was backed up
+    let has_backup = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("history.json.corrupt.")
+        });
+    assert!(
+        has_backup,
+        "Corrupted history file must be preserved as backup"
+    );
+
+    // 3. Appending a new entry must succeed cleanly on the healed database
+    let new_entry = HistoryEntry {
+        deleted_at: 1700000000,
+        date: "2023-11-14".into(),
+        path: "/path/to/recovered".into(),
+        kind: "node_modules".into(),
+        size_bytes: 1024,
+        mode: "trash".into(),
+    };
+    append_to_path(&history_file, new_entry).unwrap();
+
+    let reloaded = load_from_path(&history_file).unwrap();
+    assert_eq!(reloaded.len(), 1);
+    assert_eq!(reloaded[0].path, "/path/to/recovered");
+    assert_eq!(reloaded[0].size_bytes, 1024);
+}
+
+#[test]
 fn test_restore_rejects_path_traversal() {
     let dir = tempdir().unwrap();
     let root = dir.path();
@@ -458,6 +503,43 @@ fn test_restore_rejects_path_traversal() {
 
     let err = restore(&evil_archive).unwrap_err();
     assert!(err.to_string().contains("parent directory component '..'"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_restore_refuses_overwrite_on_broken_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // 1. Create a valid node_modules directory, archive it
+    let nm = root.join("node_modules");
+    fs::create_dir(&nm).unwrap();
+    fs::write(nm.join("index.js"), b"console.log('hello');").unwrap();
+
+    let res = delete(&nm, DeleteMode::Archive, 100).unwrap();
+    let archive_path = res.archive_path.unwrap();
+    assert!(archive_path.exists());
+    assert!(!nm.exists());
+
+    // 2. Create a broken symlink at 'node_modules' pointing to a non-existent path
+    let broken_target = root.join("non_existent_folder");
+    symlink(&broken_target, &nm).unwrap();
+
+    // In regular Path::exists(), a broken symlink returns false!
+    assert!(!nm.exists());
+    assert!(std::fs::symlink_metadata(&nm).is_ok());
+
+    // 3. Attempting to restore must refuse because a filesystem entry already exists!
+    let restore_err = restore(&archive_path).unwrap_err();
+    assert!(restore_err.to_string().contains("already exists"));
+
+    // Cleanup broken symlink and restore must then succeed
+    std::fs::remove_file(&nm).unwrap();
+    let restored = restore(&archive_path).unwrap();
+    assert_eq!(restored, nm);
+    assert!(nm.exists());
 }
 
 #[cfg(unix)]
@@ -1370,4 +1452,193 @@ fn test_dedupe_dry_run_and_execution() {
     let second_run = dedupe_paths(&[root.to_path_buf()], &real_opts).unwrap();
     assert_eq!(second_run.duplicate_files_found, 0);
     assert_eq!(second_run.duplicate_files_linked, 0);
+}
+
+#[test]
+fn test_ignore_management_lifecycle_and_root_safety() {
+    use nodewipe_core::{add_ignored_pattern, list_ignored_patterns, remove_ignored_pattern};
+    use std::path::Path;
+
+    // 1. Safety check: refusing root paths
+    assert!(add_ignored_pattern(Path::new("/")).is_err());
+    #[cfg(windows)]
+    assert!(add_ignored_pattern(Path::new("C:\\")).is_err());
+
+    // 2. Add temporary valid test directory
+    let temp_dir = tempfile::tempdir().unwrap();
+    let sample_path = temp_dir.path().join("safe_test_artifact");
+    std::fs::create_dir_all(&sample_path).unwrap();
+
+    let res = add_ignored_pattern(&sample_path);
+    assert!(
+        res.is_ok(),
+        "add_ignored_pattern must succeed for valid path"
+    );
+
+    // 3. Duplicate addition is idempotent
+    let res_dup = add_ignored_pattern(&sample_path);
+    assert!(res_dup.is_ok());
+
+    // 4. Verify listed
+    let list = list_ignored_patterns(temp_dir.path());
+    let sample_str = sample_path.canonicalize().unwrap().display().to_string();
+    assert!(list.iter().any(|item| item.pattern == sample_str));
+
+    // 5. Remove pattern
+    let removed = remove_ignored_pattern(&sample_str).unwrap();
+    assert!(removed, "Pattern must be reported as removed");
+
+    // 6. Verify removed
+    let list_after = list_ignored_patterns(temp_dir.path());
+    assert!(!list_after.iter().any(|item| item.pattern == sample_str));
+
+    // 7. Verify local ignore file removal support
+    let local_ignore = temp_dir.path().join(".nodewipeignore");
+    std::fs::write(&local_ignore, "local_ignored_dir\nanother_dir\n").unwrap();
+    let local_list = list_ignored_patterns(temp_dir.path());
+    assert!(
+        local_list
+            .iter()
+            .any(|item| item.pattern == "local_ignored_dir")
+    );
+
+    let removed_local =
+        nodewipe_core::remove_ignored_pattern_from_root(temp_dir.path(), "local_ignored_dir")
+            .unwrap();
+    assert!(removed_local, "Local ignore pattern must be removed");
+    let content_after = std::fs::read_to_string(&local_ignore).unwrap();
+    assert!(!content_after.contains("local_ignored_dir"));
+    assert!(content_after.contains("another_dir"));
+}
+
+#[test]
+fn test_pnpm_ignored_subfolder_detection_and_surgical_deletion() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    // Create a node project with node_modules
+    let proj = root.join("my-pnpm-app");
+    let nm = proj.join("node_modules");
+    let pnpm_ignored = nm.join(".ignored");
+    let active_pkg = nm.join("active-dep");
+
+    std::fs::create_dir_all(&pnpm_ignored).unwrap();
+    std::fs::create_dir_all(&active_pkg).unwrap();
+    std::fs::write(proj.join("package.json"), b"{}").unwrap();
+
+    // Write dummy payloads
+    std::fs::write(pnpm_ignored.join("old-package.js"), vec![0u8; 1000]).unwrap();
+    std::fs::write(active_pkg.join("index.js"), vec![0u8; 500]).unwrap();
+
+    let opts = nodewipe_core::ScanOptions {
+        root: root.to_path_buf(),
+        ..Default::default()
+    };
+
+    let entries = nodewipe_core::scan(&opts).unwrap();
+
+    // Must find both entries: node_modules and node_modules/.ignored
+    let nm_entry = entries
+        .iter()
+        .find(|e| e.kind == ArtifactKind::NodeModules)
+        .expect("Must find node_modules entry");
+    assert!(
+        nm_entry.size_bytes >= 500,
+        "node_modules size must reflect active package payload"
+    );
+    let ignored_entry = entries
+        .iter()
+        .find(|e| e.kind == ArtifactKind::PnpmIgnored)
+        .expect("Must find pnpm .ignored entry");
+
+    assert_eq!(ignored_entry.path, pnpm_ignored);
+    assert!(
+        ignored_entry.size_bytes >= 1000,
+        "ignored size must reflect payload"
+    );
+
+    // Verify surgical delete: deleting ONLY .ignored
+    let res = delete(&pnpm_ignored, DeleteMode::Trash, ignored_entry.size_bytes).unwrap();
+    assert_eq!(res.path, pnpm_ignored);
+    assert!(!pnpm_ignored.exists(), ".ignored must be deleted");
+
+    // Active package must still exist!
+    assert!(
+        active_pkg.exists(),
+        "active-dep must remain intact after deleting .ignored"
+    );
+    assert!(
+        nm.exists(),
+        "parent node_modules must remain intact after deleting .ignored"
+    );
+}
+
+#[test]
+fn test_yarn_cache_scan_and_delete() {
+    let tmp = tempfile::tempdir().unwrap();
+    let yarn_dir = tmp.path().join(".cache").join("yarn");
+    let v6_dir = yarn_dir.join("v6");
+    std::fs::create_dir_all(&v6_dir).unwrap();
+    std::fs::write(v6_dir.join("npm-pkg-1.0.0.tgz"), vec![0u8; 1500]).unwrap();
+
+    let opts = ScanOptions {
+        root: tmp.path().to_path_buf(),
+        ..Default::default()
+    };
+
+    let entries = scan(&opts).unwrap();
+    let yarn_entry = entries
+        .iter()
+        .find(|e| e.kind == ArtifactKind::YarnCache)
+        .expect("must detect yarn v6 cache directory");
+
+    assert_eq!(yarn_entry.path, v6_dir);
+    assert!(yarn_entry.size_bytes >= 1500);
+
+    let res = delete(&v6_dir, DeleteMode::Trash, yarn_entry.size_bytes).unwrap();
+    assert_eq!(res.path, v6_dir);
+    assert!(!v6_dir.exists());
+    assert!(yarn_dir.exists(), "parent yarn folder must remain intact");
+}
+
+#[test]
+fn test_find_archives_discovers_both_tar_and_snapshots() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    // Create a mock .tar.gz archive
+    let tar_archive = root.join("project-a-node_modules-backup.tar.gz");
+    std::fs::write(&tar_archive, b"mock_tar_gz_bytes").unwrap();
+
+    // Create a mock .snapshot archive directory
+    let snapshot_archive = root.join("project-b-target-backup.snapshot");
+    std::fs::create_dir_all(&snapshot_archive).unwrap();
+    std::fs::write(snapshot_archive.join("dummy_file"), vec![0u8; 500]).unwrap();
+
+    // Create unrelated non-archive files/folders that should NOT be detected
+    let random_file = root.join("some-backup.txt");
+    std::fs::write(&random_file, b"not an archive").unwrap();
+    let random_dir = root.join("random.snapshot");
+    std::fs::create_dir_all(&random_dir).unwrap();
+
+    let archives = find_archives(root);
+    assert_eq!(
+        archives.len(),
+        2,
+        "must discover exactly the 2 valid backup archives"
+    );
+
+    let tar_found = archives
+        .iter()
+        .find(|a| a.path == tar_archive)
+        .expect("tar archive must be found");
+    assert!(!tar_found.is_snapshot);
+    assert_eq!(tar_found.size_bytes, b"mock_tar_gz_bytes".len() as u64);
+
+    let snapshot_found = archives
+        .iter()
+        .find(|a| a.path == snapshot_archive)
+        .expect("snapshot archive must be found");
+    assert!(snapshot_found.is_snapshot);
+    assert!(snapshot_found.size_bytes >= 500);
 }

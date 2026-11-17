@@ -121,6 +121,8 @@ const KIND_LABELS = {
   zig_cache: "Zig cache & build",
   elixir_build: "Elixir / Mix build",
   meson_build: "Meson build",
+  pnpm_ignored: "pnpm .ignored",
+  yarn_cache: "Yarn cache",
 };
 
 const KIND_BADGE_CLASS = {
@@ -161,6 +163,8 @@ const KIND_BADGE_CLASS = {
   zig_cache: "badge-npm",
   elixir_build: "badge-pnpm",
   meson_build: "badge-unknown",
+  pnpm_ignored: "badge-pnpm",
+  yarn_cache: "badge-yarn",
 };
 
 const KIND_RISK_NOTES = {
@@ -172,6 +176,8 @@ const KIND_RISK_NOTES = {
     "This directory contains local Ollama model blobs. Deleting it will require re-pulling models via 'ollama pull <model>'.",
   torch_cache:
     "This cache stores PyTorch model checkpoints and kernel cache. Deleting it requires re-downloading pretrained weights on next run.",
+  yarn_cache:
+    "This is Yarn's offline tarball cache. Deleting it frees significant disk space, but future yarn installs will re-download packages from the registry.",
 };
 
 function badgeFor(entry) {
