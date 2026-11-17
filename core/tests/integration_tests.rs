@@ -1059,6 +1059,34 @@ fn test_parallel_traversal_benchmark() {
 }
 
 #[test]
+fn test_supports_reflink_isolation_and_non_destructive() {
+    use nodewipe_core::reflink::supports_reflink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+
+    // User or third-party files that happen to share old probe names
+    let probe_src = root.join(".nodewipe_reflink_probe_src");
+    let probe_dst = root.join(".nodewipe_reflink_probe_dst");
+    fs::write(&probe_src, b"USER_DATA_SRC_UNTOUCHED").unwrap();
+    fs::write(&probe_dst, b"USER_DATA_DST_UNTOUCHED").unwrap();
+
+    let _supported = supports_reflink(root);
+
+    // Existing files must be 100% intact and untouched
+    assert_eq!(
+        fs::read(&probe_src).unwrap(),
+        b"USER_DATA_SRC_UNTOUCHED",
+        "supports_reflink must never overwrite user files"
+    );
+    assert_eq!(
+        fs::read(&probe_dst).unwrap(),
+        b"USER_DATA_DST_UNTOUCHED",
+        "supports_reflink must never overwrite or delete user files"
+    );
+}
+
+#[test]
 fn test_reflink_snapshot_and_restore_cycle() {
     use nodewipe_core::reflink::{reflink_dir, supports_reflink};
 
