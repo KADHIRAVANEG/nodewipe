@@ -9,7 +9,7 @@
   </p>
 
   **The surgical, blazing-fast dev-environment cleaner written in Rust.**  
-  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and native/mobile build caches across 37+ ecosystems.*
+  *Reclaim tens of gigabytes from orphaned `node_modules`, Rust `target/`, Python `venv`s, AI/ML model weights, and native/mobile build caches across 39+ ecosystems.*
 
   <br>
 
@@ -49,11 +49,11 @@
 ## ⚡ Key Features
 
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
-* **🌐 37+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, C/C++ & Native (CMake, Ninja, Zig, Elixir, Meson), modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
+* **🌐 39+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, C/C++ & Native (CMake, Ninja, Zig, Elixir, Meson), modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress, Yarn offline cache, pnpm `.ignored`), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
 * **🛡️ Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
 * **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
-* **📦 Monorepo & Workspace Aware**: Automatically groups nested packages and monorepo roots (`pnpm`, `Cargo`, `Turborepo`, `Nx`).
+* **📦 Monorepo & Workspace Aware**: Automatically groups nested packages and monorepo roots (`pnpm`, `Cargo`, `Turborepo`, `Nx`) with interactive expand/collapse.
 * **📊 Lifetime Savings Dashboard**: Track every byte reclaimed over time (`nodewipe stats`) with a 30-day interactive history chart.
 * **🖥️ Native Desktop GUI**: A lightweight, responsive Tauri desktop app wrapping the exact same high-speed Rust engine.
 
@@ -177,6 +177,8 @@ cargo build --release
 | **Zig** | `.zig-cache/` | `zig_cache` | Sibling `build.zig` or directory name |
 | **Elixir / Erlang**| `_build/` | `elixir_build` | Sibling `mix.exs` |
 | **Meson** | `builddir/` | `meson_build` | Sibling `meson.build` or contains `meson-private` |
+| **pnpm** | `.ignored` | `pnpm_ignored` | Parent `node_modules` or adjacent `package.json`/`pnpm-lock.yaml` |
+| **Yarn** | `v6` | `yarn_cache` | Parent `yarn` or `Yarn` cache directory (`~/.cache/yarn/v6`) |
 
 List all supported types and slugs at any time with:
 ```bash
@@ -198,13 +200,25 @@ Launching `nodewipe` with no arguments in a terminal opens the **Ratatui-powered
 | Key | Action |
 |---|---|
 | <kbd>↑</kbd> / <kbd>↓</kbd> or <kbd>k</kbd> / <kbd>j</kbd> | Move cursor up / down |
+| <kbd>PgUp</kbd> / <kbd>PgDn</kbd> | Jump cursor up / down by visible page height |
+| <kbd>Home</kbd> / <kbd>End</kbd> | Jump to first / last entry |
 | <kbd>Space</kbd> | Toggle selection for the focused directory |
-| <kbd>a</kbd> | Select all / Deselect all |
+| <kbd>A</kbd> | **Select all** / Deselect all entries |
+| <kbd>Enter</kbd> | Select all entries within the highlighted monorepo workspace group |
+| <kbd>g</kbd> | **Toggle Monorepo Grouped View** (Collapses subprojects under workspace root) |
+| <kbd>Tab</kbd> | Expand / Collapse highlighted monorepo group |
+| <kbd>f</kbd> | **Cycle Age Filter** (`All` → `>30d` → `>60d` → `>90d` → `>180d` → `>1y`) |
+| <kbd>b</kbd> | **Rebuild / Reinstall** toolchain dependencies in-place (`npm`, `pnpm`, `cargo`, `uv`, etc.) |
+| <kbd>y</kbd> | **Copy path** to system clipboard |
+| <kbd>o</kbd> | **Open directory** in system file manager (`xdg-open`, `open`, `explorer`) |
+| <kbd>i</kbd> | Add highlighted artifact path to `.nodewipeignore` |
+| <kbd>I</kbd> | Open interactive **Ignored Patterns Manager** (view & remove ignored patterns) |
+| <kbd>t</kbd> | Open interactive **Type Filter Screen** (<kbd>s</kbd> solo type, <kbd>i</kbd> invert selection) |
 | <kbd>d</kbd> | **Delete to Trash** (Recoverable via OS recycle bin) |
-| <kbd>Shift + a</kbd> | **Archive & Delete** (Creates `.tar.gz` backup adjacent to directory) |
+| <kbd>a</kbd> | **Archive & Delete** (Creates `.tar.gz` or instant CoW `.snapshot` backup) |
 | <kbd>p</kbd> | **Permanent Delete** (Unrecoverable — prompts for confirmation) |
 | <kbd>P</kbd> | **Toggle Dry-Run Preview Mode** (Simulate recovery with zero risk) |
-| <kbd>R</kbd> | Restore an archived backup file |
+| <kbd>R</kbd> | **Restore View** (Browse & restore `.tar.gz` and `.snapshot` archives) |
 | <kbd>r</kbd> | Rescan current path |
 | <kbd>q</kbd> / <kbd>Esc</kbd> | Quit nodewipe |
 
@@ -312,6 +326,7 @@ nodewipe scan ~ --grouped                  # Group by monorepo/workspace root
 nodewipe scan ~ --sort age                 # Sort oldest to newest
 nodewipe scan ~ --older-than 30d           # Only show artifacts untouched for 30+ days
 nodewipe scan ~ --stale-days 60            # Flag projects with source untouched in 60+ days
+nodewipe scan ~ --types node_modules,venv  # Target only specific types (also: --include-types, --target)
 nodewipe scan ~ --preset python            # Scan only Python artifacts (node, rust, java, go)
 nodewipe scan ~ --exclude-types venv,dist  # Skip specific types
 nodewipe scan ~ --export audit.csv         # Export results to CSV or JSON
@@ -320,10 +335,18 @@ nodewipe scan ~ --json                     # Headless JSON output for CI/automat
 
 # ── Deleting & Restoring ───────────────────────────────────────────────────
 nodewipe delete ./path/node_modules --yes                 # Safe delete (OS Trash)
-nodewipe delete ./path/target --mode archive --yes       # Compressed tar.gz backup + delete
+nodewipe delete ./path/target --mode archive --yes       # Compressed tar.gz or CoW snapshot backup + delete
 nodewipe delete ./path/venv --mode permanent --yes       # Immediate permanent delete
 nodewipe delete ./path/node_modules --dry-run            # Preview deletion impact
-nodewipe restore ./path/app-target-backup.tar.gz         # Restore an archived backup
+nodewipe restore ./path/app-target-backup.tar.gz         # Restore an archived backup (.tar.gz or .snapshot)
+
+# ── Ignore & Configuration Management ──────────────────────────────────────
+nodewipe config path                       # Show configuration file path
+nodewipe config show                       # View active configuration settings
+nodewipe config init                       # Initialize ~/.config/nodewipe/config.toml
+nodewipe ignore list                       # List all global and local ignore patterns
+nodewipe ignore add ./legacy-app           # Add path to ignore list
+nodewipe ignore remove ./legacy-app        # Remove path from ignore list
 
 # ── Analysis & Tooling ──────────────────────────────────────────────────────
 nodewipe doctor ~                          # Run system-wide disk-hog analysis
@@ -368,11 +391,13 @@ default_exclude_types = ["venv", "rust_target"]
 | Feature / Issue | `npkill` | `nodewipe` |
 |---|:---:|:---:|
 | **Language & Engine** | Node.js (V8 runtime) | **Pure Rust (`rayon` multithreaded)** |
-| **Supported Ecosystems** | `node_modules` only | **17+ (Node, Rust, Python, Java, Go, .NET, PHP, Caches)** |
+| **Supported Ecosystems** | `node_modules` only | **39+ (Node, Rust, Python, Java, Go, .NET, PHP, Caches, AI/ML, Mobile, Native)** |
 | **Disk Size Accuracy** | Logical byte sum | **Physical cluster block calculation (`st_blocks`)** |
-| **Safety & Recovery** | Permanent unlink only | **OS Trash + Atomic `.tar.gz` Archiving** |
+| **Safety & Recovery** | Permanent unlink only | **OS Trash + Instant CoW Snapshot + Atomic `.tar.gz` Archiving** |
 | **Interactive Dry-Run** | ❌ No | **✅ Real-time simulation toggle (<kbd>P</kbd>)** |
-| **Monorepo / Workspace Support**| Flat results flood screen | **Automatic grouping by detected workspace root** |
+| **Monorepo / Workspace Support**| Flat results flood screen | **Automatic grouping by workspace root with interactive collapse (<kbd>Tab</kbd>)** |
+| **Toolchain Rebuild** | ❌ No | **✅ In-place dependency rebuild/reinstall (<kbd>b</kbd>)** |
+| **Age & Staleness Filtering** | ❌ No | **✅ Interactive age cycling (<kbd>f</kbd>) & Git staleness flags** |
 | **Scriptable Headless Mode** | ❌ No | **`--json`, `--yes`, `--export csv/json`, exit codes** |
 | **System Doctor Analysis** | ❌ No | **`nodewipe doctor` (Ecosystem breakdown & staleness)** |
 | **Lifetime History Tracking** | ❌ No | **`nodewipe stats` (Dashboard & historical bar chart)** |
