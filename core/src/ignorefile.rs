@@ -33,9 +33,9 @@ pub fn load_patterns(root: &Path) -> Gitignore {
     builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
-/// Adds a path to the global ~/.nodewipeignore file safely.
+/// Adds a path to the specified ignore file safely.
 /// Returns an error if the path points to root or is invalid.
-pub fn add_ignored_pattern(target: &Path) -> Result<PathBuf, String> {
+pub fn add_ignored_pattern_to_file(ignore_file: &Path, target: &Path) -> Result<PathBuf, String> {
     let canonical = std::fs::canonicalize(target).unwrap_or_else(|_| {
         if target.is_relative() {
             std::env::current_dir()
@@ -51,26 +51,52 @@ pub fn add_ignored_pattern(target: &Path) -> Result<PathBuf, String> {
         return Err("Refusing to ignore root filesystem directory".to_string());
     }
 
-    let home = dirs::home_dir().ok_or_else(|| "Cannot find user home directory".to_string())?;
-    let global_ignore = home.join(".nodewipeignore");
+    if let Some(parent) = ignore_file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
-    let existing = std::fs::read_to_string(&global_ignore).unwrap_or_default();
+    let existing = std::fs::read_to_string(ignore_file).unwrap_or_default();
     let pattern_str = canonical.display().to_string();
 
     if existing.lines().any(|l| l.trim() == pattern_str) {
-        return Ok(global_ignore);
+        return Ok(ignore_file.to_path_buf());
     }
 
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&global_ignore)
-        .map_err(|e| format!("Failed to open {}: {e}", global_ignore.display()))?;
+        .open(ignore_file)
+        .map_err(|e| format!("Failed to open {}: {e}", ignore_file.display()))?;
 
     writeln!(file, "{pattern_str}")
-        .map_err(|e| format!("Failed to write to {}: {e}", global_ignore.display()))?;
+        .map_err(|e| format!("Failed to write to {}: {e}", ignore_file.display()))?;
 
-    Ok(global_ignore)
+    Ok(ignore_file.to_path_buf())
+}
+
+/// Adds a path to the global ~/.nodewipeignore file safely.
+/// Returns an error if the path points to root or is invalid.
+pub fn add_ignored_pattern(target: &Path) -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Cannot find user home directory".to_string())?;
+    let global_ignore = home.join(".nodewipeignore");
+    add_ignored_pattern_to_file(&global_ignore, target)
+}
+
+/// Lists all patterns from a specific ignore file.
+pub fn list_ignored_patterns_from_file(ignore_file: &Path) -> Vec<IgnoredPattern> {
+    let mut results = Vec::new();
+    if let Ok(content) = std::fs::read_to_string(ignore_file) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() && !trimmed.starts_with('#') {
+                results.push(IgnoredPattern {
+                    pattern: trimmed.to_string(),
+                    source: IgnoreSource::Global,
+                });
+            }
+        }
+    }
+    results
 }
 
 /// Lists all patterns from ~/.nodewipeignore and ./nodewipeignore.
