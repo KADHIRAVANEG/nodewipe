@@ -379,6 +379,51 @@ fn test_archive_and_restore_cycle() {
     assert_eq!(fs::read(nm.join("hello.txt")).unwrap(), b"content");
 }
 
+#[cfg(unix)]
+#[test]
+fn test_archive_preserves_symlinks_without_dereference() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    let project = root.join("app_with_symlinks");
+    let nm = project.join("node_modules");
+    fs::create_dir_all(&nm).unwrap();
+
+    let real_file = nm.join("target_file.js");
+    fs::write(&real_file, b"original payload").unwrap();
+
+    let link_file = nm.join("symlink.js");
+    std::os::unix::fs::symlink(std::path::Path::new("target_file.js"), &link_file).unwrap();
+
+    // Verify it is indeed a symlink initially
+    assert!(
+        fs::symlink_metadata(&link_file)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+
+    // Archive and restore
+    let res = delete(&nm, DeleteMode::Archive, 7).unwrap();
+    assert!(!nm.exists());
+    let archive_path = res.archive_path.expect("archive_path should be set");
+
+    let restored = restore(&archive_path).unwrap();
+    assert_eq!(restored, nm);
+
+    // Verify that the restored link is still a symlink, NOT dereferenced into a regular file
+    let restored_link = nm.join("symlink.js");
+    assert!(restored_link.exists());
+    assert!(
+        fs::symlink_metadata(&restored_link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "archived symlink must be restored as a symlink, not dereferenced"
+    );
+    assert_eq!(fs::read(&restored_link).unwrap(), b"original payload");
+}
+
 #[test]
 fn test_history_stats_and_formatting() {
     assert_eq!(format_date(1700000000), "2023-11-14");
