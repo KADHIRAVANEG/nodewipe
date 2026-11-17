@@ -489,9 +489,34 @@ fn human_size(bytes: u64) -> String {
 }
 
 fn truncate_path(path: &str, max: usize) -> String {
-    if path.len() <= max {
+    let chars: Vec<char> = path.chars().collect();
+    if chars.len() <= max {
         return path.to_string();
     }
+    if max <= 3 {
+        return chars.into_iter().take(max).collect();
+    }
     let half = (max - 3) / 2;
-    format!("{}...{}", &path[..half], &path[path.len() - half..])
+    let prefix: String = chars[..half].iter().collect();
+    let suffix: String = chars[chars.len() - half..].iter().collect();
+    format!("{prefix}...{suffix}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_path_unicode_safety() {
+        // Multi-byte UTF-8 path with emojis and CJK characters
+        let path = "🦀/projets_étudiants/東京/workspace/target";
+        // Must not panic on character boundaries
+        let truncated = truncate_path(path, 15);
+        assert!(truncated.contains("..."));
+        assert!(truncated.chars().count() <= 15);
+
+        // Short strings
+        assert_eq!(truncate_path("short", 10), "short");
+        assert_eq!(truncate_path("abcde", 3), "abc");
+    }
 }
