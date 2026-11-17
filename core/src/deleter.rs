@@ -73,9 +73,12 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
 
             if use_reflink {
                 let snapshot = snapshot_path_for(path);
-                crate::reflink::reflink_dir(path, &snapshot).with_context(|| {
-                    format!("failed to create reflink snapshot of {}", path.display())
-                })?;
+                if let Err(e) = crate::reflink::reflink_dir(path, &snapshot) {
+                    let _ = std::fs::remove_dir_all(&snapshot);
+                    return Err(e).with_context(|| {
+                        format!("failed to create reflink snapshot of {}", path.display())
+                    });
+                }
                 if let Some(artifact_name) = path.file_name() {
                     let _ = std::fs::write(
                         snapshot.join(".nodewipe_snapshot_meta"),
@@ -88,8 +91,10 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
                 Some(snapshot)
             } else {
                 let archive = archive_path_for(path);
-                create_archive(path, &archive)
-                    .with_context(|| format!("failed to archive {}", path.display()))?;
+                if let Err(e) = create_archive(path, &archive) {
+                    let _ = std::fs::remove_file(&archive);
+                    return Err(e).with_context(|| format!("failed to archive {}", path.display()));
+                }
                 std::fs::remove_dir_all(path).with_context(|| {
                     format!("failed to remove {} after archiving", path.display())
                 })?;
