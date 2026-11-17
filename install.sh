@@ -51,6 +51,26 @@ find_asset_url() {
     | cut -d '"' -f4
 }
 
+prompt_user() {
+  local prompt="$1"
+  local default_val="$2"
+  local reply=""
+
+  if [ -t 0 ] && [ -t 1 ]; then
+    read -rp "$prompt" reply || reply=""
+  elif [ -t 1 ] && [ -r /dev/tty ]; then
+    read -rp "$prompt" reply < /dev/tty || reply=""
+  else
+    reply=""
+  fi
+
+  if [ -z "$reply" ]; then
+    printf "%s" "$default_val"
+  else
+    printf "%s" "$reply"
+  fi
+}
+
 # ---------- CLI install ----------
 
 choose_install_dir() {
@@ -58,10 +78,11 @@ choose_install_dir() {
     INSTALL_DIR="/usr/local/bin"
     return
   fi
-  if command -v sudo >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1 && [ -r /dev/tty ]; then
     echo
-    read -rp "Install system-wide to /usr/local/bin? Needs sudo. [Y/n]: " sw
-    if [ "${sw:-Y}" != "n" ] && [ "${sw:-Y}" != "N" ]; then
+    local sw
+    sw="$(prompt_user "Install system-wide to /usr/local/bin? Needs sudo. [Y/n]: " "Y")"
+    if [ "$sw" != "n" ] && [ "$sw" != "N" ]; then
       INSTALL_DIR="/usr/local/bin"
       USE_SUDO=1
       return
@@ -125,16 +146,20 @@ install_cli() {
 
   # Install man page
   if [ -x "$dest" ]; then
-    if [ "${USE_SUDO:-0}" = "1" ] && [ -d /usr/local/share/man/man1 ] || [ -d /usr/share/man/man1 ]; then
+    if [ "${USE_SUDO:-0}" = "1" ] && { [ -d /usr/local/share/man/man1 ] || [ -d /usr/share/man/man1 ]; }; then
       local sys_man="/usr/local/share/man/man1"
       sudo mkdir -p "$sys_man"
       "$dest" man --raw 2>/dev/null | sudo tee "$sys_man/nodewipe.1" >/dev/null || true
-      command -v mandb >/dev/null 2>&1 && sudo mandb -u >/dev/null 2>&1 || true
+      if command -v mandb >/dev/null 2>&1; then
+        sudo mandb -u >/dev/null 2>&1 || true
+      fi
     else
       local user_man="${XDG_DATA_HOME:-$HOME/.local/share}/man/man1"
       mkdir -p "$user_man"
       "$dest" man --raw > "$user_man/nodewipe.1" 2>/dev/null || true
-      command -v mandb >/dev/null 2>&1 && mandb -u >/dev/null 2>&1 || true
+      if command -v mandb >/dev/null 2>&1; then
+        mandb -u >/dev/null 2>&1 || true
+      fi
     fi
     info "Installed man page (view with 'man nodewipe')"
   fi
@@ -201,11 +226,22 @@ install_gui() {
 main() {
   detect_platform
 
-  echo "nodewipe installer"
-  echo "-------------------"
-  echo "1) CLI only (terminal tool, smallest download)"
-  echo "2) CLI + GUI (desktop app, installs both)"
-  read -rp "Choose [1/2]: " choice
+  local choice=""
+  for arg in "$@"; do
+    case "$arg" in
+      --cli) choice="1" ;;
+      --gui|--all) choice="2" ;;
+      -y|--yes) choice="1" ;;
+    esac
+  done
+
+  if [ -z "$choice" ]; then
+    echo "nodewipe installer"
+    echo "-------------------"
+    echo "1) CLI only (terminal tool, smallest download)"
+    echo "2) CLI + GUI (desktop app, installs both)"
+    choice="$(prompt_user "Choose [1/2] (default: 1): " "1")"
+  fi
 
   case "$choice" in
     1) install_cli ;;
