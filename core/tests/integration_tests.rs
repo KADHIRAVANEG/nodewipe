@@ -1598,46 +1598,51 @@ fn test_dedupe_dry_run_and_execution() {
 
 #[test]
 fn test_ignore_management_lifecycle_and_root_safety() {
-    use nodewipe_core::{add_ignored_pattern, list_ignored_patterns, remove_ignored_pattern};
+    use nodewipe_core::{
+        add_ignored_pattern_to_file, list_ignored_patterns_from_file,
+        remove_ignored_pattern_from_file,
+    };
     use std::path::Path;
 
-    // 1. Safety check: refusing root paths
-    assert!(add_ignored_pattern(Path::new("/")).is_err());
-    #[cfg(windows)]
-    assert!(add_ignored_pattern(Path::new("C:\\")).is_err());
-
-    // 2. Add temporary valid test directory
     let temp_dir = tempfile::tempdir().unwrap();
+    let test_ignore_file = temp_dir.path().join("isolated_ignore_file");
+
+    // 1. Safety check: refusing root paths
+    assert!(add_ignored_pattern_to_file(&test_ignore_file, Path::new("/")).is_err());
+    #[cfg(windows)]
+    assert!(add_ignored_pattern_to_file(&test_ignore_file, Path::new("C:\\")).is_err());
+
+    // 2. Add temporary valid test directory to isolated ignore file
     let sample_path = temp_dir.path().join("safe_test_artifact");
     std::fs::create_dir_all(&sample_path).unwrap();
 
-    let res = add_ignored_pattern(&sample_path);
+    let res = add_ignored_pattern_to_file(&test_ignore_file, &sample_path);
     assert!(
         res.is_ok(),
-        "add_ignored_pattern must succeed for valid path"
+        "add_ignored_pattern_to_file must succeed for valid path"
     );
 
     // 3. Duplicate addition is idempotent
-    let res_dup = add_ignored_pattern(&sample_path);
+    let res_dup = add_ignored_pattern_to_file(&test_ignore_file, &sample_path);
     assert!(res_dup.is_ok());
 
-    // 4. Verify listed
-    let list = list_ignored_patterns(temp_dir.path());
+    // 4. Verify listed in isolated file
+    let list = list_ignored_patterns_from_file(&test_ignore_file);
     let sample_str = sample_path.canonicalize().unwrap().display().to_string();
     assert!(list.iter().any(|item| item.pattern == sample_str));
 
-    // 5. Remove pattern
-    let removed = remove_ignored_pattern(&sample_str).unwrap();
+    // 5. Remove pattern from isolated file
+    let removed = remove_ignored_pattern_from_file(&test_ignore_file, &sample_str).unwrap();
     assert!(removed, "Pattern must be reported as removed");
 
-    // 6. Verify removed
-    let list_after = list_ignored_patterns(temp_dir.path());
+    // 6. Verify removed from isolated file
+    let list_after = list_ignored_patterns_from_file(&test_ignore_file);
     assert!(!list_after.iter().any(|item| item.pattern == sample_str));
 
-    // 7. Verify local ignore file removal support
+    // 7. Verify local ignore file removal support in project root
     let local_ignore = temp_dir.path().join(".nodewipeignore");
     std::fs::write(&local_ignore, "local_ignored_dir\nanother_dir\n").unwrap();
-    let local_list = list_ignored_patterns(temp_dir.path());
+    let local_list = nodewipe_core::list_ignored_patterns(temp_dir.path());
     assert!(
         local_list
             .iter()
