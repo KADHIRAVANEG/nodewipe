@@ -513,6 +513,50 @@ fn test_history_corruption_self_healing_and_recovery() {
 }
 
 #[test]
+fn test_concurrent_history_appends_lossless() {
+    use nodewipe_core::history::{append_to_path, load_from_path};
+    use std::sync::Arc;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let history_file = Arc::new(tmp.path().join("concurrent_history.json"));
+
+    let num_threads = 20;
+    let mut handles = Vec::new();
+
+    for i in 0..num_threads {
+        let path_clone = Arc::clone(&history_file);
+        handles.push(std::thread::spawn(move || {
+            let entry = HistoryEntry {
+                deleted_at: 1700000000 + i as u64,
+                date: "2026-11-17".into(),
+                path: format!("/path/to/project_{i}"),
+                kind: "node_modules".into(),
+                size_bytes: 1000 + i as u64,
+                mode: "trash".into(),
+            };
+            append_to_path(&path_clone, entry).expect("concurrent append must succeed");
+        }));
+    }
+
+    for h in handles {
+        h.join().expect("thread should join cleanly");
+    }
+
+    let entries = load_from_path(&history_file).expect("history must load cleanly");
+    assert_eq!(
+        entries.len(),
+        num_threads,
+        "Every concurrent entry must be safely preserved without race conditions"
+    );
+
+    // Verify all 20 unique paths are present
+    let paths: std::collections::HashSet<String> = entries.into_iter().map(|e| e.path).collect();
+    for i in 0..num_threads {
+        assert!(paths.contains(&format!("/path/to/project_{i}")));
+    }
+}
+
+#[test]
 fn test_restore_rejects_path_traversal() {
     let dir = tempdir().unwrap();
     let root = dir.path();
