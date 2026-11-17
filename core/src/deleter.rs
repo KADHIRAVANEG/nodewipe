@@ -207,15 +207,37 @@ fn archive_path_for(artifact_path: &Path) -> PathBuf {
 
 fn create_archive(src_dir: &Path, dest_tar_gz: &Path) -> Result<()> {
     // Open with create_new or check to protect existing archives
-    let file = File::create(dest_tar_gz)?;
+    let file = File::create(dest_tar_gz)
+        .with_context(|| format!("failed to create archive file {}", dest_tar_gz.display()))?;
     let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
     let mut builder = tar::Builder::new(encoder);
+
+    // Safety: Preserve symlinks as symlinks rather than following them.
+    // Following symlinks can dereference external directories, inflating archives
+    // and copying arbitrary parent trees outside the artifact.
+    builder.follow_symlinks(false);
+
     let archive_entry_name = src_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("artifact");
-    builder.append_dir_all(archive_entry_name, src_dir)?;
-    builder.finish()?;
+    builder
+        .append_dir_all(archive_entry_name, src_dir)
+        .with_context(|| format!("failed to add {} to archive", src_dir.display()))?;
+    builder
+        .finish()
+        .with_context(|| format!("failed to finish tar archive for {}", src_dir.display()))?;
+
+    // Explicitly finalize the underlying gzip stream.
+    // GzEncoder only flushes its final compression blocks and CRC32/ISIZE footer on finish().
+    // If not explicitly finished, errors during final compression write are dropped during Drop,
+    // which could lead to deleting the original directory when the archive is corrupt.
+    let encoder = builder
+        .into_inner()
+        .context("retrieving gzip encoder from tar builder")?;
+    let file = encoder.finish().context("finalizing gzip stream")?;
+    file.sync_all().context("syncing archive to disk")?;
+
     Ok(())
 }
 
