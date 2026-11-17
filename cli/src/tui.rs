@@ -1,3 +1,5 @@
+use crate::cli_def::SortKey;
+use crate::sort_entries_by_key;
 use anyhow::Result;
 use crossterm::ExecutableCommand;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -195,15 +197,30 @@ struct App {
     delete_rx: Option<mpsc::Receiver<DeleteMsg>>,
     deleting_info: Option<(usize, usize, String, u64, DeleteMode)>,
     age_filter: AgeFilter,
+    parallel: bool,
+    inspect_git: bool,
+    no_ignore_file: bool,
+    min_bytes: u64,
+    sort_key: SortKey,
 }
 
 impl App {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         root: PathBuf,
         initial_excluded: Option<HashSet<ArtifactKind>>,
         initial_age_filter: Option<AgeFilter>,
+        parallel: bool,
+        inspect_git: bool,
+        no_ignore_file: bool,
+        min_mb: u64,
+        sort_key: SortKey,
     ) -> Self {
-        let ignore_patterns = load_ignore_patterns(&root);
+        let ignore_patterns = if no_ignore_file {
+            nodewipe_core::Gitignore::empty()
+        } else {
+            load_ignore_patterns(&root)
+        };
         let config = load_config();
         let mut excluded_kinds: HashSet<ArtifactKind> = config
             .default_exclude_types
@@ -215,6 +232,8 @@ impl App {
         if let Some(ie) = initial_excluded {
             excluded_kinds.extend(ie);
         }
+
+        let min_bytes = min_mb * 1024 * 1024;
 
         App {
             root,
@@ -243,7 +262,32 @@ impl App {
             delete_rx: None,
             deleting_info: None,
             age_filter: initial_age_filter.unwrap_or(AgeFilter::All),
+            parallel,
+            inspect_git,
+            no_ignore_file,
+            min_bytes,
+            sort_key,
         }
+    }
+
+    fn sort_entries(&mut self) {
+        sort_entries_by_key(&mut self.entries, self.sort_key);
+    }
+
+    fn cycle_sort(&mut self) {
+        self.sort_key = match self.sort_key {
+            SortKey::Size => SortKey::Age,
+            SortKey::Age => SortKey::Git,
+            SortKey::Git => SortKey::Size,
+        };
+        self.sort_entries();
+        self.rebuild_rows();
+        let sort_label = match self.sort_key {
+            SortKey::Size => "size",
+            SortKey::Age => "age",
+            SortKey::Git => "git branch",
+        };
+        self.status = format!("Sorted by: {sort_label}");
     }
 
     /// Kicks off a background scan and transitions to the Scanning stage.
@@ -251,6 +295,10 @@ impl App {
         let root = self.root.clone();
         let exclude_kinds: Vec<ArtifactKind> = self.excluded_kinds.iter().copied().collect();
         let ignore_patterns = self.ignore_patterns.clone();
+        let parallel = self.parallel;
+        let inspect_git = self.inspect_git;
+        let min_bytes = self.min_bytes;
+        let sort_key = self.sort_key;
 
         let (tx, rx) = mpsc::channel();
         self.scan_rx = Some(rx);
@@ -264,12 +312,19 @@ impl App {
                 root: root.clone(),
                 exclude_kinds,
                 ignore_patterns: ignore_patterns.clone(),
+                parallel,
+                inspect_git,
                 ..Default::default()
             };
             match scan(&opts) {
                 Ok(mut entries) => {
-                    annotate_workspace_roots(&mut entries, &opts.root);
-                    entries.sort_by_key(|b| std::cmp::Reverse(b.size_bytes));
+                    if min_bytes > 0 {
+                        entries.retain(|e| e.size_bytes >= min_bytes);
+                    }
+                    if inspect_git {
+                        annotate_workspace_roots(&mut entries, &opts.root);
+                    }
+                    sort_entries_by_key(&mut entries, sort_key);
                     let _ = tx.send(ScanMsg::Done(entries));
                 }
                 Err(e) => {
@@ -316,7 +371,7 @@ impl App {
         if !self.grouped_view {
             // Flat view: one row per matching entry.
             for (i, e) in self.entries.iter().enumerate() {
-                if self.age_filter.matches(e.last_modified) {
+                if e.size_bytes >= self.min_bytes && self.age_filter.matches(e.last_modified) {
                     self.rows.push(ResultRow::Entry { entry_index: i });
                 }
             }
@@ -328,11 +383,11 @@ impl App {
             return;
         }
 
-        // Grouped view: only group entries that match the age filter.
+        // Grouped view: only group entries that match the age filter and min size.
         let matching_entries: Vec<Entry> = self
             .entries
             .iter()
-            .filter(|e| self.age_filter.matches(e.last_modified))
+            .filter(|e| e.size_bytes >= self.min_bytes && self.age_filter.matches(e.last_modified))
             .cloned()
             .collect();
 
@@ -438,6 +493,9 @@ impl App {
     /// Load ignored patterns from the global .nodewipeignore file for display.
     fn load_ignored_patterns(&mut self) {
         self.ignored_patterns.clear();
+        if self.no_ignore_file {
+            return;
+        }
         if let Some(home) = dirs::home_dir() {
             let path = home.join(".nodewipeignore");
             if let Ok(content) = std::fs::read_to_string(&path) {
@@ -937,10 +995,16 @@ impl App {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     root: PathBuf,
     initial_excluded: Option<HashSet<ArtifactKind>>,
     initial_age_filter: Option<AgeFilter>,
+    parallel: bool,
+    inspect_git: bool,
+    no_ignore_file: bool,
+    min_mb: u64,
+    sort_key: SortKey,
 ) -> Result<()> {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -956,7 +1020,16 @@ pub fn run(
     let backend = CrosstermBackend::new(out);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(root, initial_excluded, initial_age_filter);
+    let mut app = App::new(
+        root,
+        initial_excluded,
+        initial_age_filter,
+        parallel,
+        inspect_git,
+        no_ignore_file,
+        min_mb,
+        sort_key,
+    );
     let result = event_loop(&mut terminal, &mut app);
 
     let _ = disable_raw_mode();
@@ -1197,7 +1270,8 @@ fn event_loop(
                             };
                         }
                         KeyCode::Char('r') => app.start_scan(),
-                        KeyCode::Char('s') | KeyCode::Char('S') => {
+                        KeyCode::Char('S') => app.cycle_sort(),
+                        KeyCode::Char('s') => {
                             open_browser("https://github.com/KADHIRAVANEG/nodewipe");
                             app.status = "⭐ Opened https://github.com/KADHIRAVANEG/nodewipe — Thank you for starring!".to_string();
                         }
@@ -1661,14 +1735,26 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     } else {
         String::new()
     };
+    let sort_label = match app.sort_key {
+        SortKey::Size => "size",
+        SortKey::Age => "age",
+        SortKey::Git => "git branch",
+    };
+    let min_indicator = if app.min_bytes > 0 {
+        format!(" · min: {}", human_size(app.min_bytes))
+    } else {
+        String::new()
+    };
     let info = Paragraph::new(vec![Line::from(format!(
-        "{} found ({} visible) · {} total · {} selected ({} items){}",
+        "{} found ({} visible) · {} total · {} selected ({} items){} · sort: {}{}",
         app.entries.len(),
         visible_count,
         human_size(total),
         human_size(sel_size),
         sel_count,
         filter_indicator,
+        sort_label,
+        min_indicator,
     ))])
     .block(Block::default().borders(Borders::ALL).title(" Summary "));
     f.render_widget(info, chunks[1]);
@@ -1677,7 +1763,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     let help1 = "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select";
     let help2 =
         "d trash · a archive · p delete · i ignore · y copy · o open · g group · Tab collapse";
-    let help3 = "b rebuild · f age-filter · P dry-run · R restore · I ignored · t types · r rescan · s star · q quit";
+    let help3 = "b rebuild · f age-filter · S sort · P dry-run · R restore · I ignored · t types · r rescan · s star · q quit";
 
     let help = if app.pending_action.is_some() {
         format!(

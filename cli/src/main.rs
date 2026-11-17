@@ -74,18 +74,21 @@ fn run(cli: Cli) -> Result<ExitCode> {
         let _ = update::check_and_prompt_update();
     }
 
+    let default_sort = parse_sort_key(config.default_sort.as_deref()).unwrap_or(SortKey::Size);
+    let default_min_mb = config.default_min_mb.unwrap_or(0);
+
     match cli.command {
         None => {
             if cli.json || !atty_stdout() {
                 cmd_scan(
                     &root,
                     cli.json,
-                    0,
+                    default_min_mb,
                     false,
                     exclude_kinds,
                     ignore_patterns,
                     None,
-                    SortKey::Size,
+                    default_sort,
                     None,
                     None,
                     None,
@@ -98,7 +101,16 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 } else {
                     Some(exclude_kinds.into_iter().collect())
                 };
-                tui::run(root, initial_excluded, None)?;
+                tui::run(
+                    root,
+                    initial_excluded,
+                    None,
+                    !cli.serial,
+                    !cli.no_git,
+                    cli.no_ignore_file,
+                    default_min_mb,
+                    default_sort,
+                )?;
                 Ok(ExitCode::SUCCESS)
             }
         }
@@ -118,15 +130,19 @@ fn run(cli: Cli) -> Result<ExitCode> {
             } else {
                 load_ignore_patterns(&scan_root)
             };
+            let effective_min_mb = min_mb.or(config.default_min_mb).unwrap_or(0);
+            let effective_sort = sort
+                .or_else(|| parse_sort_key(config.default_sort.as_deref()))
+                .unwrap_or(SortKey::Size);
             cmd_scan(
                 &scan_root,
                 cli.json,
-                min_mb,
+                effective_min_mb,
                 grouped,
                 exclude_kinds,
                 scan_ignore,
                 older_than,
-                sort,
+                effective_sort,
                 stale_days,
                 preset,
                 export,
@@ -616,6 +632,46 @@ fn cmd_dedupe(
     Ok(ExitCode::SUCCESS)
 }
 
+pub fn parse_sort_key(s: Option<&str>) -> Option<SortKey> {
+    match s?.trim().to_ascii_lowercase().as_str() {
+        "size" => Some(SortKey::Size),
+        "age" => Some(SortKey::Age),
+        "git" => Some(SortKey::Git),
+        _ => None,
+    }
+}
+
+pub fn sort_entries_by_key(entries: &mut [Entry], sort: SortKey) {
+    match sort {
+        SortKey::Size => {
+            entries.sort_by_key(|b| std::cmp::Reverse(b.size_bytes));
+        }
+        SortKey::Age => {
+            entries.sort_by(|a, b| match (a.last_modified, b.last_modified) {
+                (Some(ta), Some(tb)) => ta.cmp(&tb),
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, None) => std::cmp::Ordering::Equal,
+            });
+        }
+        SortKey::Git => {
+            entries.sort_by(|a, b| {
+                let ga = a
+                    .git_status
+                    .as_ref()
+                    .and_then(|g| g.branch.as_deref())
+                    .unwrap_or("");
+                let gb = b
+                    .git_status
+                    .as_ref()
+                    .and_then(|g| g.branch.as_deref())
+                    .unwrap_or("");
+                ga.cmp(gb)
+            });
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn cmd_scan(
     root: &Path,
@@ -716,34 +772,7 @@ fn cmd_scan(
         });
     }
 
-    match sort {
-        SortKey::Size => {
-            entries.sort_by_key(|b| std::cmp::Reverse(b.size_bytes));
-        }
-        SortKey::Age => {
-            entries.sort_by(|a, b| match (a.last_modified, b.last_modified) {
-                (Some(ta), Some(tb)) => ta.cmp(&tb),
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, None) => std::cmp::Ordering::Equal,
-            });
-        }
-        SortKey::Git => {
-            entries.sort_by(|a, b| {
-                let ga = a
-                    .git_status
-                    .as_ref()
-                    .and_then(|g| g.branch.as_deref())
-                    .unwrap_or("");
-                let gb = b
-                    .git_status
-                    .as_ref()
-                    .and_then(|g| g.branch.as_deref())
-                    .unwrap_or("");
-                ga.cmp(gb)
-            });
-        }
-    }
+    sort_entries_by_key(&mut entries, sort);
 
     let stale = if let Some(days) = stale_days {
         let threshold = Duration::from_secs(days * 86400);
@@ -1312,6 +1341,38 @@ mod tests {
         let toml_str = toml::to_string(&cfg).unwrap();
         let loaded: nodewipe_core::Config = toml::from_str(&toml_str).unwrap();
         assert_eq!(cfg, loaded);
+    }
+
+    #[test]
+    fn test_parse_sort_key_and_cli_flag_defaults() {
+        assert_eq!(parse_sort_key(Some("size")), Some(SortKey::Size));
+        assert_eq!(parse_sort_key(Some("SIZE")), Some(SortKey::Size));
+        assert_eq!(parse_sort_key(Some("age")), Some(SortKey::Age));
+        assert_eq!(parse_sort_key(Some("git")), Some(SortKey::Git));
+        assert_eq!(parse_sort_key(Some("invalid")), None);
+        assert_eq!(parse_sort_key(None), None);
+
+        let cfg = nodewipe_core::Config {
+            default_delete_mode: None,
+            default_exclude_types: None,
+            default_min_mb: Some(42),
+            default_sort: Some("age".into()),
+        };
+        let effective_min_mb = None.or(cfg.default_min_mb).unwrap_or(0);
+        assert_eq!(effective_min_mb, 42);
+
+        let cli_override_min_mb = Some(100).or(cfg.default_min_mb).unwrap_or(0);
+        assert_eq!(cli_override_min_mb, 100);
+
+        let effective_sort = None
+            .or_else(|| parse_sort_key(cfg.default_sort.as_deref()))
+            .unwrap_or(SortKey::Size);
+        assert_eq!(effective_sort, SortKey::Age);
+
+        let cli_override_sort = Some(SortKey::Git)
+            .or_else(|| parse_sort_key(cfg.default_sort.as_deref()))
+            .unwrap_or(SortKey::Size);
+        assert_eq!(cli_override_sort, SortKey::Git);
     }
 
     #[test]
