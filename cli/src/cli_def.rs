@@ -100,8 +100,9 @@ pub enum Command {
         path: Option<PathBuf>,
 
         /// Only show entries at least this many megabytes in size.
-        #[arg(long, default_value_t = 0)]
-        min_mb: u64,
+        /// Defaults to config.default_min_mb (or 0 if unset).
+        #[arg(long, value_name = "MB")]
+        min_mb: Option<u64>,
 
         /// Group output by monorepo/workspace root instead of a flat list.
         #[arg(long)]
@@ -113,10 +114,10 @@ pub enum Command {
         older_than: Option<String>,
 
         /// Primary sort order for results.
-        /// `size` (default) shows biggest first; `age` shows oldest
-        /// (most-abandoned) first, surfacing forgotten projects at the top.
-        #[arg(long, value_enum, default_value_t = SortKey::Size)]
-        sort: SortKey,
+        /// `size` shows biggest first; `age` shows oldest (most-abandoned) first.
+        /// Defaults to config.default_sort (or `size` if unset).
+        #[arg(long, value_enum)]
+        sort: Option<SortKey>,
 
         /// Flag entire projects as likely-abandoned when their source files
         /// haven't been touched in this many days.
@@ -300,7 +301,7 @@ pub enum DeleteModeArg {
     Permanent,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum SortKey {
     /// Sort by size, largest first (default).
     Size,
