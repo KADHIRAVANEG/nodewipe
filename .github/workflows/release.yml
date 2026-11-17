@@ -105,7 +105,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.dmg
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*.exe
             gui/src-tauri/target/release/bundle/**/*.AppImage
+            gui/src-tauri/target/release/bundle/**/*.deb
             gui/src-tauri/target/release/bundle/**/*.dmg
             gui/src-tauri/target/release/bundle/**/*.msi
             gui/src-tauri/target/release/bundle/**/*.exe
