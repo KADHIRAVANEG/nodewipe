@@ -73,12 +73,77 @@ pub fn load_from_path(path: &Path) -> Result<Vec<HistoryEntry>> {
     }
 }
 
+static IN_PROCESS_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+struct HistoryLock {
+    lock_path: PathBuf,
+}
+
+impl HistoryLock {
+    fn acquire(history_path: &Path) -> Result<Self> {
+        let parent = history_path.parent().unwrap_or(Path::new("."));
+        let lock_path = parent.join(format!(
+            ".{}.lock",
+            history_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("history")
+        ));
+        let start = std::time::Instant::now();
+
+        loop {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(_) => {
+                    return Ok(Self { lock_path });
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // Break stale lock if older than 10 seconds (e.g. crashed process)
+                    if let Ok(meta) = std::fs::metadata(&lock_path)
+                        && let Ok(modified) = meta.modified()
+                        && let Ok(elapsed) = modified.elapsed()
+                        && elapsed.as_secs() > 10
+                    {
+                        let _ = std::fs::remove_file(&lock_path);
+                    }
+
+                    if start.elapsed().as_secs() > 5 {
+                        anyhow::bail!(
+                            "timed out waiting for history lock on {}",
+                            history_path.display()
+                        );
+                    }
+
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => return Err(e).context("acquiring history lock"),
+            }
+        }
+    }
+}
+
+impl Drop for HistoryLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.lock_path);
+    }
+}
+
 /// Append a single entry to a specific history file, creating it if needed.
+/// Thread-safe and process-safe with advisory locking to prevent lost records.
 pub fn append_to_path(path: &Path, entry: HistoryEntry) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating history dir {}", parent.display()))?;
     }
+
+    // Acquire in-process mutex and cross-process file lock
+    let _in_process = IN_PROCESS_MUTEX
+        .lock()
+        .map_err(|e| anyhow::anyhow!("in-process history lock poisoned: {e}"))?;
+    let _file_lock = HistoryLock::acquire(path)?;
 
     let mut entries = if path.exists() {
         load_from_path(path)?
@@ -91,7 +156,11 @@ pub fn append_to_path(path: &Path, entry: HistoryEntry) -> Result<()> {
 
     // Atomic write: write to a temporary file in the same directory, then rename
     let parent_dir = path.parent().unwrap_or(Path::new("."));
-    let temp_file = parent_dir.join(format!(".history.json.tmp.{}", std::process::id()));
+    let temp_file = parent_dir.join(format!(
+        ".history.json.tmp.{}_{}",
+        std::process::id(),
+        now_unix()
+    ));
     std::fs::write(&temp_file, serialized)
         .with_context(|| format!("writing temp history file {}", temp_file.display()))?;
 
