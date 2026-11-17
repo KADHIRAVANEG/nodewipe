@@ -66,20 +66,37 @@ fn reflink_dir_recursive(src: &Path, dst: &Path, stats: &mut ReflinkDirStats) ->
             stats.dirs_created += 1;
             reflink_dir_recursive(&child_src, &child_dst, stats)?;
         } else if file_type.is_symlink() {
+            let target = fs::read_link(&child_src).with_context(|| {
+                format!("failed to read symlink target of {}", child_src.display())
+            })?;
             #[cfg(unix)]
             {
-                if let Ok(target) = fs::read_link(&child_src) {
-                    let _ = std::os::unix::fs::symlink(target, &child_dst);
-                }
+                std::os::unix::fs::symlink(&target, &child_dst).with_context(|| {
+                    format!(
+                        "failed to recreate symlink {} -> {}",
+                        child_dst.display(),
+                        target.display()
+                    )
+                })?;
             }
             #[cfg(windows)]
             {
-                if let Ok(target) = fs::read_link(&child_src) {
-                    if child_src.is_dir() {
-                        let _ = std::os::windows::fs::symlink_dir(target, &child_dst);
-                    } else {
-                        let _ = std::os::windows::fs::symlink_file(target, &child_dst);
-                    }
+                if child_src.is_dir() {
+                    std::os::windows::fs::symlink_dir(&target, &child_dst).with_context(|| {
+                        format!(
+                            "failed to recreate dir symlink {} -> {}",
+                            child_dst.display(),
+                            target.display()
+                        )
+                    })?;
+                } else {
+                    std::os::windows::fs::symlink_file(&target, &child_dst).with_context(|| {
+                        format!(
+                            "failed to recreate file symlink {} -> {}",
+                            child_dst.display(),
+                            target.display()
+                        )
+                    })?;
                 }
             }
         } else if file_type.is_file() {
