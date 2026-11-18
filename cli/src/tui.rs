@@ -202,6 +202,7 @@ struct App {
     no_ignore_file: bool,
     min_bytes: u64,
     sort_key: SortKey,
+    pinned_projects: Vec<nodewipe_core::PinnedProject>,
 }
 
 impl App {
@@ -234,6 +235,7 @@ impl App {
         }
 
         let min_bytes = min_mb * 1024 * 1024;
+        let pinned_projects = nodewipe_core::load_pinned_projects();
 
         App {
             root,
@@ -267,6 +269,7 @@ impl App {
             no_ignore_file,
             min_bytes,
             sort_key,
+            pinned_projects,
         }
     }
 
@@ -292,6 +295,7 @@ impl App {
 
     /// Kicks off a background scan and transitions to the Scanning stage.
     fn start_scan(&mut self) {
+        self.pinned_projects = nodewipe_core::load_pinned_projects();
         let root = self.root.clone();
         let exclude_kinds: Vec<ArtifactKind> = self.excluded_kinds.iter().copied().collect();
         let ignore_patterns = self.ignore_patterns.clone();
@@ -647,6 +651,16 @@ impl App {
     fn toggle_selected(&mut self) {
         // Only toggle if cursor is on an entry row.
         if let Some(ResultRow::Entry { entry_index }) = self.rows.get(self.cursor).cloned() {
+            if let Some(entry) = self.entries.get(entry_index)
+                && nodewipe_core::is_path_pinned_with_list(&entry.path, &self.pinned_projects)
+            {
+                self.status = format!(
+                    "{} Cannot select pinned path: {} (press 'p' to unpin)",
+                    nodewipe_core::icons::PIN,
+                    entry.path.display()
+                );
+                return;
+            }
             if self.selected.contains(&entry_index) {
                 self.selected.remove(&entry_index);
             } else {
@@ -661,11 +675,13 @@ impl App {
             .rows
             .iter()
             .filter_map(|r| {
-                if let ResultRow::Entry { entry_index } = r {
-                    Some(*entry_index)
-                } else {
-                    None
+                if let ResultRow::Entry { entry_index } = r
+                    && let Some(entry) = self.entries.get(*entry_index)
+                    && !nodewipe_core::is_path_pinned_with_list(&entry.path, &self.pinned_projects)
+                {
+                    return Some(*entry_index);
                 }
+                None
             })
             .collect();
 
@@ -674,15 +690,23 @@ impl App {
             self.selected.clear();
             self.status = "Deselected all".to_string();
         } else {
-            // Select all visible entries.
+            // Select all visible entries that are not pinned.
             self.selected.extend(all_entry_indices.iter());
-            self.status = format!("Selected all {} entries", all_entry_indices.len());
+            self.status = format!("Selected {} unpinned entries", all_entry_indices.len());
         }
     }
 
     /// Select all entries in the workspace group at the current cursor row.
     fn select_group(&mut self) {
         if let Some(ResultRow::Group { root, .. }) = self.rows.get(self.cursor).cloned() {
+            if nodewipe_core::is_path_pinned_with_list(&root, &self.pinned_projects) {
+                self.status = format!(
+                    "{} Group is inside pinned project: {} (press 'p' to unpin)",
+                    nodewipe_core::icons::PIN,
+                    root.display()
+                );
+                return;
+            }
             let count = self
                 .entries
                 .iter()
@@ -692,13 +716,14 @@ impl App {
                         .as_ref()
                         .map(|r| r == &root)
                         .unwrap_or(false)
+                        && !nodewipe_core::is_path_pinned_with_list(&e.path, &self.pinned_projects)
                 })
                 .map(|(i, _)| {
                     self.selected.insert(i);
                     i
                 })
                 .count();
-            self.status = format!("Selected {count} entries in group");
+            self.status = format!("Selected {count} unpinned entries in group");
         }
     }
 
@@ -733,6 +758,20 @@ impl App {
             self.status = "Nothing selected".to_string();
             return;
         }
+
+        let pinned_items: Vec<_> = indices
+            .iter()
+            .filter_map(|i| self.entries.get(*i))
+            .filter(|e| nodewipe_core::is_path_pinned_with_list(&e.path, &self.pinned_projects))
+            .map(|e| e.path.display().to_string())
+            .collect();
+        if !pinned_items.is_empty() {
+            self.status = format!(
+                "Cannot delete pinned path: {} (press 'p' to unpin)",
+                pinned_items[0]
+            );
+            return;
+        }
         let warnings = self.risk_warnings(&indices);
         let has_warnings = !warnings.is_empty();
 
@@ -751,10 +790,7 @@ impl App {
                 mode
             ));
             (
-                format!(
-                    "⚠  Warning — {} delete",
-                    format!("{:?}", mode).to_lowercase()
-                ),
+                format!("Warning — {} delete", format!("{:?}", mode).to_lowercase()),
                 lines,
                 true,
             )
@@ -993,6 +1029,144 @@ impl App {
             self.status = "Nothing to open".to_string();
         }
     }
+
+    /// Inspect and explain the currently highlighted artifact or group with recovery recipes and staleness.
+    fn explain_current_entry(&mut self) {
+        let explanation = match self.rows.get(self.cursor) {
+            Some(ResultRow::Entry { entry_index }) => self
+                .entries
+                .get(*entry_index)
+                .map(nodewipe_core::explain_entry),
+            Some(ResultRow::Group { root, .. }) => nodewipe_core::explain_path(root).ok(),
+            None => None,
+        };
+
+        let Some(exp) = explanation else {
+            self.status = "Nothing to explain".to_string();
+            return;
+        };
+
+        let name = exp
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Directory");
+        let title = format!("Explain: {name}");
+        let mut lines = Vec::new();
+
+        lines.push(format!("Path: {}", exp.path.display()));
+        if let Some(ref root) = exp.project_root {
+            lines.push(format!("Project: {}", root.display()));
+        }
+        lines.push(format!(
+            "Size: {} ({} {})",
+            exp.formatted_size,
+            exp.artifact_kind.icon(),
+            exp.artifact_label
+        ));
+        if exp.is_pinned {
+            lines.push(format!(
+                "Pin Status: {} [PINNED] (Protected from deletion)",
+                nodewipe_core::icons::PIN
+            ));
+        }
+        lines.push(String::new());
+
+        lines.push(format!("Detection: {}", exp.match_reason));
+        lines.push(String::new());
+
+        lines.push(format!("Risk: {}", exp.risk_level.label()));
+        lines.push(format!("Impact: {}", exp.risk_description));
+
+        if let Some(ref st) = exp.source_staleness {
+            lines.push(String::new());
+            lines.push(format!("Source Activity: {}", st.description));
+        }
+
+        if let Some(ref git) = exp.git_status {
+            lines.push(String::new());
+            let branch = git.branch.as_deref().unwrap_or("unknown");
+            let dirty = if git.is_dirty {
+                " (uncommitted changes)"
+            } else {
+                " (clean)"
+            };
+            let merged = if git.is_merged {
+                " [merged into main]"
+            } else {
+                ""
+            };
+            lines.push(format!(
+                "Git Status: {} branch {branch}{dirty}{merged}",
+                nodewipe_core::icons::GIT_BRANCH
+            ));
+        }
+
+        if let Some(ref plan) = exp.rebuild_plan {
+            lines.push(String::new());
+            lines.push(format!(
+                "Recovery Recipe: {} {} {}",
+                nodewipe_core::icons::TERMINAL,
+                plan.program,
+                plan.args.join(" ")
+            ));
+            lines.push(format!("Rebuild In: {}", plan.work_dir.display()));
+        }
+
+        lines.push(String::new());
+        lines.push("Press any key to dismiss".to_string());
+
+        let is_warning = exp.risk_level == nodewipe_core::RiskLevel::Caution;
+        self.modal_text = Some((title, lines, is_warning));
+    }
+
+    /// Toggle pin status of the selected project or directory.
+    fn toggle_pin_current_entry(&mut self) {
+        let target = match self.rows.get(self.cursor) {
+            Some(ResultRow::Group { root, .. }) => Some(root.clone()),
+            Some(ResultRow::Entry { entry_index }) => self.entries.get(*entry_index).map(|e| {
+                e.workspace_root
+                    .clone()
+                    .or_else(|| e.path.parent().map(|p| p.to_path_buf()))
+                    .unwrap_or_else(|| e.path.clone())
+            }),
+            None => None,
+        };
+
+        let Some(target) = target else {
+            self.status = "Nothing to pin/unpin".to_string();
+            return;
+        };
+
+        match nodewipe_core::toggle_pinned_project(&target) {
+            Ok((is_pinned, resolved)) => {
+                self.pinned_projects = nodewipe_core::load_pinned_projects();
+                if is_pinned {
+                    // Deselect any entries that are now pinned
+                    self.selected.retain(|&idx| {
+                        if let Some(entry) = self.entries.get(idx) {
+                            !nodewipe_core::is_path_pinned_with_list(
+                                &entry.path,
+                                &self.pinned_projects,
+                            )
+                        } else {
+                            true
+                        }
+                    });
+                    self.status = format!(
+                        "{} Pinned project: {} (protected from deletion)",
+                        nodewipe_core::icons::PIN,
+                        resolved.display()
+                    );
+                } else {
+                    self.status = format!("Unpinned project: {}", resolved.display());
+                }
+            }
+            Err(e) => {
+                self.status = format!("Pin failed: {e}");
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1144,6 +1318,12 @@ fn event_loop(
                         continue;
                     }
 
+                    // ── Handle informational modal (e.g. Explain inspector) ────────
+                    if app.modal_text.is_some() {
+                        app.modal_text = None;
+                        continue;
+                    }
+
                     // ── Main key dispatch ──────────────────────────────────────────
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => break,
@@ -1174,10 +1354,14 @@ fn event_loop(
                             let idx = app.selected_indices();
                             app.request_delete(idx, DeleteMode::Archive);
                         }
-                        KeyCode::Char('p') => {
+                        KeyCode::Char('x') => {
                             let idx = app.selected_indices();
                             app.request_delete(idx, DeleteMode::Permanent);
                         }
+
+                        // ── Explain & Pin ──────────────────────────────────────────
+                        KeyCode::Char('e') => app.explain_current_entry(),
+                        KeyCode::Char('p') => app.toggle_pin_current_entry(),
 
                         // ── Ignore ─────────────────────────────────────────────────
                         KeyCode::Char('i') => {
@@ -1273,7 +1457,8 @@ fn event_loop(
                         KeyCode::Char('S') => app.cycle_sort(),
                         KeyCode::Char('s') => {
                             open_browser("https://github.com/KADHIRAVANEG/nodewipe");
-                            app.status = "⭐ Opened https://github.com/KADHIRAVANEG/nodewipe — Thank you for starring!".to_string();
+                            app.status =
+                                "Opened https://github.com/KADHIRAVANEG/nodewipe".to_string();
                         }
                         _ => {}
                     }
@@ -1634,8 +1819,15 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
             } => {
                 let cursor_marker = if i == app.cursor { "> " } else { "  " };
                 let arrow = if *expanded { "▼" } else { "▶" };
+                let is_pinned = nodewipe_core::is_path_pinned_with_list(root, &app.pinned_projects);
+                let pin_marker = if is_pinned {
+                    format!(" {} [PINNED]", nodewipe_core::icons::PIN)
+                } else {
+                    String::new()
+                };
                 let line = format!(
-                    "{cursor_marker}{arrow} 📦 {}   [{} items]   {}",
+                    "{cursor_marker}{arrow} {} {}{pin_marker}   [{} items]   {}",
+                    nodewipe_core::icons::FOLDER,
                     root.display(),
                     count,
                     human_size(*total_bytes)
@@ -1657,10 +1849,13 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                     Some(e) => e,
                     None => return ListItem::new(Line::from("")),
                 };
-                let checked = if app.selected.contains(entry_index) {
-                    "[x]"
+                let is_pinned = nodewipe_core::is_path_pinned_with_list(&e.path, &app.pinned_projects);
+                let checked = if is_pinned {
+                    format!("[{}]", nodewipe_core::icons::PIN)
+                } else if app.selected.contains(entry_index) {
+                    "[x]".to_string()
                 } else {
-                    "[ ]"
+                    "[ ]".to_string()
                 };
                 let cursor_marker = if i == app.cursor { "> " } else { "  " };
                 // Indent entries that belong to a group in grouped view.
@@ -1674,7 +1869,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                         let branch = git.branch.as_deref().unwrap_or("?");
                         let dirty = if git.is_dirty { "*" } else { "" };
                         let merged = if git.is_merged { " [merged]" } else { "" };
-                        format!("({branch}{dirty}{merged})")
+                        format!("({} {branch}{dirty}{merged})", nodewipe_core::icons::GIT_BRANCH)
                     }
                     None => String::new(),
                 };
@@ -1686,23 +1881,31 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                     .unwrap_or(false);
 
                 let size_col = pad_to_width(&human_size(e.size_bytes), 10, false);
-                let kind_col = pad_to_width(e.kind.label(), 14, true);
+                let kind_label = format!("{} {}", e.kind.icon(), e.kind.label());
+                let kind_col = pad_to_width(&kind_label, 18, true);
                 let age_col = pad_to_width(&age_str, 8, true);
 
+                let pin_tag = if is_pinned {
+                    format!(" {} [PINNED]", nodewipe_core::icons::PIN)
+                } else {
+                    String::new()
+                };
                 let line = if git_info.is_empty() {
                     format!(
-                        "{cursor_marker}{indent}{checked} {size_col}  {kind_col}  {age_col}  {}",
+                        "{cursor_marker}{indent}{checked} {size_col}  {kind_col}  {age_col}{pin_tag}  {}",
                         e.path.display()
                     )
                 } else {
-                    let git_col = pad_to_width(&git_info, 18, true);
+                    let git_col = pad_to_width(&git_info, 20, true);
                     format!(
-                        "{cursor_marker}{indent}{checked} {size_col}  {kind_col}  {age_col}  {git_col}  {}",
+                        "{cursor_marker}{indent}{checked} {size_col}  {kind_col}  {age_col}  {git_col}{pin_tag}  {}",
                         e.path.display()
                     )
                 };
                 let style = if i == app.cursor {
                     Style::default().fg(Color::Black).bg(Color::Yellow)
+                } else if is_pinned {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
                 } else if app.selected.contains(entry_index) {
                     Style::default().fg(Color::Green)
                 } else if is_stale {
@@ -1762,8 +1965,9 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     let dry_run_indicator = if app.dry_run { " [DRY-RUN ON]" } else { "" };
     let help1 = "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select";
     let help2 =
-        "d trash · a archive · p delete · i ignore · y copy · o open · g group · Tab collapse";
-    let help3 = "b rebuild · f age-filter · S sort · P dry-run · R restore · I ignored · t types · r rescan · s star · q quit";
+        "d trash · a archive · x permanent · p pin/unpin · e explain · i ignore · y copy · o open";
+    let help3 =
+        "b rebuild · g group · Tab collapse · f age · S sort · P dry-run · R restore · q quit";
 
     let help = if app.pending_action.is_some() {
         format!(
@@ -1883,8 +2087,8 @@ fn draw_ignored(f: &mut ratatui::Frame, app: &App) {
 
 fn draw_modal(f: &mut ratatui::Frame, title: &str, body_lines: &[String], is_warning: bool) {
     let area = f.area();
-    let width = (area.width as f32 * 0.60).min(70.0) as u16;
-    let height = (body_lines.len() as u16 + 4).min(area.height - 4);
+    let width = (area.width as f32 * 0.75).min(90.0) as u16;
+    let height = (body_lines.len() as u16 + 4).min(area.height.saturating_sub(2));
     let x = (area.width.saturating_sub(width)) / 2;
     let y = (area.height.saturating_sub(height)) / 2;
     let modal_area = Rect {
@@ -1901,6 +2105,8 @@ fn draw_modal(f: &mut ratatui::Frame, title: &str, body_lines: &[String], is_war
         Color::Red
     } else if title.contains("archive") || title.contains("Archive") {
         Color::LightYellow
+    } else if title.starts_with("Explain") {
+        Color::Cyan
     } else {
         Color::Green
     };
@@ -1910,15 +2116,36 @@ fn draw_modal(f: &mut ratatui::Frame, title: &str, body_lines: &[String], is_war
         .map(|l| {
             if l.is_empty() {
                 Line::from("")
-            } else {
+            } else if l.starts_with("Risk: ") {
+                let color = if l.contains("Low") {
+                    Color::Green
+                } else if l.contains("Moderate") {
+                    Color::Yellow
+                } else {
+                    Color::Red
+                };
                 Line::from(Span::styled(
                     l.clone(),
-                    if is_warning {
-                        Style::default().fg(Color::Yellow)
-                    } else {
-                        Style::default().fg(Color::White)
-                    },
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
                 ))
+            } else if l.starts_with("Pin Status:") {
+                Line::from(Span::styled(
+                    l.clone(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ))
+            } else if l.starts_with("Recovery Recipe:") {
+                Line::from(Span::styled(
+                    l.clone(),
+                    Style::default()
+                        .fg(Color::LightGreen)
+                        .add_modifier(Modifier::BOLD),
+                ))
+            } else if is_warning {
+                Line::from(Span::styled(l.clone(), Style::default().fg(Color::Yellow)))
+            } else {
+                Line::from(Span::styled(l.clone(), Style::default().fg(Color::White)))
             }
         })
         .collect();

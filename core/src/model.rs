@@ -266,6 +266,48 @@ impl ArtifactKind {
         }
     }
 
+    /// Returns the Nerd Font icon corresponding to this artifact kind.
+    pub fn icon(&self) -> &'static str {
+        match self {
+            ArtifactKind::RustTarget => "\u{e7a8}", // 
+            ArtifactKind::NodeModules
+            | ArtifactKind::PnpmIgnored
+            | ArtifactKind::YarnCache
+            | ArtifactKind::GenericDist
+            | ArtifactKind::NextCache
+            | ArtifactKind::NuxtCache
+            | ArtifactKind::SvelteKitCache
+            | ArtifactKind::AstroCache
+            | ArtifactKind::DocusaurusCache
+            | ArtifactKind::ViteCache => "\u{e718}", // 
+            ArtifactKind::PythonVenv
+            | ArtifactKind::PythonPycache
+            | ArtifactKind::PythonPytestCache
+            | ArtifactKind::PythonMypyCache
+            | ArtifactKind::PythonRuffCache => "\u{e73c}", // 
+            ArtifactKind::GoModCache | ArtifactKind::GoBuildCache => "\u{e627}", // 
+            ArtifactKind::JavaMavenTarget
+            | ArtifactKind::JavaGradleBuild
+            | ArtifactKind::GradleCache => "\u{e738}", // 
+            ArtifactKind::PhpVendor => "\u{e73d}",  // 
+            ArtifactKind::DotnetBin | ArtifactKind::DotnetObj => "\u{e77f}", // 
+            ArtifactKind::SwiftPmBuild
+            | ArtifactKind::XcodeDerivedData
+            | ArtifactKind::CocoaPods => "\u{e755}", // 
+            ArtifactKind::CmakeBuild | ArtifactKind::ZigCache | ArtifactKind::MesonBuild => {
+                "\u{e61e}"
+            } // 
+            ArtifactKind::ElixirBuild => "\u{e62d}", // 
+            ArtifactKind::HuggingFaceCache
+            | ArtifactKind::OllamaModels
+            | ArtifactKind::TorchCache
+            | ArtifactKind::TritonCache => "\u{f085}", // 
+            ArtifactKind::AndroidBuildCache => "\u{e70e}", // 
+            ArtifactKind::PlaywrightBrowsers | ArtifactKind::CypressCache => "\u{f268}", // 
+            ArtifactKind::TurboCache => "\u{f1b2}", // 
+        }
+    }
+
     /// Plain-language description shown in `nodewipe types` and the type-select
     /// screen. Explains what the artifact is and whether it is safe to delete.
     pub fn description(&self) -> &'static str {
@@ -426,6 +468,21 @@ impl ArtifactKind {
             _ => None,
         }
     }
+}
+
+/// Standard Nerd Font vector icon glyphs for terminal UI elements.
+pub mod icons {
+    pub const PIN: &str = "\u{f08d}"; //  Pushpin
+    pub const DOCTOR: &str = "\u{f0fa}"; //  Medical briefcase
+    pub const FOLDER: &str = "\u{f07b}"; //  Folder
+    pub const GIT_BRANCH: &str = "\u{f126}"; //  Git branch
+    pub const STATS: &str = "\u{f080}"; //  Chart
+    pub const TRASH: &str = "\u{f1f8}"; //  Trash
+    pub const CHECK: &str = "\u{f00c}"; //  Check
+    pub const WARN: &str = "\u{f071}"; //  Warning
+    pub const TERMINAL: &str = "\u{f120}"; //  Terminal prompt
+    pub const SHIELD: &str = "\u{f132}"; //  Shield
+    pub const PACKAGE: &str = "\u{f1b2}"; //  Cube package
 }
 
 /// A single discovered disposable artifact directory.

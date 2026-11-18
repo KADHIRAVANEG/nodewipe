@@ -294,6 +294,45 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    /// Explain an artifact directory: why it matched, risk level, staleness, and rebuild recipe.
+    Explain {
+        /// Path to the artifact or project directory to inspect.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Manage pinned projects to protect them from cleanup and deletion.
+    Pin {
+        #[command(subcommand)]
+        command: Option<PinCommand>,
+
+        /// Path to pin directly without typing 'add' (e.g. `nodewipe pin .`).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PinCommand {
+    /// Pin a project directory to protect it from deletion.
+    Add {
+        /// Path to the project directory.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+
+        /// Optional reason or note for pinning this project.
+        #[arg(short, long)]
+        reason: Option<String>,
+    },
+    /// List all currently pinned projects.
+    List,
+    /// Unpin a project directory to allow cleanup.
+    Remove {
+        /// Path to the project directory to unpin.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

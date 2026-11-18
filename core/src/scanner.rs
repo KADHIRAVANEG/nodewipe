@@ -650,7 +650,7 @@ pub fn dir_size(path: &Path) -> u64 {
 
 /// Looks at the parent directory of `node_modules` for lockfiles to infer
 /// which package manager created it.
-fn detect_package_manager(node_modules_path: &Path) -> PackageManager {
+pub fn detect_package_manager(node_modules_path: &Path) -> PackageManager {
     let project_root = match node_modules_path.parent() {
         Some(p) => p,
         None => return PackageManager::Unknown,

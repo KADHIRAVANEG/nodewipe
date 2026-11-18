@@ -7,7 +7,9 @@ mod update;
 use anyhow::{Context, Result};
 use clap::Parser;
 pub use cli_def::BANNER;
-use cli_def::{Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PresetArg, SortKey};
+use cli_def::{
+    Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PinCommand, PresetArg, SortKey,
+};
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
     ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, add_ignored_pattern,
@@ -208,9 +210,214 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Some(Command::Ignore { command }) => cmd_ignore(command, &root, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
         Some(Command::Config { action }) => cmd_config(action, cli.json),
-        Some(Command::Update { check, yes, force }) => {
-            update::run_update(check, yes, force)
+        Some(Command::Update { check, yes, force }) => update::run_update(check, yes, force),
+        Some(Command::Explain { path }) => cmd_explain(&path, cli.json),
+        Some(Command::Pin { command, path }) => cmd_pin(command, path, cli.json),
+    }
+}
+
+fn cmd_explain(path: &Path, json: bool) -> Result<ExitCode> {
+    let explanation = match nodewipe_core::explain_path(path) {
+        Ok(exp) => exp,
+        Err(e) => {
+            if json {
+                println!("{}", serde_json::json!({ "error": e.to_string() }));
+            } else {
+                eprintln!("error: {e}");
+            }
+            return Ok(ExitCode::FAILURE);
         }
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&explanation)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    println!();
+    println!("Explanation for {}", explanation.path.display());
+    println!("{}", "─".repeat(72));
+    println!("  • Path:           {}", explanation.path.display());
+    println!(
+        "  • Size:           {} ({} bytes)",
+        explanation.formatted_size, explanation.size_bytes
+    );
+    println!(
+        "  • Artifact Type:  {} {} ({})",
+        explanation.artifact_kind.icon(),
+        explanation.artifact_label,
+        explanation.artifact_kind.slug()
+    );
+    println!("  • Detection:      {}", explanation.match_reason);
+    let pin_str = if explanation.is_pinned {
+        format!(
+            "{} [PINNED] (Protected from deletion)",
+            nodewipe_core::icons::PIN
+        )
+    } else {
+        "Unpinned (Eligible for cleanup)".to_string()
+    };
+    println!("  • Protection:     {pin_str}");
+
+    let risk_indicator = match explanation.risk_level {
+        nodewipe_core::RiskLevel::Low => "Low Risk",
+        nodewipe_core::RiskLevel::Moderate => "Moderate Risk",
+        nodewipe_core::RiskLevel::Caution => "Caution",
+    };
+    println!(
+        "  • Risk Level:     {risk_indicator} — {}",
+        explanation.risk_level.label()
+    );
+    println!("                    {}", explanation.risk_description);
+
+    if let Some(staleness) = &explanation.source_staleness {
+        println!();
+        println!("  • Source Activity:");
+        println!("    - Description:  {}", staleness.description);
+        println!("    - Days Inactive: {} days", staleness.stale_days);
+    }
+
+    if let Some(git) = &explanation.git_status {
+        println!();
+        println!("  • Git Repository:");
+        if let Some(branch) = &git.branch {
+            let merged_str = if git.is_merged {
+                " (Merged to upstream)"
+            } else {
+                ""
+            };
+            println!(
+                "    - Branch:       {} {branch}{merged_str}",
+                nodewipe_core::icons::GIT_BRANCH
+            );
+        }
+        let dirty_str = if git.is_dirty {
+            "Uncommitted changes"
+        } else {
+            "Clean"
+        };
+        println!("    - Working Tree: {dirty_str}");
+    }
+
+    if let Some(recipe) = &explanation.rebuild_plan {
+        println!();
+        println!("  • Recovery Recipe:");
+        println!(
+            "    - Command:      {} {}",
+            nodewipe_core::icons::TERMINAL,
+            recipe.description
+        );
+        println!("    - Directory:    {}", recipe.work_dir.display());
+    }
+    println!("{}", "─".repeat(72));
+    println!();
+
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_pin(
+    command: Option<PinCommand>,
+    direct_path: Option<PathBuf>,
+    json: bool,
+) -> Result<ExitCode> {
+    let effective_command = match command {
+        Some(cmd) => cmd,
+        None => {
+            if let Some(p) = direct_path {
+                PinCommand::Add {
+                    path: p,
+                    reason: None,
+                }
+            } else {
+                PinCommand::List
+            }
+        }
+    };
+
+    match effective_command {
+        PinCommand::Add { path, reason } => {
+            match nodewipe_core::pin::add_pinned_project(&path, reason.clone()) {
+                Ok(pinned_path) => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "status": "pinned",
+                                "path": pinned_path.display().to_string(),
+                                "reason": reason
+                            })
+                        );
+                    } else {
+                        println!(
+                            "{} Pinned: {}",
+                            nodewipe_core::icons::PIN,
+                            pinned_path.display()
+                        );
+                        if let Some(r) = reason {
+                            println!("   Note: {r}");
+                        }
+                        println!("   (Protected from deletion across CLI, TUI, and GUI)");
+                    }
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    Ok(ExitCode::FAILURE)
+                }
+            }
+        }
+        PinCommand::List => {
+            let list = nodewipe_core::pin::load_pinned_projects();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&list)?);
+            } else if list.is_empty() {
+                println!("No projects are currently pinned.");
+                println!("Pin a project with: nodewipe pin <path>");
+            } else {
+                println!(
+                    "{} Pinned Projects (Protected from Deletion):",
+                    nodewipe_core::icons::PIN
+                );
+                println!("{}", "─".repeat(60));
+                for item in list {
+                    let reason_str = item
+                        .reason
+                        .as_deref()
+                        .map(|r| format!(" ({r})"))
+                        .unwrap_or_default();
+                    println!("  • {}{reason_str}", item.path.display());
+                }
+                println!("{}", "─".repeat(60));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        PinCommand::Remove { path } => match nodewipe_core::pin::remove_pinned_project(&path) {
+            Ok(true) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "status": "unpinned",
+                            "path": path.display().to_string()
+                        })
+                    );
+                } else {
+                    println!("Unpinned: {}", path.display());
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            Ok(false) => {
+                eprintln!(
+                    "warning: path was not in the pinned list: {}",
+                    path.display()
+                );
+                Ok(ExitCode::FAILURE)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                Ok(ExitCode::FAILURE)
+            }
+        },
     }
 }
 
@@ -578,7 +785,7 @@ fn cmd_dedupe(
 
     if !json {
         println!(
-            "\n 🔗  nodewipe dedupe — analyzing identical files across {} target(s) …\n",
+            "\n nodewipe dedupe — analyzing identical files across {} target(s) …\n",
             paths.len()
         );
         if dry_run {
@@ -587,7 +794,7 @@ fn cmd_dedupe(
             );
         } else if allow_hardlinks {
             eprintln!(
-                " ⚠️  Warning: --allow-hardlinks enabled. Linked files will share inodes; in-place edits to one file will affect all linked copies.\n"
+                " Warning: --allow-hardlinks enabled. Linked files will share inodes; in-place edits to one file will affect all linked copies.\n"
             );
         }
     }
@@ -620,15 +827,11 @@ fn cmd_dedupe(
     );
 
     if stats.duplicate_files_found == 0 {
-        println!("\n ✅  No duplicate files found. Your storage is already deduplicated!");
+        println!("\n No duplicate files found. Your storage is already deduplicated!");
     } else if dry_run {
         println!("\n Run without `--dry-run` to execute hardlink/reflink deduplication.");
     } else {
-        println!("\n ✅  Deduplication complete! Hardlinked identical files with zero data loss.");
-        println!(
-            " ⭐ Reclaimed {}! Enjoying nodewipe? Support us with a star: https://github.com/KADHIRAVANEG/nodewipe",
-            human_size(stats.reclaimed_bytes)
-        );
+        println!("\n Deduplication complete! Hardlinked identical files with zero data loss.");
     }
     println!();
 
@@ -874,7 +1077,7 @@ fn cmd_scan(
 
         if !stale.is_empty() {
             println!(
-                "\n ⚠  {} likely-abandoned project{} (source untouched for {}+ days):\n",
+                "\n {} likely-abandoned project{} (source untouched for {}+ days):\n",
                 stale.len(),
                 if stale.len() == 1 { "" } else { "s" },
                 stale_days.unwrap_or(90),
@@ -1072,7 +1275,7 @@ fn print_risk_warnings(paths: &[PathBuf]) {
         if let Some(kind) = nodewipe_core::classify_path(p)
             && let Some(note) = kind.risk_note()
         {
-            eprintln!("⚠ WARNING [{}] {}\n  {}\n", kind.label(), p.display(), note);
+            eprintln!("WARNING [{}] {}\n  {}\n", kind.label(), p.display(), note);
         }
     }
 }
@@ -1394,5 +1597,40 @@ mod tests {
         // CJK characters (2 cells each)
         let cjk = pad_to_width("日本語", 8, false);
         assert_eq!(cjk, "  日本語"); // 2 spaces + 6 width = 8 terminal cells
+    }
+
+    #[test]
+    fn test_cmd_explain_cli() {
+        let tmp = tempfile::tempdir().unwrap();
+        let proj = tmp.path().join("my-node-project");
+        let nm = proj.join("node_modules");
+        std::fs::create_dir_all(&nm).unwrap();
+        std::fs::write(proj.join("package.json"), "{}").unwrap();
+        std::fs::write(nm.join("index.js"), "console.log('hi');").unwrap();
+
+        let code_json = cmd_explain(&nm, true).unwrap();
+        assert_eq!(code_json, ExitCode::SUCCESS);
+
+        let code_human = cmd_explain(&nm, false).unwrap();
+        assert_eq!(code_human, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_cmd_pin_cli() {
+        let tmp = tempfile::tempdir().unwrap();
+        let proj = tmp.path().join("my-pinned-project");
+        std::fs::create_dir_all(&proj).unwrap();
+
+        // Pin add via direct path
+        let code = cmd_pin(None, Some(proj.clone()), true).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+
+        // Pin list
+        let code_list = cmd_pin(Some(PinCommand::List), None, true).unwrap();
+        assert_eq!(code_list, ExitCode::SUCCESS);
+
+        // Pin remove
+        let code_rm = cmd_pin(Some(PinCommand::Remove { path: proj.clone() }), None, true).unwrap();
+        assert_eq!(code_rm, ExitCode::SUCCESS);
     }
 }

@@ -2,11 +2,13 @@ pub mod config;
 pub mod dedupe;
 pub mod deleter;
 pub mod doctor;
+pub mod explain;
 pub mod git;
 pub mod history;
 pub mod ignorefile;
 pub mod interner;
 pub mod model;
+pub mod pin;
 pub mod rebuild;
 pub mod reflink;
 pub mod scanner;
@@ -16,6 +18,7 @@ pub mod workspace;
 pub use config::{Config, config_path, init_default_config, load_config, save_config};
 pub use dedupe::{DedupeOptions, DedupeStats, dedupe_paths};
 pub use deleter::{DeleteMode, DeleteResult, DiscoveredArchive, delete, find_archives, restore};
+pub use explain::{Explanation, RiskLevel, SourceStaleness, explain_entry, explain_path};
 pub use git::{annotate_git_status, find_git_repo_root, inspect_git_repo};
 pub use history::{
     EcosystemStats, HistoryEntry, append as history_append, load as history_load,
@@ -28,7 +31,14 @@ pub use ignorefile::{
     remove_ignored_pattern, remove_ignored_pattern_from_file, remove_ignored_pattern_from_root,
 };
 pub use interner::PathInterner;
-pub use model::{ArtifactKind, Entry, GitStatus, PackageManager, ScanOptions, WorkspaceGroup};
+pub use model::{
+    ArtifactKind, Entry, GitStatus, PackageManager, ScanOptions, WorkspaceGroup, icons,
+};
+pub use pin::{
+    PinnedProject, add_pinned_project, is_path_pinned, is_path_pinned_with_list,
+    list_pinned_projects, load_pinned_projects, remove_pinned_project, save_pinned_projects,
+    toggle_pinned_project,
+};
 pub use rebuild::{RebuildPlan, resolve_rebuild_plan};
 pub use reflink::{ReflinkDirStats, reflink_dir, supports_reflink};
 pub use scanner::{classify_path, scan};

@@ -43,7 +43,11 @@ pub fn run(
     };
 
     if !json && !notify {
-        eprintln!("\n 🩺  nodewipe doctor — scanning {} …\n", root.display());
+        eprintln!(
+            "\n {} nodewipe doctor — scanning {} …\n",
+            nodewipe_core::icons::DOCTOR,
+            root.display()
+        );
         eprintln!(" This may take a moment on large trees.\n");
     }
 
@@ -91,20 +95,20 @@ pub fn run(
         if let Some(limit) = threshold_bytes {
             if threshold_exceeded {
                 println!(
-                    " 🔔  Desktop notification sent: {} reclaimable (threshold: {})",
+                    " Notification sent: {} reclaimable (threshold: {})",
                     human_size(report.total_bytes),
                     human_size(limit)
                 );
             } else {
                 println!(
-                    " ✅  Reclaimable space ({}) is below threshold ({}). No notification needed.",
+                    " Reclaimable space ({}) is below threshold ({}). No notification needed.",
                     human_size(report.total_bytes),
                     human_size(limit)
                 );
             }
         } else {
             println!(
-                " 🔔  Desktop notification sent: {} reclaimable across {} directories.",
+                " Notification sent: {} reclaimable across {} directories.",
                 human_size(report.total_bytes),
                 report.total_count
             );
@@ -121,13 +125,13 @@ pub fn run(
     );
 
     if report.ecosystems.is_empty() {
-        println!(" ✅  No artifact directories found. Your system is clean!");
+        println!(" No artifact directories found. Your system is clean!");
         return Ok(ExitCode::SUCCESS);
     }
 
     // Table header
     println!(
-        " {:<22} {:>6}   {:>10}   {:<10}  Oldest path",
+        " {:<24} {:>6}   {:>10}   {:<10}  Oldest path",
         "Ecosystem", "Count", "Total", "Oldest"
     );
     println!(" {}", "─".repeat(80));
@@ -140,9 +144,14 @@ pub fn run(
         let oldest_path = eco.oldest_path.as_deref().unwrap_or("—").to_string();
         let oldest_path = truncate_path(&oldest_path, 45);
 
+        let icon = nodewipe_core::ArtifactKind::from_slug(&eco.kind)
+            .map(|k| k.icon())
+            .unwrap_or(nodewipe_core::icons::PACKAGE);
+        let eco_label = format!("{icon} {}", eco.label);
+
         println!(
-            " {:<22} {:>6}   {:>10}   {:<10}  {}",
-            eco.label,
+            " {:<24} {:>6}   {:>10}   {:<10}  {}",
+            eco_label,
             eco.count,
             human_size(eco.total_bytes),
             oldest_str,
@@ -179,21 +188,17 @@ pub fn run(
 
     println!();
     if cfg!(target_os = "macos") || report.ecosystems.iter().any(|e| e.kind == "derived_data") {
-        println!(" 📱 Mobile / Apple tip:");
+        println!(" Mobile / Apple tip:");
         println!(
             "    Run `xcrun simctl delete unavailable` to purge orphaned iOS simulator runtimes.\n"
         );
     }
 
-    println!(" 💡 Next steps:");
+    println!(" Next steps:");
     println!("    nodewipe scan --older-than 90d    # list stale artifacts");
     println!("    nodewipe scan --older-than 90d --json | jq  # script-friendly");
     println!("    nodewipe delete <path> --mode trash          # safe delete");
     println!("    nodewipe doctor --install-service            # setup weekly background check");
-    println!();
-    println!(
-        " ⭐ Enjoying nodewipe? Support us with a star: https://github.com/KADHIRAVANEG/nodewipe"
-    );
     println!();
 
     Ok(ExitCode::SUCCESS)
@@ -363,7 +368,7 @@ WantedBy=timers.target\n";
     if let Ok(s) = enable_status
         && s.success()
     {
-        println!(" ✅  Enabled and started systemd user timer (nodewipe-doctor.timer).");
+        println!(" Enabled and started systemd user timer (nodewipe-doctor.timer).");
     } else {
         println!(
             "To activate the timer, run:\n    systemctl --user enable --now nodewipe-doctor.timer"
@@ -413,7 +418,7 @@ fn install_macos_launchagent(threshold: &str) -> Result<()> {
     if let Ok(s) = load_status
         && s.success()
     {
-        println!(" ✅  Loaded LaunchAgent com.nodewipe.doctor.");
+        println!(" Loaded LaunchAgent com.nodewipe.doctor.");
     } else {
         println!(
             "To load the agent, run:\n    launchctl load -w {}",
@@ -437,7 +442,7 @@ fn uninstall_background_service() -> Result<()> {
                 .args(["unload", "-w", &plist_path.to_string_lossy()])
                 .status();
             std::fs::remove_file(&plist_path)?;
-            println!(" ✅  Removed macOS LaunchAgent: {}", plist_path.display());
+            println!(" Removed macOS LaunchAgent: {}", plist_path.display());
         } else {
             println!("No nodewipe LaunchAgent found at {}", plist_path.display());
         }
@@ -453,15 +458,12 @@ fn uninstall_background_service() -> Result<()> {
         let mut removed = false;
         if timer_path.exists() {
             std::fs::remove_file(&timer_path)?;
-            println!(" ✅  Removed systemd user timer: {}", timer_path.display());
+            println!(" Removed systemd user timer: {}", timer_path.display());
             removed = true;
         }
         if service_path.exists() {
             std::fs::remove_file(&service_path)?;
-            println!(
-                " ✅  Removed systemd user service: {}",
-                service_path.display()
-            );
+            println!(" Removed systemd user service: {}", service_path.display());
             removed = true;
         }
 

@@ -18,10 +18,10 @@ fn update_state_path() -> Option<PathBuf> {
 /// If the directory does not exist, it recursively checks the closest existing ancestor directory.
 pub fn is_dir_writable(dir: &Path) -> bool {
     if !dir.exists() {
-        if let Some(parent) = dir.parent() {
-            if !parent.as_os_str().is_empty() {
-                return is_dir_writable(parent);
-            }
+        if let Some(parent) = dir.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            return is_dir_writable(parent);
         }
         return false;
     }
@@ -70,10 +70,10 @@ pub fn is_in_path(dir: &Path) -> bool {
             if entry == dir {
                 return true;
             }
-            if let (Some(c_entry), Some(c_dir)) = (std::fs::canonicalize(&entry).ok(), &dir_canon) {
-                if c_entry == *c_dir {
-                    return true;
-                }
+            if let (Some(c_entry), Some(c_dir)) = (std::fs::canonicalize(&entry).ok(), &dir_canon)
+                && c_entry == *c_dir
+            {
+                return true;
             }
         }
     }
@@ -86,20 +86,18 @@ pub fn is_in_path(dir: &Path) -> bool {
 /// - If the currently running executable is in a system read-only directory (e.g. `/usr/bin/nodewipe`),
 ///   it falls back to user-space `~/.local/bin/nodewipe` without requiring elevated privileges: `(local_bin, true)`.
 pub fn resolve_install_target() -> (PathBuf, bool) {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            if is_dir_writable(parent) {
-                return (exe, false);
-            }
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+        && is_dir_writable(parent)
+    {
+        return (exe, false);
     }
 
-    if let Some(local_bin) = user_local_bin_path() {
-        if let Some(parent) = local_bin.parent() {
-            if is_dir_writable(parent) {
-                return (local_bin, true);
-            }
-        }
+    if let Some(local_bin) = user_local_bin_path()
+        && let Some(parent) = local_bin.parent()
+        && is_dir_writable(parent)
+    {
+        return (local_bin, true);
     }
 
     // Default fallback to current_exe even if indeterminate
@@ -155,30 +153,30 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     };
 
-    let is_newer = self_update::version::bump_is_greater(current_version, latest.version())
-        .unwrap_or(false);
+    let is_newer =
+        self_update::version::bump_is_greater(current_version, latest.version()).unwrap_or(false);
 
     if check {
         if is_newer {
             println!(
-                "✨ A new version of nodewipe is available: v{} -> v{}",
+                "A new version of nodewipe is available: v{} -> v{}",
                 current_version,
                 latest.version()
             );
             println!("Run 'nodewipe update' to install the latest version.");
         } else {
-            println!("✨ nodewipe is already up to date (v{}).", current_version);
+            println!("nodewipe is already up to date (v{}).", current_version);
         }
         return Ok(ExitCode::SUCCESS);
     }
 
     if !is_newer && !force {
-        println!("✨ nodewipe is already up to date (v{}).", current_version);
+        println!("nodewipe is already up to date (v{}).", current_version);
         return Ok(ExitCode::SUCCESS);
     }
 
     println!(
-        "✨ Updating nodewipe from v{} to v{}...",
+        "Updating nodewipe from v{} to v{}...",
         current_version,
         latest.version()
     );
@@ -214,21 +212,21 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
         Ok(status) => {
             if is_fallback {
                 println!(
-                    "✨ Successfully installed nodewipe v{} to {} (no sudo required)!",
+                    "Successfully installed nodewipe v{} to {} (no sudo required)!",
                     status.version(),
                     target_path.display()
                 );
-                if let Some(parent) = target_path.parent() {
-                    if !is_in_path(parent) {
-                        println!(
-                            "💡 Tip: Add {} to your PATH to run it directly:",
-                            parent.display()
-                        );
-                        println!("   export PATH=\"{}:$PATH\"", parent.display());
-                    }
+                if let Some(parent) = target_path.parent()
+                    && !is_in_path(parent)
+                {
+                    println!(
+                        "Tip: Add {} to your PATH to run it directly:",
+                        parent.display()
+                    );
+                    println!("   export PATH=\"{}:$PATH\"", parent.display());
                 }
             } else {
-                println!("✨ Successfully updated nodewipe to v{}!", status.version());
+                println!("Successfully updated nodewipe to v{}!", status.version());
             }
             let _ = save_update_timestamp();
             Ok(ExitCode::SUCCESS)
@@ -236,7 +234,9 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
         Err(e) => {
             eprintln!("Failed to update: {e}");
             eprintln!("Tip: You can manually update using the installer:");
-            eprintln!("  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash");
+            eprintln!(
+                "  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash"
+            );
             Ok(ExitCode::FAILURE)
         }
     }
@@ -289,7 +289,7 @@ pub fn check_and_prompt_update() -> Result<()> {
             .unwrap_or(false);
         if is_newer {
             println!(
-                "✨ A new version of nodewipe is available! ({} -> {})",
+                "A new version of nodewipe is available! ({} -> {})",
                 current_version,
                 latest.version()
             );
@@ -315,18 +315,18 @@ pub fn check_and_prompt_update() -> Result<()> {
                     Ok(status) => {
                         if is_fallback {
                             println!(
-                                "✨ Successfully installed nodewipe v{} to {} (no sudo required)!",
+                                "Successfully installed nodewipe v{} to {} (no sudo required)!",
                                 status.version(),
                                 target_path.display()
                             );
-                            if let Some(parent) = target_path.parent() {
-                                if !is_in_path(parent) {
-                                    println!(
-                                        "💡 Tip: Add {} to your PATH: export PATH=\"{}:$PATH\"",
-                                        parent.display(),
-                                        parent.display()
-                                    );
-                                }
+                            if let Some(parent) = target_path.parent()
+                                && !is_in_path(parent)
+                            {
+                                println!(
+                                    "Tip: Add {} to your PATH: export PATH=\"{}:$PATH\"",
+                                    parent.display(),
+                                    parent.display()
+                                );
                             }
                         } else {
                             println!("Successfully updated to v{}!", status.version());
@@ -336,7 +336,9 @@ pub fn check_and_prompt_update() -> Result<()> {
                     Err(e) => {
                         eprintln!("Failed to update: {}", e);
                         eprintln!("Tip: You can manually update using:");
-                        eprintln!("  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash");
+                        eprintln!(
+                            "  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash"
+                        );
                     }
                 }
             }
@@ -379,22 +381,20 @@ mod tests {
         let file_name = target.file_name().expect("file name").to_string_lossy();
         assert!(file_name.starts_with("nodewipe"));
         // If not writable in current_exe parent, is_fallback should be true
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                if !is_dir_writable(parent) {
-                    assert!(is_fallback);
-                }
-            }
+        let is_parent_unwritable = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|p| !is_dir_writable(p)))
+            .unwrap_or(false);
+        if is_parent_unwritable {
+            assert!(is_fallback);
         }
     }
 
     #[test]
     fn test_is_in_path_evaluates_system_path() {
-        if let Some(path_var) = std::env::var_os("PATH") {
-            let first_entry = std::env::split_paths(&path_var).next();
-            if let Some(first) = first_entry {
-                assert!(is_in_path(&first));
-            }
+        if let Some(first) = std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).next())
+        {
+            assert!(is_in_path(&first));
         }
         let fake_path = PathBuf::from("/nonexistent_path_definitely_not_in_env_path_12345");
         assert!(!is_in_path(&fake_path));
