@@ -279,6 +279,21 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<ConfigAction>,
     },
+
+    /// Check for and install the latest release of nodewipe.
+    Update {
+        /// Check for newer versions without downloading or installing.
+        #[arg(long)]
+        check: bool,
+
+        /// Automatically proceed with installation without prompting.
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Force installation even if already on the latest version.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
