@@ -211,7 +211,9 @@ pub fn explain_entry(entry: &Entry) -> Explanation {
     });
 
     let git_status = entry.git_status.clone().or_else(|| {
-        project_root.as_ref().and_then(|root| inspect_git_repo(root))
+        project_root
+            .as_ref()
+            .and_then(|root| inspect_git_repo(root))
     });
 
     Explanation {

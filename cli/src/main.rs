@@ -210,9 +210,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Some(Command::Ignore { command }) => cmd_ignore(command, &root, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
         Some(Command::Config { action }) => cmd_config(action, cli.json),
-        Some(Command::Update { check, yes, force }) => {
-            update::run_update(check, yes, force)
-        }
+        Some(Command::Update { check, yes, force }) => update::run_update(check, yes, force),
         Some(Command::Explain { path }) => cmd_explain(&path, cli.json),
         Some(Command::Pin { command, path }) => cmd_pin(command, path, cli.json),
     }
@@ -393,35 +391,33 @@ fn cmd_pin(
             }
             Ok(ExitCode::SUCCESS)
         }
-        PinCommand::Remove { path } => {
-            match nodewipe_core::pin::remove_pinned_project(&path) {
-                Ok(true) => {
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "status": "unpinned",
-                                "path": path.display().to_string()
-                            })
-                        );
-                    } else {
-                        println!("Unpinned: {}", path.display());
-                    }
-                    Ok(ExitCode::SUCCESS)
-                }
-                Ok(false) => {
-                    eprintln!(
-                        "warning: path was not in the pinned list: {}",
-                        path.display()
+        PinCommand::Remove { path } => match nodewipe_core::pin::remove_pinned_project(&path) {
+            Ok(true) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "status": "unpinned",
+                            "path": path.display().to_string()
+                        })
                     );
-                    Ok(ExitCode::FAILURE)
+                } else {
+                    println!("Unpinned: {}", path.display());
                 }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    Ok(ExitCode::FAILURE)
-                }
+                Ok(ExitCode::SUCCESS)
             }
-        }
+            Ok(false) => {
+                eprintln!(
+                    "warning: path was not in the pinned list: {}",
+                    path.display()
+                );
+                Ok(ExitCode::FAILURE)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                Ok(ExitCode::FAILURE)
+            }
+        },
     }
 }
 

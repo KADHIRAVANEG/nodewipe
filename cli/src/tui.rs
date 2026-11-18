@@ -790,10 +790,7 @@ impl App {
                 mode
             ));
             (
-                format!(
-                    "Warning — {} delete",
-                    format!("{:?}", mode).to_lowercase()
-                ),
+                format!("Warning — {} delete", format!("{:?}", mode).to_lowercase()),
                 lines,
                 true,
             )
@@ -1036,12 +1033,11 @@ impl App {
     /// Inspect and explain the currently highlighted artifact or group with recovery recipes and staleness.
     fn explain_current_entry(&mut self) {
         let explanation = match self.rows.get(self.cursor) {
-            Some(ResultRow::Entry { entry_index }) => {
-                self.entries.get(*entry_index).map(nodewipe_core::explain_entry)
-            }
-            Some(ResultRow::Group { root, .. }) => {
-                nodewipe_core::explain_path(root).ok()
-            }
+            Some(ResultRow::Entry { entry_index }) => self
+                .entries
+                .get(*entry_index)
+                .map(nodewipe_core::explain_entry),
+            Some(ResultRow::Group { root, .. }) => nodewipe_core::explain_path(root).ok(),
             None => None,
         };
 
@@ -1050,7 +1046,11 @@ impl App {
             return;
         };
 
-        let name = exp.path.file_name().and_then(|n| n.to_str()).unwrap_or("Directory");
+        let name = exp
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Directory");
         let title = format!("Explain: {name}");
         let mut lines = Vec::new();
 
@@ -1086,8 +1086,16 @@ impl App {
         if let Some(ref git) = exp.git_status {
             lines.push(String::new());
             let branch = git.branch.as_deref().unwrap_or("unknown");
-            let dirty = if git.is_dirty { " (uncommitted changes)" } else { " (clean)" };
-            let merged = if git.is_merged { " [merged into main]" } else { "" };
+            let dirty = if git.is_dirty {
+                " (uncommitted changes)"
+            } else {
+                " (clean)"
+            };
+            let merged = if git.is_merged {
+                " [merged into main]"
+            } else {
+                ""
+            };
             lines.push(format!(
                 "Git Status: {} branch {branch}{dirty}{merged}",
                 nodewipe_core::icons::GIT_BRANCH
@@ -1116,14 +1124,12 @@ impl App {
     fn toggle_pin_current_entry(&mut self) {
         let target = match self.rows.get(self.cursor) {
             Some(ResultRow::Group { root, .. }) => Some(root.clone()),
-            Some(ResultRow::Entry { entry_index }) => {
-                self.entries.get(*entry_index).map(|e| {
-                    e.workspace_root
-                        .clone()
-                        .or_else(|| e.path.parent().map(|p| p.to_path_buf()))
-                        .unwrap_or_else(|| e.path.clone())
-                })
-            }
+            Some(ResultRow::Entry { entry_index }) => self.entries.get(*entry_index).map(|e| {
+                e.workspace_root
+                    .clone()
+                    .or_else(|| e.path.parent().map(|p| p.to_path_buf()))
+                    .unwrap_or_else(|| e.path.clone())
+            }),
             None => None,
         };
 
@@ -1139,7 +1145,10 @@ impl App {
                     // Deselect any entries that are now pinned
                     self.selected.retain(|&idx| {
                         if let Some(entry) = self.entries.get(idx) {
-                            !nodewipe_core::is_path_pinned_with_list(&entry.path, &self.pinned_projects)
+                            !nodewipe_core::is_path_pinned_with_list(
+                                &entry.path,
+                                &self.pinned_projects,
+                            )
                         } else {
                             true
                         }
@@ -1448,7 +1457,8 @@ fn event_loop(
                         KeyCode::Char('S') => app.cycle_sort(),
                         KeyCode::Char('s') => {
                             open_browser("https://github.com/KADHIRAVANEG/nodewipe");
-                            app.status = "Opened https://github.com/KADHIRAVANEG/nodewipe".to_string();
+                            app.status =
+                                "Opened https://github.com/KADHIRAVANEG/nodewipe".to_string();
                         }
                         _ => {}
                     }
@@ -1956,7 +1966,8 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     let help1 = "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select";
     let help2 =
         "d trash · a archive · x permanent · p pin/unpin · e explain · i ignore · y copy · o open";
-    let help3 = "b rebuild · g group · Tab collapse · f age · S sort · P dry-run · R restore · q quit";
+    let help3 =
+        "b rebuild · g group · Tab collapse · f age · S sort · P dry-run · R restore · q quit";
 
     let help = if app.pending_action.is_some() {
         format!(
@@ -2120,12 +2131,16 @@ fn draw_modal(f: &mut ratatui::Frame, title: &str, body_lines: &[String], is_war
             } else if l.starts_with("Pin Status:") {
                 Line::from(Span::styled(
                     l.clone(),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ))
             } else if l.starts_with("Recovery Recipe:") {
                 Line::from(Span::styled(
                     l.clone(),
-                    Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::LightGreen)
+                        .add_modifier(Modifier::BOLD),
                 ))
             } else if is_warning {
                 Line::from(Span::styled(l.clone(), Style::default().fg(Color::Yellow)))

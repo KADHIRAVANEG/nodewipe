@@ -153,8 +153,8 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     };
 
-    let is_newer = self_update::version::bump_is_greater(current_version, latest.version())
-        .unwrap_or(false);
+    let is_newer =
+        self_update::version::bump_is_greater(current_version, latest.version()).unwrap_or(false);
 
     if check {
         if is_newer {
@@ -234,7 +234,9 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
         Err(e) => {
             eprintln!("Failed to update: {e}");
             eprintln!("Tip: You can manually update using the installer:");
-            eprintln!("  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash");
+            eprintln!(
+                "  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash"
+            );
             Ok(ExitCode::FAILURE)
         }
     }
@@ -334,7 +336,9 @@ pub fn check_and_prompt_update() -> Result<()> {
                     Err(e) => {
                         eprintln!("Failed to update: {}", e);
                         eprintln!("Tip: You can manually update using:");
-                        eprintln!("  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash");
+                        eprintln!(
+                            "  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash"
+                        );
                     }
                 }
             }

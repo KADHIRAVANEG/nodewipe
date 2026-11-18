@@ -289,14 +289,14 @@ impl ArtifactKind {
             ArtifactKind::JavaMavenTarget
             | ArtifactKind::JavaGradleBuild
             | ArtifactKind::GradleCache => "\u{e738}", // 
-            ArtifactKind::PhpVendor => "\u{e73d}", // 
+            ArtifactKind::PhpVendor => "\u{e73d}",  // 
             ArtifactKind::DotnetBin | ArtifactKind::DotnetObj => "\u{e77f}", // 
             ArtifactKind::SwiftPmBuild
             | ArtifactKind::XcodeDerivedData
             | ArtifactKind::CocoaPods => "\u{e755}", // 
-            ArtifactKind::CmakeBuild
-            | ArtifactKind::ZigCache
-            | ArtifactKind::MesonBuild => "\u{e61e}", // 
+            ArtifactKind::CmakeBuild | ArtifactKind::ZigCache | ArtifactKind::MesonBuild => {
+                "\u{e61e}"
+            } // 
             ArtifactKind::ElixirBuild => "\u{e62d}", // 
             ArtifactKind::HuggingFaceCache
             | ArtifactKind::OllamaModels
@@ -472,17 +472,17 @@ impl ArtifactKind {
 
 /// Standard Nerd Font vector icon glyphs for terminal UI elements.
 pub mod icons {
-    pub const PIN: &str = "\u{f08d}";       //  Pushpin
-    pub const DOCTOR: &str = "\u{f0fa}";    //  Medical briefcase
-    pub const FOLDER: &str = "\u{f07b}";    //  Folder
-    pub const GIT_BRANCH: &str = "\u{f126}";//  Git branch
-    pub const STATS: &str = "\u{f080}";     //  Chart
-    pub const TRASH: &str = "\u{f1f8}";     //  Trash
-    pub const CHECK: &str = "\u{f00c}";     //  Check
-    pub const WARN: &str = "\u{f071}";      //  Warning
-    pub const TERMINAL: &str = "\u{f120}";  //  Terminal prompt
-    pub const SHIELD: &str = "\u{f132}";    //  Shield
-    pub const PACKAGE: &str = "\u{f1b2}";   //  Cube package
+    pub const PIN: &str = "\u{f08d}"; //  Pushpin
+    pub const DOCTOR: &str = "\u{f0fa}"; //  Medical briefcase
+    pub const FOLDER: &str = "\u{f07b}"; //  Folder
+    pub const GIT_BRANCH: &str = "\u{f126}"; //  Git branch
+    pub const STATS: &str = "\u{f080}"; //  Chart
+    pub const TRASH: &str = "\u{f1f8}"; //  Trash
+    pub const CHECK: &str = "\u{f00c}"; //  Check
+    pub const WARN: &str = "\u{f071}"; //  Warning
+    pub const TERMINAL: &str = "\u{f120}"; //  Terminal prompt
+    pub const SHIELD: &str = "\u{f132}"; //  Shield
+    pub const PACKAGE: &str = "\u{f1b2}"; //  Cube package
 }
 
 /// A single discovered disposable artifact directory.

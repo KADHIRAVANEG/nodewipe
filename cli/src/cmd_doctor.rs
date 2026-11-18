@@ -463,10 +463,7 @@ fn uninstall_background_service() -> Result<()> {
         }
         if service_path.exists() {
             std::fs::remove_file(&service_path)?;
-            println!(
-                " Removed systemd user service: {}",
-                service_path.display()
-            );
+            println!(" Removed systemd user service: {}", service_path.display());
             removed = true;
         }
 

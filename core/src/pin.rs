@@ -43,7 +43,8 @@ pub fn load_pinned_projects_from_file(file_path: &Path) -> Vec<PinnedProject> {
 }
 
 pub fn save_pinned_projects(list: &[PinnedProject]) -> Result<()> {
-    let path = pinned_file_path().context("Could not determine config directory for pinned projects")?;
+    let path =
+        pinned_file_path().context("Could not determine config directory for pinned projects")?;
     save_pinned_projects_to_file(&path, list)
 }
 
@@ -84,11 +85,16 @@ pub fn is_path_pinned_with_list(target: &Path, pinned: &[PinnedProject]) -> bool
 }
 
 pub fn add_pinned_project(target: &Path, reason: Option<String>) -> Result<PathBuf> {
-    let file_path = pinned_file_path().context("Could not determine config directory for pinned projects")?;
+    let file_path =
+        pinned_file_path().context("Could not determine config directory for pinned projects")?;
     add_pinned_project_to_file(&file_path, target, reason)
 }
 
-pub fn add_pinned_project_to_file(file_path: &Path, target: &Path, reason: Option<String>) -> Result<PathBuf> {
+pub fn add_pinned_project_to_file(
+    file_path: &Path,
+    target: &Path,
+    reason: Option<String>,
+) -> Result<PathBuf> {
     let canonical = fs::canonicalize(target).unwrap_or_else(|_| {
         if target.is_relative() {
             std::env::current_dir()
@@ -101,7 +107,10 @@ pub fn add_pinned_project_to_file(file_path: &Path, target: &Path, reason: Optio
 
     let s = canonical.to_string_lossy();
     if s == "/" || s == "\\" || canonical.components().count() <= 1 {
-        anyhow::bail!("Refusing to pin root filesystem directory: {}", canonical.display());
+        anyhow::bail!(
+            "Refusing to pin root filesystem directory: {}",
+            canonical.display()
+        );
     }
 
     let mut list = load_pinned_projects_from_file(file_path);
@@ -126,7 +135,8 @@ pub fn add_pinned_project_to_file(file_path: &Path, target: &Path, reason: Optio
 }
 
 pub fn remove_pinned_project(target: &Path) -> Result<bool> {
-    let file_path = pinned_file_path().context("Could not determine config directory for pinned projects")?;
+    let file_path =
+        pinned_file_path().context("Could not determine config directory for pinned projects")?;
     remove_pinned_project_from_file(&file_path, target)
 }
 
@@ -159,7 +169,8 @@ pub fn remove_pinned_project_from_file(file_path: &Path, target: &Path) -> Resul
 /// Toggles pin status on `target`. If pinned, removes it; if unpinned, pins it.
 /// Returns (is_now_pinned, resolved_path).
 pub fn toggle_pinned_project(target: &Path) -> Result<(bool, PathBuf)> {
-    let file_path = pinned_file_path().context("Could not determine config directory for pinned projects")?;
+    let file_path =
+        pinned_file_path().context("Could not determine config directory for pinned projects")?;
     toggle_pinned_project_in_file(&file_path, target)
 }
 
@@ -194,8 +205,9 @@ mod tests {
         assert!(!is_path_pinned_with_list(&artifact_dir, &initial_list));
 
         // Pin the project root
-        let pinned_path = add_pinned_project_to_file(&pin_file, &project_dir, Some("Client demo".into()))
-            .expect("pin project");
+        let pinned_path =
+            add_pinned_project_to_file(&pin_file, &project_dir, Some("Client demo".into()))
+                .expect("pin project");
         assert_eq!(pinned_path, fs::canonicalize(&project_dir).unwrap());
 
         let updated_list = load_pinned_projects_from_file(&pin_file);

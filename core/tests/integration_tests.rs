@@ -1858,15 +1858,22 @@ fn test_delete_refuses_pinned_project_and_artifact() {
 
     // Pin project using pin module
     let pin_file = root.join("pinned.json");
-    nodewipe_core::pin::add_pinned_project_to_file(&pin_file, &project_dir, Some("Critical client project".into())).unwrap();
+    nodewipe_core::pin::add_pinned_project_to_file(
+        &pin_file,
+        &project_dir,
+        Some("Critical client project".into()),
+    )
+    .unwrap();
 
     let list = nodewipe_core::pin::load_pinned_projects_from_file(&pin_file);
     assert!(nodewipe_core::pin::is_path_pinned_with_list(&nm_dir, &list));
 
     // Also test toggle
-    let (now_pinned, _) = nodewipe_core::pin::toggle_pinned_project_in_file(&pin_file, &project_dir).unwrap();
+    let (now_pinned, _) =
+        nodewipe_core::pin::toggle_pinned_project_in_file(&pin_file, &project_dir).unwrap();
     assert!(!now_pinned);
-    let (re_pinned, _) = nodewipe_core::pin::toggle_pinned_project_in_file(&pin_file, &project_dir).unwrap();
+    let (re_pinned, _) =
+        nodewipe_core::pin::toggle_pinned_project_in_file(&pin_file, &project_dir).unwrap();
     assert!(re_pinned);
 }
 
@@ -1883,7 +1890,10 @@ fn test_explain_path_detailed_recipe_and_staleness() {
     std::fs::write(target_dir.join("app"), "binary-blob-data").unwrap();
 
     let explanation = nodewipe_core::explain_path(&target_dir).expect("explain path");
-    assert_eq!(explanation.artifact_kind, nodewipe_core::ArtifactKind::RustTarget);
+    assert_eq!(
+        explanation.artifact_kind,
+        nodewipe_core::ArtifactKind::RustTarget
+    );
     assert_eq!(explanation.risk_level, nodewipe_core::RiskLevel::Low);
     assert!(explanation.rebuild_plan.is_some());
     let plan = explanation.rebuild_plan.unwrap();
