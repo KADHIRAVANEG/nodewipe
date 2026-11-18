@@ -381,22 +381,20 @@ mod tests {
         let file_name = target.file_name().expect("file name").to_string_lossy();
         assert!(file_name.starts_with("nodewipe"));
         // If not writable in current_exe parent, is_fallback should be true
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(parent) = exe.parent() {
-                if !is_dir_writable(parent) {
-                    assert!(is_fallback);
-                }
-            }
+        let is_parent_unwritable = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|p| !is_dir_writable(p)))
+            .unwrap_or(false);
+        if is_parent_unwritable {
+            assert!(is_fallback);
         }
     }
 
     #[test]
     fn test_is_in_path_evaluates_system_path() {
-        if let Some(path_var) = std::env::var_os("PATH") {
-            let first_entry = std::env::split_paths(&path_var).next();
-            if let Some(first) = first_entry {
-                assert!(is_in_path(&first));
-            }
+        if let Some(first) = std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).next())
+        {
+            assert!(is_in_path(&first));
         }
         let fake_path = PathBuf::from("/nonexistent_path_definitely_not_in_env_path_12345");
         assert!(!is_in_path(&fake_path));
