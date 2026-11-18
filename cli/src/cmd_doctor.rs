@@ -43,7 +43,11 @@ pub fn run(
     };
 
     if !json && !notify {
-        eprintln!("\n nodewipe doctor — scanning {} …\n", root.display());
+        eprintln!(
+            "\n {} nodewipe doctor — scanning {} …\n",
+            nodewipe_core::icons::DOCTOR,
+            root.display()
+        );
         eprintln!(" This may take a moment on large trees.\n");
     }
 
@@ -127,7 +131,7 @@ pub fn run(
 
     // Table header
     println!(
-        " {:<22} {:>6}   {:>10}   {:<10}  Oldest path",
+        " {:<24} {:>6}   {:>10}   {:<10}  Oldest path",
         "Ecosystem", "Count", "Total", "Oldest"
     );
     println!(" {}", "─".repeat(80));
@@ -140,9 +144,14 @@ pub fn run(
         let oldest_path = eco.oldest_path.as_deref().unwrap_or("—").to_string();
         let oldest_path = truncate_path(&oldest_path, 45);
 
+        let icon = nodewipe_core::ArtifactKind::from_slug(&eco.kind)
+            .map(|k| k.icon())
+            .unwrap_or(nodewipe_core::icons::PACKAGE);
+        let eco_label = format!("{icon} {}", eco.label);
+
         println!(
-            " {:<22} {:>6}   {:>10}   {:<10}  {}",
-            eco.label,
+            " {:<24} {:>6}   {:>10}   {:<10}  {}",
+            eco_label,
             eco.count,
             human_size(eco.total_bytes),
             oldest_str,

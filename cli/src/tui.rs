@@ -655,7 +655,8 @@ impl App {
                 && nodewipe_core::is_path_pinned_with_list(&entry.path, &self.pinned_projects)
             {
                 self.status = format!(
-                    "[PINNED] Cannot select pinned path: {} (press 'p' to unpin)",
+                    "{} Cannot select pinned path: {} (press 'p' to unpin)",
+                    nodewipe_core::icons::PIN,
                     entry.path.display()
                 );
                 return;
@@ -700,7 +701,8 @@ impl App {
         if let Some(ResultRow::Group { root, .. }) = self.rows.get(self.cursor).cloned() {
             if nodewipe_core::is_path_pinned_with_list(&root, &self.pinned_projects) {
                 self.status = format!(
-                    "[PINNED] Group is inside pinned project: {} (press 'p' to unpin)",
+                    "{} Group is inside pinned project: {} (press 'p' to unpin)",
+                    nodewipe_core::icons::PIN,
                     root.display()
                 );
                 return;
@@ -1056,9 +1058,17 @@ impl App {
         if let Some(ref root) = exp.project_root {
             lines.push(format!("Project: {}", root.display()));
         }
-        lines.push(format!("Size: {} ({})", exp.formatted_size, exp.artifact_label));
+        lines.push(format!(
+            "Size: {} ({} {})",
+            exp.formatted_size,
+            exp.artifact_kind.icon(),
+            exp.artifact_label
+        ));
         if exp.is_pinned {
-            lines.push("Pin Status: [PINNED] (Protected from deletion)".to_string());
+            lines.push(format!(
+                "Pin Status: {} [PINNED] (Protected from deletion)",
+                nodewipe_core::icons::PIN
+            ));
         }
         lines.push(String::new());
 
@@ -1078,12 +1088,20 @@ impl App {
             let branch = git.branch.as_deref().unwrap_or("unknown");
             let dirty = if git.is_dirty { " (uncommitted changes)" } else { " (clean)" };
             let merged = if git.is_merged { " [merged into main]" } else { "" };
-            lines.push(format!("Git Status: branch {branch}{dirty}{merged}"));
+            lines.push(format!(
+                "Git Status: {} branch {branch}{dirty}{merged}",
+                nodewipe_core::icons::GIT_BRANCH
+            ));
         }
 
         if let Some(ref plan) = exp.rebuild_plan {
             lines.push(String::new());
-            lines.push(format!("Recovery Recipe: {} {}", plan.program, plan.args.join(" ")));
+            lines.push(format!(
+                "Recovery Recipe: {} {} {}",
+                nodewipe_core::icons::TERMINAL,
+                plan.program,
+                plan.args.join(" ")
+            ));
             lines.push(format!("Rebuild In: {}", plan.work_dir.display()));
         }
 
@@ -1127,7 +1145,8 @@ impl App {
                         }
                     });
                     self.status = format!(
-                        "Pinned project: {} (protected from deletion)",
+                        "{} Pinned project: {} (protected from deletion)",
+                        nodewipe_core::icons::PIN,
                         resolved.display()
                     );
                 } else {
@@ -1791,9 +1810,14 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                 let cursor_marker = if i == app.cursor { "> " } else { "  " };
                 let arrow = if *expanded { "▼" } else { "▶" };
                 let is_pinned = nodewipe_core::is_path_pinned_with_list(root, &app.pinned_projects);
-                let pin_marker = if is_pinned { " [PINNED]" } else { "" };
+                let pin_marker = if is_pinned {
+                    format!(" {} [PINNED]", nodewipe_core::icons::PIN)
+                } else {
+                    String::new()
+                };
                 let line = format!(
-                    "{cursor_marker}{arrow} [group] {}{pin_marker}   [{} items]   {}",
+                    "{cursor_marker}{arrow} {} {}{pin_marker}   [{} items]   {}",
+                    nodewipe_core::icons::FOLDER,
                     root.display(),
                     count,
                     human_size(*total_bytes)
@@ -1817,11 +1841,11 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                 };
                 let is_pinned = nodewipe_core::is_path_pinned_with_list(&e.path, &app.pinned_projects);
                 let checked = if is_pinned {
-                    "[P]"
+                    format!("[{}]", nodewipe_core::icons::PIN)
                 } else if app.selected.contains(entry_index) {
-                    "[x]"
+                    "[x]".to_string()
                 } else {
-                    "[ ]"
+                    "[ ]".to_string()
                 };
                 let cursor_marker = if i == app.cursor { "> " } else { "  " };
                 // Indent entries that belong to a group in grouped view.
@@ -1835,7 +1859,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                         let branch = git.branch.as_deref().unwrap_or("?");
                         let dirty = if git.is_dirty { "*" } else { "" };
                         let merged = if git.is_merged { " [merged]" } else { "" };
-                        format!("({branch}{dirty}{merged})")
+                        format!("({} {branch}{dirty}{merged})", nodewipe_core::icons::GIT_BRANCH)
                     }
                     None => String::new(),
                 };
@@ -1847,17 +1871,22 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                     .unwrap_or(false);
 
                 let size_col = pad_to_width(&human_size(e.size_bytes), 10, false);
-                let kind_col = pad_to_width(e.kind.label(), 14, true);
+                let kind_label = format!("{} {}", e.kind.icon(), e.kind.label());
+                let kind_col = pad_to_width(&kind_label, 18, true);
                 let age_col = pad_to_width(&age_str, 8, true);
 
-                let pin_tag = if is_pinned { " [PINNED]" } else { "" };
+                let pin_tag = if is_pinned {
+                    format!(" {} [PINNED]", nodewipe_core::icons::PIN)
+                } else {
+                    String::new()
+                };
                 let line = if git_info.is_empty() {
                     format!(
                         "{cursor_marker}{indent}{checked} {size_col}  {kind_col}  {age_col}{pin_tag}  {}",
                         e.path.display()
                     )
                 } else {
-                    let git_col = pad_to_width(&git_info, 18, true);
+                    let git_col = pad_to_width(&git_info, 20, true);
                     format!(
                         "{cursor_marker}{indent}{checked} {size_col}  {kind_col}  {age_col}  {git_col}{pin_tag}  {}",
                         e.path.display()

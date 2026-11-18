@@ -245,15 +245,19 @@ fn cmd_explain(path: &Path, json: bool) -> Result<ExitCode> {
         explanation.formatted_size, explanation.size_bytes
     );
     println!(
-        "  • Artifact Type:  {} ({})",
+        "  • Artifact Type:  {} {} ({})",
+        explanation.artifact_kind.icon(),
         explanation.artifact_label,
         explanation.artifact_kind.slug()
     );
     println!("  • Detection:      {}", explanation.match_reason);
     let pin_str = if explanation.is_pinned {
-        "[PINNED] (Protected from deletion)"
+        format!(
+            "{} [PINNED] (Protected from deletion)",
+            nodewipe_core::icons::PIN
+        )
     } else {
-        "Unpinned (Eligible for cleanup)"
+        "Unpinned (Eligible for cleanup)".to_string()
     };
     println!("  • Protection:     {pin_str}");
 
@@ -284,7 +288,10 @@ fn cmd_explain(path: &Path, json: bool) -> Result<ExitCode> {
             } else {
                 ""
             };
-            println!("    - Branch:       {branch}{merged_str}");
+            println!(
+                "    - Branch:       {} {branch}{merged_str}",
+                nodewipe_core::icons::GIT_BRANCH
+            );
         }
         let dirty_str = if git.is_dirty {
             "Uncommitted changes"
@@ -297,7 +304,11 @@ fn cmd_explain(path: &Path, json: bool) -> Result<ExitCode> {
     if let Some(recipe) = &explanation.rebuild_plan {
         println!();
         println!("  • Recovery Recipe:");
-        println!("    - Command:      {}", recipe.description);
+        println!(
+            "    - Command:      {} {}",
+            nodewipe_core::icons::TERMINAL,
+            recipe.description
+        );
         println!("    - Directory:    {}", recipe.work_dir.display());
     }
     println!("{}", "─".repeat(72));
@@ -339,7 +350,11 @@ fn cmd_pin(
                             })
                         );
                     } else {
-                        println!("Pinned: {}", pinned_path.display());
+                        println!(
+                            "{} Pinned: {}",
+                            nodewipe_core::icons::PIN,
+                            pinned_path.display()
+                        );
                         if let Some(r) = reason {
                             println!("   Note: {r}");
                         }
@@ -361,7 +376,10 @@ fn cmd_pin(
                 println!("No projects are currently pinned.");
                 println!("Pin a project with: nodewipe pin <path>");
             } else {
-                println!("Pinned Projects (Protected from Deletion):");
+                println!(
+                    "{} Pinned Projects (Protected from Deletion):",
+                    nodewipe_core::icons::PIN
+                );
                 println!("{}", "─".repeat(60));
                 for item in list {
                     let reason_str = item

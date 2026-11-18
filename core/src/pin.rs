@@ -13,7 +13,11 @@ pub struct PinnedProject {
 }
 
 pub fn pinned_file_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("nodewipe").join("pinned.json"))
+    std::env::var("NODEWIPE_PINNED_FILE")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::config_dir().map(|d| d.join("nodewipe").join("pinned.json")))
 }
 
 pub fn load_pinned_projects() -> Vec<PinnedProject> {

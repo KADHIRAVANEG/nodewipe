@@ -31,7 +31,7 @@ pub use ignorefile::{
     remove_ignored_pattern, remove_ignored_pattern_from_file, remove_ignored_pattern_from_root,
 };
 pub use interner::PathInterner;
-pub use model::{ArtifactKind, Entry, GitStatus, PackageManager, ScanOptions, WorkspaceGroup};
+pub use model::{ArtifactKind, Entry, GitStatus, PackageManager, ScanOptions, WorkspaceGroup, icons};
 pub use pin::{
     PinnedProject, add_pinned_project, is_path_pinned, is_path_pinned_with_list,
     list_pinned_projects, load_pinned_projects, remove_pinned_project, save_pinned_projects,

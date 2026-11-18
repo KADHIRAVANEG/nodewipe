@@ -47,7 +47,10 @@ pub fn run(json: bool, days: u64) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    println!("\n nodewipe stats — lifetime savings\n");
+    println!(
+        "\n {} nodewipe stats — lifetime savings\n",
+        nodewipe_core::icons::STATS
+    );
 
     if entries.is_empty() {
         if let Some(path) = history_path() {
