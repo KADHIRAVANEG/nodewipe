@@ -237,7 +237,7 @@ fn cmd_explain(path: &Path, json: bool) -> Result<ExitCode> {
     }
 
     println!();
-    println!("📦 Explanation for {}", explanation.path.display());
+    println!("Explanation for {}", explanation.path.display());
     println!("{}", "─".repeat(72));
     println!("  • Path:           {}", explanation.path.display());
     println!(
@@ -251,16 +251,16 @@ fn cmd_explain(path: &Path, json: bool) -> Result<ExitCode> {
     );
     println!("  • Detection:      {}", explanation.match_reason);
     let pin_str = if explanation.is_pinned {
-        "📌 PINNED (Protected from deletion)"
+        "[PINNED] (Protected from deletion)"
     } else {
-        "🟢 Unpinned (Can be deleted)"
+        "Unpinned (Eligible for cleanup)"
     };
     println!("  • Protection:     {pin_str}");
 
     let risk_indicator = match explanation.risk_level {
-        nodewipe_core::RiskLevel::Low => "🟢 Low Risk",
-        nodewipe_core::RiskLevel::Moderate => "🟡 Moderate Risk",
-        nodewipe_core::RiskLevel::Caution => "🟠 Caution",
+        nodewipe_core::RiskLevel::Low => "Low Risk",
+        nodewipe_core::RiskLevel::Moderate => "Moderate Risk",
+        nodewipe_core::RiskLevel::Caution => "Caution",
     };
     println!(
         "  • Risk Level:     {risk_indicator} — {}",
@@ -287,7 +287,7 @@ fn cmd_explain(path: &Path, json: bool) -> Result<ExitCode> {
             println!("    - Branch:       {branch}{merged_str}");
         }
         let dirty_str = if git.is_dirty {
-            "⚠️ Uncommitted changes"
+            "Uncommitted changes"
         } else {
             "Clean"
         };
@@ -339,7 +339,7 @@ fn cmd_pin(
                             })
                         );
                     } else {
-                        println!("📌 Successfully pinned: {}", pinned_path.display());
+                        println!("Pinned: {}", pinned_path.display());
                         if let Some(r) = reason {
                             println!("   Note: {r}");
                         }
@@ -361,7 +361,7 @@ fn cmd_pin(
                 println!("No projects are currently pinned.");
                 println!("Pin a project with: nodewipe pin <path>");
             } else {
-                println!("📌 Pinned Projects (Protected from Deletion):");
+                println!("Pinned Projects (Protected from Deletion):");
                 println!("{}", "─".repeat(60));
                 for item in list {
                     let reason_str = item
@@ -771,7 +771,7 @@ fn cmd_dedupe(
 
     if !json {
         println!(
-            "\n 🔗  nodewipe dedupe — analyzing identical files across {} target(s) …\n",
+            "\n nodewipe dedupe — analyzing identical files across {} target(s) …\n",
             paths.len()
         );
         if dry_run {
@@ -780,7 +780,7 @@ fn cmd_dedupe(
             );
         } else if allow_hardlinks {
             eprintln!(
-                " ⚠️  Warning: --allow-hardlinks enabled. Linked files will share inodes; in-place edits to one file will affect all linked copies.\n"
+                " Warning: --allow-hardlinks enabled. Linked files will share inodes; in-place edits to one file will affect all linked copies.\n"
             );
         }
     }
@@ -813,15 +813,11 @@ fn cmd_dedupe(
     );
 
     if stats.duplicate_files_found == 0 {
-        println!("\n ✅  No duplicate files found. Your storage is already deduplicated!");
+        println!("\n No duplicate files found. Your storage is already deduplicated!");
     } else if dry_run {
         println!("\n Run without `--dry-run` to execute hardlink/reflink deduplication.");
     } else {
-        println!("\n ✅  Deduplication complete! Hardlinked identical files with zero data loss.");
-        println!(
-            " ⭐ Reclaimed {}! Enjoying nodewipe? Support us with a star: https://github.com/KADHIRAVANEG/nodewipe",
-            human_size(stats.reclaimed_bytes)
-        );
+        println!("\n Deduplication complete! Hardlinked identical files with zero data loss.");
     }
     println!();
 
@@ -1067,7 +1063,7 @@ fn cmd_scan(
 
         if !stale.is_empty() {
             println!(
-                "\n ⚠  {} likely-abandoned project{} (source untouched for {}+ days):\n",
+                "\n {} likely-abandoned project{} (source untouched for {}+ days):\n",
                 stale.len(),
                 if stale.len() == 1 { "" } else { "s" },
                 stale_days.unwrap_or(90),
@@ -1265,7 +1261,7 @@ fn print_risk_warnings(paths: &[PathBuf]) {
         if let Some(kind) = nodewipe_core::classify_path(p)
             && let Some(note) = kind.risk_note()
         {
-            eprintln!("⚠ WARNING [{}] {}\n  {}\n", kind.label(), p.display(), note);
+            eprintln!("WARNING [{}] {}\n  {}\n", kind.label(), p.display(), note);
         }
     }
 }

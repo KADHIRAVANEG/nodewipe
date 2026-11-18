@@ -159,24 +159,24 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
     if check {
         if is_newer {
             println!(
-                "✨ A new version of nodewipe is available: v{} -> v{}",
+                "A new version of nodewipe is available: v{} -> v{}",
                 current_version,
                 latest.version()
             );
             println!("Run 'nodewipe update' to install the latest version.");
         } else {
-            println!("✨ nodewipe is already up to date (v{}).", current_version);
+            println!("nodewipe is already up to date (v{}).", current_version);
         }
         return Ok(ExitCode::SUCCESS);
     }
 
     if !is_newer && !force {
-        println!("✨ nodewipe is already up to date (v{}).", current_version);
+        println!("nodewipe is already up to date (v{}).", current_version);
         return Ok(ExitCode::SUCCESS);
     }
 
     println!(
-        "✨ Updating nodewipe from v{} to v{}...",
+        "Updating nodewipe from v{} to v{}...",
         current_version,
         latest.version()
     );
@@ -212,7 +212,7 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
         Ok(status) => {
             if is_fallback {
                 println!(
-                    "✨ Successfully installed nodewipe v{} to {} (no sudo required)!",
+                    "Successfully installed nodewipe v{} to {} (no sudo required)!",
                     status.version(),
                     target_path.display()
                 );
@@ -220,13 +220,13 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
                     && !is_in_path(parent)
                 {
                     println!(
-                        "💡 Tip: Add {} to your PATH to run it directly:",
+                        "Tip: Add {} to your PATH to run it directly:",
                         parent.display()
                     );
                     println!("   export PATH=\"{}:$PATH\"", parent.display());
                 }
             } else {
-                println!("✨ Successfully updated nodewipe to v{}!", status.version());
+                println!("Successfully updated nodewipe to v{}!", status.version());
             }
             let _ = save_update_timestamp();
             Ok(ExitCode::SUCCESS)
@@ -287,7 +287,7 @@ pub fn check_and_prompt_update() -> Result<()> {
             .unwrap_or(false);
         if is_newer {
             println!(
-                "✨ A new version of nodewipe is available! ({} -> {})",
+                "A new version of nodewipe is available! ({} -> {})",
                 current_version,
                 latest.version()
             );
@@ -313,7 +313,7 @@ pub fn check_and_prompt_update() -> Result<()> {
                     Ok(status) => {
                         if is_fallback {
                             println!(
-                                "✨ Successfully installed nodewipe v{} to {} (no sudo required)!",
+                                "Successfully installed nodewipe v{} to {} (no sudo required)!",
                                 status.version(),
                                 target_path.display()
                             );
@@ -321,7 +321,7 @@ pub fn check_and_prompt_update() -> Result<()> {
                                 && !is_in_path(parent)
                             {
                                 println!(
-                                    "💡 Tip: Add {} to your PATH: export PATH=\"{}:$PATH\"",
+                                    "Tip: Add {} to your PATH: export PATH=\"{}:$PATH\"",
                                     parent.display(),
                                     parent.display()
                                 );

@@ -655,7 +655,7 @@ impl App {
                 && nodewipe_core::is_path_pinned_with_list(&entry.path, &self.pinned_projects)
             {
                 self.status = format!(
-                    "📌 Cannot select pinned path: {} (press 'p' to unpin)",
+                    "[PINNED] Cannot select pinned path: {} (press 'p' to unpin)",
                     entry.path.display()
                 );
                 return;
@@ -700,7 +700,7 @@ impl App {
         if let Some(ResultRow::Group { root, .. }) = self.rows.get(self.cursor).cloned() {
             if nodewipe_core::is_path_pinned_with_list(&root, &self.pinned_projects) {
                 self.status = format!(
-                    "📌 Group is inside pinned project: {} (press 'p' to unpin)",
+                    "[PINNED] Group is inside pinned project: {} (press 'p' to unpin)",
                     root.display()
                 );
                 return;
@@ -765,7 +765,7 @@ impl App {
             .collect();
         if !pinned_items.is_empty() {
             self.status = format!(
-                "⚠️ Cannot delete pinned path: {} (press 'p' to unpin)",
+                "Cannot delete pinned path: {} (press 'p' to unpin)",
                 pinned_items[0]
             );
             return;
@@ -789,7 +789,7 @@ impl App {
             ));
             (
                 format!(
-                    "⚠  Warning — {} delete",
+                    "Warning — {} delete",
                     format!("{:?}", mode).to_lowercase()
                 ),
                 lines,
@@ -1058,7 +1058,7 @@ impl App {
         }
         lines.push(format!("Size: {} ({})", exp.formatted_size, exp.artifact_label));
         if exp.is_pinned {
-            lines.push("Pin Status: 📌 PINNED (Protected from deletion)".to_string());
+            lines.push("Pin Status: [PINNED] (Protected from deletion)".to_string());
         }
         lines.push(String::new());
 
@@ -1127,7 +1127,7 @@ impl App {
                         }
                     });
                     self.status = format!(
-                        "📌 Pinned project: {} (protected from deletion)",
+                        "Pinned project: {} (protected from deletion)",
                         resolved.display()
                     );
                 } else {
@@ -1429,7 +1429,7 @@ fn event_loop(
                         KeyCode::Char('S') => app.cycle_sort(),
                         KeyCode::Char('s') => {
                             open_browser("https://github.com/KADHIRAVANEG/nodewipe");
-                            app.status = "⭐ Opened https://github.com/KADHIRAVANEG/nodewipe — Thank you for starring!".to_string();
+                            app.status = "Opened https://github.com/KADHIRAVANEG/nodewipe".to_string();
                         }
                         _ => {}
                     }
@@ -1791,9 +1791,9 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                 let cursor_marker = if i == app.cursor { "> " } else { "  " };
                 let arrow = if *expanded { "▼" } else { "▶" };
                 let is_pinned = nodewipe_core::is_path_pinned_with_list(root, &app.pinned_projects);
-                let pin_marker = if is_pinned { " 📌 [PINNED]" } else { "" };
+                let pin_marker = if is_pinned { " [PINNED]" } else { "" };
                 let line = format!(
-                    "{cursor_marker}{arrow} 📦 {}{pin_marker}   [{} items]   {}",
+                    "{cursor_marker}{arrow} [group] {}{pin_marker}   [{} items]   {}",
                     root.display(),
                     count,
                     human_size(*total_bytes)
@@ -1817,7 +1817,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
                 };
                 let is_pinned = nodewipe_core::is_path_pinned_with_list(&e.path, &app.pinned_projects);
                 let checked = if is_pinned {
-                    "[📌]"
+                    "[P]"
                 } else if app.selected.contains(entry_index) {
                     "[x]"
                 } else {

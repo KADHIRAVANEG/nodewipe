@@ -8,7 +8,7 @@
 /// ```
 /// nodewipe stats
 ///
-///  📊  nodewipe stats — lifetime savings
+///  nodewipe stats — lifetime savings
 ///
 ///  Total freed:  23.7 GB   across 63 deletions
 ///
@@ -47,7 +47,7 @@ pub fn run(json: bool, days: u64) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    println!("\n 📊  nodewipe stats — lifetime savings\n");
+    println!("\n nodewipe stats — lifetime savings\n");
 
     if entries.is_empty() {
         if let Some(path) = history_path() {
