@@ -1,9 +1,9 @@
 use crate::model::{ArtifactKind, Entry, PackageManager};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// A planned toolchain rebuild command to regenerate dev-dependencies or build output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RebuildPlan {
     /// Executable binary to invoke (e.g. "pnpm", "cargo", "npm", "python3").
     pub program: String,

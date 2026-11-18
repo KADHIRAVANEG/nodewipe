@@ -18,10 +18,10 @@ fn update_state_path() -> Option<PathBuf> {
 /// If the directory does not exist, it recursively checks the closest existing ancestor directory.
 pub fn is_dir_writable(dir: &Path) -> bool {
     if !dir.exists() {
-        if let Some(parent) = dir.parent() {
-            if !parent.as_os_str().is_empty() {
-                return is_dir_writable(parent);
-            }
+        if let Some(parent) = dir.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            return is_dir_writable(parent);
         }
         return false;
     }
@@ -70,10 +70,10 @@ pub fn is_in_path(dir: &Path) -> bool {
             if entry == dir {
                 return true;
             }
-            if let (Some(c_entry), Some(c_dir)) = (std::fs::canonicalize(&entry).ok(), &dir_canon) {
-                if c_entry == *c_dir {
-                    return true;
-                }
+            if let (Some(c_entry), Some(c_dir)) = (std::fs::canonicalize(&entry).ok(), &dir_canon)
+                && c_entry == *c_dir
+            {
+                return true;
             }
         }
     }
@@ -86,20 +86,18 @@ pub fn is_in_path(dir: &Path) -> bool {
 /// - If the currently running executable is in a system read-only directory (e.g. `/usr/bin/nodewipe`),
 ///   it falls back to user-space `~/.local/bin/nodewipe` without requiring elevated privileges: `(local_bin, true)`.
 pub fn resolve_install_target() -> (PathBuf, bool) {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            if is_dir_writable(parent) {
-                return (exe, false);
-            }
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+        && is_dir_writable(parent)
+    {
+        return (exe, false);
     }
 
-    if let Some(local_bin) = user_local_bin_path() {
-        if let Some(parent) = local_bin.parent() {
-            if is_dir_writable(parent) {
-                return (local_bin, true);
-            }
-        }
+    if let Some(local_bin) = user_local_bin_path()
+        && let Some(parent) = local_bin.parent()
+        && is_dir_writable(parent)
+    {
+        return (local_bin, true);
     }
 
     // Default fallback to current_exe even if indeterminate
@@ -218,14 +216,14 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
                     status.version(),
                     target_path.display()
                 );
-                if let Some(parent) = target_path.parent() {
-                    if !is_in_path(parent) {
-                        println!(
-                            "💡 Tip: Add {} to your PATH to run it directly:",
-                            parent.display()
-                        );
-                        println!("   export PATH=\"{}:$PATH\"", parent.display());
-                    }
+                if let Some(parent) = target_path.parent()
+                    && !is_in_path(parent)
+                {
+                    println!(
+                        "💡 Tip: Add {} to your PATH to run it directly:",
+                        parent.display()
+                    );
+                    println!("   export PATH=\"{}:$PATH\"", parent.display());
                 }
             } else {
                 println!("✨ Successfully updated nodewipe to v{}!", status.version());
@@ -319,14 +317,14 @@ pub fn check_and_prompt_update() -> Result<()> {
                                 status.version(),
                                 target_path.display()
                             );
-                            if let Some(parent) = target_path.parent() {
-                                if !is_in_path(parent) {
-                                    println!(
-                                        "💡 Tip: Add {} to your PATH: export PATH=\"{}:$PATH\"",
-                                        parent.display(),
-                                        parent.display()
-                                    );
-                                }
+                            if let Some(parent) = target_path.parent()
+                                && !is_in_path(parent)
+                            {
+                                println!(
+                                    "💡 Tip: Add {} to your PATH: export PATH=\"{}:$PATH\"",
+                                    parent.display(),
+                                    parent.display()
+                                );
                             }
                         } else {
                             println!("Successfully updated to v{}!", status.version());

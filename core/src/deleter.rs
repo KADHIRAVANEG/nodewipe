@@ -46,6 +46,14 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
         anyhow::bail!("refusing to delete user home directory: {}", path.display());
     }
 
+    // Safety guard: Never delete pinned projects or artifacts
+    if crate::pin::is_path_pinned(path) {
+        anyhow::bail!(
+            "refusing to delete pinned project or artifact: {} (unpin first with 'nodewipe pin remove <path>' or 'p' in TUI)",
+            path.display()
+        );
+    }
+
     if crate::scanner::classify_path(path).is_none() {
         anyhow::bail!(
             "refusing to delete a directory that doesn't look like a known disposable artifact: {}",
