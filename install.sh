@@ -74,21 +74,19 @@ prompt_user() {
 # ---------- CLI install ----------
 
 choose_install_dir() {
-  if [ -w /usr/local/bin ] 2>/dev/null; then
-    INSTALL_DIR="/usr/local/bin"
-    return
-  fi
-  if command -v sudo >/dev/null 2>&1 && [ -r /dev/tty ]; then
-    echo
-    local sw
-    sw="$(prompt_user "Install system-wide to /usr/local/bin? Needs sudo. [Y/n]: " "Y")"
-    if [ "$sw" != "n" ] && [ "$sw" != "N" ]; then
+  if [ "${SYSTEM_INSTALL:-0}" = "1" ]; then
+    if [ -w /usr/local/bin ] 2>/dev/null; then
+      INSTALL_DIR="/usr/local/bin"
+      return
+    fi
+    if command -v sudo >/dev/null 2>&1; then
       INSTALL_DIR="/usr/local/bin"
       USE_SUDO=1
       return
     fi
   fi
-  INSTALL_DIR="$HOME/.local/bin"
+  # Default to user-space ~/.local/bin (requires no root/sudo privileges and enables seamless self-updates)
+  INSTALL_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
   mkdir -p "$INSTALL_DIR"
 }
 
@@ -232,6 +230,7 @@ main() {
       --cli) choice="1" ;;
       --gui|--all) choice="2" ;;
       -y|--yes) choice="1" ;;
+      --system) SYSTEM_INSTALL=1 ;;
     esac
   done
 

@@ -70,7 +70,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         load_ignore_patterns(&root)
     };
 
-    if !cli.json && atty_stdout() {
+    if !cli.json && atty_stdout() && !matches!(cli.command, Some(Command::Update { .. })) {
         let _ = update::check_and_prompt_update();
     }
 
@@ -208,6 +208,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Some(Command::Ignore { command }) => cmd_ignore(command, &root, cli.json),
         Some(Command::Man { install }) => cmd_man(install),
         Some(Command::Config { action }) => cmd_config(action, cli.json),
+        Some(Command::Update { check, yes, force }) => {
+            update::run_update(check, yes, force)
+        }
     }
 }
 
