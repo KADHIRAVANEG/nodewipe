@@ -29,11 +29,14 @@ Thank you for your interest in contributing to **nodewipe**!
 
 - Core + CLI: Rust (latest stable)
 - GUI: Rust + Node.js + Tauri prerequisites
-- Run `cargo test` and `cargo clippy` before submitting
+- Format code: `cargo fmt --all`
+- Lint code: `cargo clippy --workspace --all-targets -- -D warnings`
+- Run test suite: `cargo test --workspace`
 
 ## Pull Request Guidelines
 
 - Keep PRs focused on a single change
-- Add tests for new features
+- Add tests for new features and bug fixes
+- Run `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` before submitting
 - Update documentation when necessary
 - Ensure the code follows Rust idioms

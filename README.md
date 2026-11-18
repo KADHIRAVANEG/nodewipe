@@ -50,6 +50,8 @@
 
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
 * **🌐 39+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, C/C++ & Native (CMake, Ninja, Zig, Elixir, Meson), modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress, Yarn offline cache, pnpm `.ignored`), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
+* **🧠 Decision Intelligence & Directory Inspector**: `nodewipe explain <path>` (or <kbd>e</kbd> in TUI) provides clear explanations for each result: why it matched, whether it can be recreated, git branch staleness, risk rating, and exact recovery command.
+* **📌 Project Pinning Protection**: Mark active projects as pinned (`nodewipe pin add` or <kbd>p</kbd> in TUI). Pinned projects and all their artifacts are strictly locked and refused by the deletion engine.
 * **🛡️ Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
 * **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
@@ -208,6 +210,8 @@ Launching `nodewipe` with no arguments in a terminal opens the **Ratatui-powered
 | <kbd>g</kbd> | **Toggle Monorepo Grouped View** (Collapses subprojects under workspace root) |
 | <kbd>Tab</kbd> | Expand / Collapse highlighted monorepo group |
 | <kbd>f</kbd> | **Cycle Age Filter** (`All` → `>30d` → `>60d` → `>90d` → `>180d` → `>1y`) |
+| <kbd>e</kbd> | **Directory Inspector Modal** (Explain detection rationale, risk level, git status & recovery recipe) |
+| <kbd>p</kbd> | **Pin / Unpin Project** (Protect active project and its artifacts from deletion) |
 | <kbd>b</kbd> | **Rebuild / Reinstall** toolchain dependencies in-place (`npm`, `pnpm`, `cargo`, `uv`, etc.) |
 | <kbd>y</kbd> | **Copy path** to system clipboard |
 | <kbd>o</kbd> | **Open directory** in system file manager (`xdg-open`, `open`, `explorer`) |
@@ -216,7 +220,7 @@ Launching `nodewipe` with no arguments in a terminal opens the **Ratatui-powered
 | <kbd>t</kbd> | Open interactive **Type Filter Screen** (<kbd>s</kbd> solo type, <kbd>i</kbd> invert selection) |
 | <kbd>d</kbd> | **Delete to Trash** (Recoverable via OS recycle bin) |
 | <kbd>a</kbd> | **Archive & Delete** (Creates `.tar.gz` or instant CoW `.snapshot` backup) |
-| <kbd>p</kbd> | **Permanent Delete** (Unrecoverable — prompts for confirmation) |
+| <kbd>x</kbd> | **Permanent Delete** (Unrecoverable — prompts for confirmation) |
 | <kbd>P</kbd> | **Toggle Dry-Run Preview Mode** (Simulate recovery with zero risk) |
 | <kbd>R</kbd> | **Restore View** (Browse & restore `.tar.gz` and `.snapshot` archives) |
 | <kbd>r</kbd> | Rescan current path |
@@ -229,6 +233,64 @@ Press <kbd>P</kbd> at any time in the TUI to activate **Dry-Run Mode**. It calcu
 <div align="center">
   <img src="docs/screenshots/tui-dryrun.png" alt="nodewipe TUI Dry-Run Simulation" width="850">
 </div>
+
+---
+
+## 🧠 Decision Intelligence & Project Pinning
+
+`nodewipe` transforms everyday cleanup from a guessing game into an informed, safe decision.
+
+### 1. Directory Inspector (`nodewipe explain <path>`)
+Explains *why* any folder matched, its risk level, whether rebuild requires network downloads or only local compilation, recent Git activity, and the exact command to recover it:
+
+```bash
+nodewipe explain ~/Projects/my-rust-app/target
+```
+
+```text
+Explanation for /home/kadhir/Projects/my-rust-app/target
+────────────────────────────────────────────────────────────────────────
+  • Path:           /home/kadhir/Projects/my-rust-app/target
+  • Size:           34.45 GB (36995727920 bytes)
+  • Artifact Type:   Cargo target (rust_target)
+  • Detection:      Detected as Rust compiler build output because 'Cargo.toml' exists in the project root.
+  • Protection:     Unpinned (Eligible for cleanup)
+  • Risk Level:     Low Risk — Low (Safe to delete, rebuilds locally)
+                    Zero data loss risk. Recreated locally by running 'cargo build' (no network download needed).
+
+  • Source Activity:
+    - Description:  Source code touched today (actively developing project)
+    - Days Inactive: 0 days
+
+  • Git Repository:
+    - Branch:        main
+    - Working Tree: Clean
+
+  • Recovery Recipe:
+    - Command:       cargo build
+    - Directory:    /home/kadhir/Projects/my-rust-app
+────────────────────────────────────────────────────────────────────────
+```
+
+> [!TIP]
+> In the interactive TUI, press <kbd>e</kbd> on any highlighted row to open the full Inspector modal.
+
+### 2. Active Project Pinning (`nodewipe pin`)
+Protect actively developing repositories from accidental cleanup. Pinned projects and all nested artifacts within them are strictly excluded from deletion:
+
+```bash
+# Pin an active project
+nodewipe pin add ~/Projects/critical-client-app --reason "Release in progress"
+
+# View all pinned projects
+nodewipe pin list
+
+# Unpin when ready
+nodewipe pin remove ~/Projects/critical-client-app
+```
+
+> [!TIP]
+> In the interactive TUI, press <kbd>p</kbd> on any row to toggle its pin status in real time. Pinned entries are clearly marked with ` [PINNED]`.
 
 ---
 
@@ -245,27 +307,28 @@ nodewipe doctor ~
 </div>
 
 ```text
- 🩺  nodewipe doctor — scanning /home/kadhir …
+  nodewipe doctor — scanning /home/kadhir …
 
- Total reclaimable: 14.4 GB across 142 artifact directories
+ Total reclaimable: 45.5 GB across 163 artifact directories
 
- Ecosystem               Count        Total   Oldest      Oldest path
+ Ecosystem                 Count        Total   Oldest      Oldest path
  ────────────────────────────────────────────────────────────────────────────────
- Cargo target                1      10.8 GB   20 days     /home/kadhir/Projects/nodewipe/target
- Python venv                12       1.8 GB  145 days     /home/kadhir/Projects/.../venv
- node_modules               17       1.4 GB  114 days     /home/kadhir/Projects/.../node_modules
- Go build cache              1     211.5 MB   18 days     /home/kadhir/.cache/go-build
- PHP vendor                  2     103.3 MB   33 days     /home/kadhir/HUNT/october/vendor
- dist/                      21      71.1 MB   62 days     /home/kadhir/Projects/.../dist
- Gradle build                1      15.5 MB    3 days     /home/kadhir/Projects/.../build
- __pycache__                81      14.1 MB   35 days     /home/kadhir/Projects/.../__pycache__
- .pytest_cache               6     116.0 KB   62 days     /home/kadhir/Projects/.../.pytest_cache
+  Cargo target                6      40.3 GB   20 days     /home/kadhir/rust/target
+  node_modules               17       2.7 GB   95 days     /home/kadhir/.config/opencode/node_modules
+  Python venv                14       1.9 GB  167 days     /home/kadhir/Projects/.../venv
+  Playwright browsers         1     314.6 MB   24 days     /home/kadhir/.cache/ms-playwright
+  PHP vendor                  2     103.3 MB   54 days     /home/kadhir/HUNT/october/vendor
+  dist/                      23      71.7 MB   83 days     /home/kadhir/Projects/.../dist
+  Go build cache              1      61.7 MB   40 days     /home/kadhir/.cache/go-build
+  Gradle build                1      15.5 MB   24 days     /home/kadhir/Projects/.../build
+  __pycache__                89      14.7 MB   57 days     /home/kadhir/Projects/.../__pycache__
+  .pytest_cache               7     140.0 KB   83 days     /home/kadhir/Projects/.../.pytest_cache
  ────────────────────────────────────────────────────────────────────────────────
 
  Top space consumers:
-   10.8 GB  (20d ago)  /home/kadhir/Projects/nodewipe/target
-    1.2 GB  (13d ago)  /home/kadhir/Projects/crashandlearn/venv
-   211.5 MB (18d ago)  /home/kadhir/.cache/go-build
+   34.6 GB  (6d ago)   /home/kadhir/Projects/nodewipe/target
+    1.9 GB  (11d ago)  /home/kadhir/Projects/Citycraft/target
+    1.2 GB  (34d ago)  /home/kadhir/Projects/crashandlearn/venv
 ```
 
 ---
@@ -297,7 +360,7 @@ nodewipe stats
 ```
 
 ```text
-📊  nodewipe stats — lifetime savings
+  nodewipe stats — lifetime savings
 
  Total freed:  23.7 GB across 63 deletions
 
@@ -332,6 +395,13 @@ nodewipe scan ~ --exclude-types venv,dist  # Skip specific types
 nodewipe scan ~ --export audit.csv         # Export results to CSV or JSON
 nodewipe scan ~ --serial                   # Single-threaded traversal fallback
 nodewipe scan ~ --json                     # Headless JSON output for CI/automation
+
+# ── Decision Intelligence & Safety ──────────────────────────────────────────
+nodewipe explain .                         # Explain artifact match, risk level, git status & recovery recipe
+nodewipe explain ./target --json           # Headless JSON output of directory inspection
+nodewipe pin list                          # List all pinned (deletion-protected) projects
+nodewipe pin add ~/Projects/my-app         # Pin project to prevent accidental deletion
+nodewipe pin remove ~/Projects/my-app      # Unpin project
 
 # ── Deleting & Restoring ───────────────────────────────────────────────────
 nodewipe delete ./path/node_modules --yes                 # Safe delete (OS Trash)
@@ -392,6 +462,9 @@ default_exclude_types = ["venv", "rust_target"]
 |---|:---:|:---:|
 | **Language & Engine** | Node.js (V8 runtime) | **Pure Rust (`rayon` multithreaded)** |
 | **Supported Ecosystems** | `node_modules` only | **39+ (Node, Rust, Python, Java, Go, .NET, PHP, Caches, AI/ML, Mobile, Native)** |
+| **Directory Inspector (`explain`)** | ❌ No | **✅ Deep match rationale, git staleness, risk rating & recovery recipe** |
+| **Project Pinning Protection** | ❌ No | **✅ `pin add/list/remove` with hard deleter lock (<kbd>p</kbd>)** |
+| **Recovery Recipes** | ❌ No | **✅ Exact rebuild commands (`npm install`, `cargo build`, etc.)** |
 | **Disk Size Accuracy** | Logical byte sum | **Physical cluster block calculation (`st_blocks`)** |
 | **Safety & Recovery** | Permanent unlink only | **OS Trash + Instant CoW Snapshot + Atomic `.tar.gz` Archiving** |
 | **Interactive Dry-Run** | ❌ No | **✅ Real-time simulation toggle (<kbd>P</kbd>)** |

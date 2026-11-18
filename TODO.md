@@ -254,9 +254,31 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
 
 ---
 
+## Decision Intelligence & Storage Manager Architecture
+
+### ✅ Phase 1: Decision Intelligence Suite (COMPLETED — v0.9.4)
+- [x] **Directory Inspector (`nodewipe explain <path>`)**: Explains detection rationale, risk level, git staleness, and exact recovery command.
+- [x] **Project Pinning (`nodewipe pin add / list / remove`)**: Locks active repositories against accidental deletion in both CLI and core deleter.
+- [x] **Interactive TUI Inspector & Pinning**:
+  - `e`: Full-screen explain inspector modal.
+  - `p`: Toggle pin status on focused project row with ` [PINNED]` badge.
+  - `x`: Moved permanent delete to `x` to avoid key collision.
+- [x] **Native Nerd Font Vector Glyphs**: Mapped all 39 ecosystems to official vector glyphs (``, ``, ``, ``, ``, ``, ``, ``, ``, ``, etc.).
+- [x] **Zero Emojis Policy**: Eliminated emojis across CLI doctor, stats, update, and TUI screens.
+- [x] **Lucide / Feather 2px Stroke SVGs**: 15 theme-adaptive icons created in `assets/icons/`.
+
+### 🟡 Phase 2: Workflow & Storage Automation (NEXT)
+- [ ] **Cleanup Budget (`nodewipe reclaim <SIZE>`)**: Propose and preview a set of artifacts to reclaim a target amount of space (e.g. `10GB`).
+- [ ] **Multi-Level Monorepo Hierarchy**: Drill-down view from ecosystem → project → artifact → largest contents.
+- [ ] **Named Cleanup Profiles**: Presets for "Old Dependencies", "Build Outputs", and "Stale Caches" with customizable filters.
+- [ ] **Backup & Snapshot Retention Manager**: Dedicated view to list, manage retention policies, and restore `.snapshot` and `.tar.gz` archives.
+
+---
+
 ## Checklist Progress
 
 - Tier 1: 3/3 implemented (100% COMPLETE)
 - Tier 2: 8/8 implemented (100% COMPLETE)
 - Tier 3: 4/4 implemented (100% COMPLETE)
+- Phase 1 Decision Intelligence: 6/6 implemented (100% COMPLETE)
 - Solved vs npkill: **All 11 open issues + all 112 closed issues addressed with 100% architectural immunity and feature superiority**
