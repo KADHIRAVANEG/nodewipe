@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "nodewipe-cli"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -2549,6 +2549,7 @@ dependencies = [
  "self_update",
  "serde",
  "serde_json",
+ "tempfile",
  "toml 0.8.2",
  "unicode-width 0.2.0",
  "walkdir",
@@ -2556,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "nodewipe-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "crossbeam-queue",
@@ -2576,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "nodewipe-gui"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "nodewipe-core",
  "serde",

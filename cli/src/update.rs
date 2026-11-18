@@ -1,7 +1,8 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Default)]
@@ -13,6 +14,235 @@ fn update_state_path() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("nodewipe").join("update.json"))
 }
 
+/// Tests whether a directory is writable by creating and removing a hidden temporary probe file.
+/// If the directory does not exist, it recursively checks the closest existing ancestor directory.
+pub fn is_dir_writable(dir: &Path) -> bool {
+    if !dir.exists() {
+        if let Some(parent) = dir.parent() {
+            if !parent.as_os_str().is_empty() {
+                return is_dir_writable(parent);
+            }
+        }
+        return false;
+    }
+
+    let probe_name = format!(
+        ".nodewipe_probe_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let probe_path = dir.join(probe_name);
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+    {
+        Ok(file) => {
+            drop(file);
+            let _ = fs::remove_file(probe_path);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Returns the user-local binary path:
+/// - Unix (Linux/macOS): ~/.local/bin/nodewipe
+/// - Windows: %LOCALAPPDATA%\Programs\nodewipe\nodewipe.exe (or %USERPROFILE%\.cargo\bin)
+pub fn user_local_bin_path() -> Option<PathBuf> {
+    if cfg!(windows) {
+        dirs::data_local_dir()
+            .map(|d| d.join("Programs").join("nodewipe").join("nodewipe.exe"))
+            .or_else(|| dirs::home_dir().map(|h| h.join(".cargo").join("bin").join("nodewipe.exe")))
+    } else {
+        dirs::home_dir().map(|h| h.join(".local").join("bin").join("nodewipe"))
+    }
+}
+
+/// Checks whether `dir` is present in the current process's PATH environment variable.
+pub fn is_in_path(dir: &Path) -> bool {
+    if let Some(path_var) = std::env::var_os("PATH") {
+        let dir_canon = std::fs::canonicalize(dir).ok();
+        for entry in std::env::split_paths(&path_var) {
+            if entry == dir {
+                return true;
+            }
+            if let (Some(c_entry), Some(c_dir)) = (std::fs::canonicalize(&entry).ok(), &dir_canon) {
+                if c_entry == *c_dir {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Resolves where the updated binary should be installed:
+/// - If the currently running executable's directory is writable (e.g. user-owned or running with sudo),
+///   it updates that executable in place: `(current_exe, false)`.
+/// - If the currently running executable is in a system read-only directory (e.g. `/usr/bin/nodewipe`),
+///   it falls back to user-space `~/.local/bin/nodewipe` without requiring elevated privileges: `(local_bin, true)`.
+pub fn resolve_install_target() -> (PathBuf, bool) {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            if is_dir_writable(parent) {
+                return (exe, false);
+            }
+        }
+    }
+
+    if let Some(local_bin) = user_local_bin_path() {
+        if let Some(parent) = local_bin.parent() {
+            if is_dir_writable(parent) {
+                return (local_bin, true);
+            }
+        }
+    }
+
+    // Default fallback to current_exe even if indeterminate
+    (
+        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("nodewipe")),
+        false,
+    )
+}
+
+fn save_update_timestamp() -> Result<()> {
+    if let Some(path) = update_state_path() {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let state = UpdateState {
+            last_check_unix: now,
+        };
+        if let Ok(content) = serde_json::to_string(&state) {
+            let _ = fs::write(path, content);
+        }
+    }
+    Ok(())
+}
+
+/// Explicit command invoked via `nodewipe update [--check] [--yes] [--force]`.
+pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
+    println!("Checking for updates...");
+    let current_version = env!("CARGO_PKG_VERSION");
+    let (target_path, is_fallback) = resolve_install_target();
+
+    let mut config_builder = self_update::backends::github::Update::configure();
+    config_builder
+        .repo_owner("KADHIRAVANEG")
+        .repo_name("nodewipe")
+        .bin_name(if cfg!(windows) {
+            "nodewipe.exe"
+        } else {
+            "nodewipe"
+        })
+        .bin_install_path(&target_path)
+        .current_version(current_version)
+        .no_confirm(true)
+        .check_install_path_writable(true);
+
+    let builder = config_builder.build()?;
+    let releases = builder.get_latest_release()?;
+    let Some(latest) = releases.latest() else {
+        println!("No releases found on GitHub.");
+        return Ok(ExitCode::SUCCESS);
+    };
+
+    let is_newer = self_update::version::bump_is_greater(current_version, latest.version())
+        .unwrap_or(false);
+
+    if check {
+        if is_newer {
+            println!(
+                "✨ A new version of nodewipe is available: v{} -> v{}",
+                current_version,
+                latest.version()
+            );
+            println!("Run 'nodewipe update' to install the latest version.");
+        } else {
+            println!("✨ nodewipe is already up to date (v{}).", current_version);
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if !is_newer && !force {
+        println!("✨ nodewipe is already up to date (v{}).", current_version);
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    println!(
+        "✨ Updating nodewipe from v{} to v{}...",
+        current_version,
+        latest.version()
+    );
+
+    if is_fallback {
+        println!(
+            "Notice: System binary is read-only. Installing update to user-space: {} (no sudo required).",
+            target_path.display()
+        );
+    } else {
+        println!("Installing update to: {}", target_path.display());
+    }
+
+    if !yes {
+        use std::io::Write;
+        print!("Proceed with update? [Y/n]: ");
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let trimmed = input.trim();
+        if trimmed.eq_ignore_ascii_case("n") {
+            println!("Update cancelled.");
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
+
+    if let Some(parent) = target_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    println!("Downloading release assets...");
+    match builder.update() {
+        Ok(status) => {
+            if is_fallback {
+                println!(
+                    "✨ Successfully installed nodewipe v{} to {} (no sudo required)!",
+                    status.version(),
+                    target_path.display()
+                );
+                if let Some(parent) = target_path.parent() {
+                    if !is_in_path(parent) {
+                        println!(
+                            "💡 Tip: Add {} to your PATH to run it directly:",
+                            parent.display()
+                        );
+                        println!("   export PATH=\"{}:$PATH\"", parent.display());
+                    }
+                }
+            } else {
+                println!("✨ Successfully updated nodewipe to v{}!", status.version());
+            }
+            let _ = save_update_timestamp();
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(e) => {
+            eprintln!("Failed to update: {e}");
+            eprintln!("Tip: You can manually update using the installer:");
+            eprintln!("  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash");
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// Automatic background check run once per 24 hours in interactive mode.
 pub fn check_and_prompt_update() -> Result<()> {
     // Only check once every 24 hours to avoid slowing down the CLI
     let state_file = update_state_path();
@@ -27,14 +257,18 @@ pub fn check_and_prompt_update() -> Result<()> {
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs();
     if now.saturating_sub(state.last_check_unix) < 86400 {
         return Ok(());
     }
 
-    // Perform check
+    // Save timestamp immediately to avoid repeated checks if network fails or update is declined
+    let _ = save_update_timestamp();
+
     let current_version = env!("CARGO_PKG_VERSION");
+    let (target_path, is_fallback) = resolve_install_target();
+
     let builder = self_update::backends::github::Update::configure()
         .repo_owner("KADHIRAVANEG")
         .repo_name("nodewipe")
@@ -43,7 +277,10 @@ pub fn check_and_prompt_update() -> Result<()> {
         } else {
             "nodewipe"
         })
+        .bin_install_path(&target_path)
         .current_version(current_version)
+        .no_confirm(true)
+        .check_install_path_writable(true)
         .build()?;
 
     let releases = builder.get_latest_release()?;
@@ -56,6 +293,12 @@ pub fn check_and_prompt_update() -> Result<()> {
                 current_version,
                 latest.version()
             );
+            if is_fallback {
+                println!(
+                    "   System binary is read-only. Update will install to user-space: {} (no sudo required).",
+                    target_path.display()
+                );
+            }
             use std::io::Write;
             print!("Would you like to update now? [y/N]: ");
             std::io::stdout().flush()?;
@@ -64,28 +307,96 @@ pub fn check_and_prompt_update() -> Result<()> {
             std::io::stdin().read_line(&mut input)?;
 
             if input.trim().eq_ignore_ascii_case("y") {
+                if let Some(parent) = target_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
                 println!("Downloading update...");
                 match builder.update() {
                     Ok(status) => {
-                        println!("Successfully updated to v{}!", status.version());
+                        if is_fallback {
+                            println!(
+                                "✨ Successfully installed nodewipe v{} to {} (no sudo required)!",
+                                status.version(),
+                                target_path.display()
+                            );
+                            if let Some(parent) = target_path.parent() {
+                                if !is_in_path(parent) {
+                                    println!(
+                                        "💡 Tip: Add {} to your PATH: export PATH=\"{}:$PATH\"",
+                                        parent.display(),
+                                        parent.display()
+                                    );
+                                }
+                            }
+                        } else {
+                            println!("Successfully updated to v{}!", status.version());
+                        }
                         std::process::exit(0);
                     }
-                    Err(e) => eprintln!("Failed to update: {}", e),
+                    Err(e) => {
+                        eprintln!("Failed to update: {}", e);
+                        eprintln!("Tip: You can manually update using:");
+                        eprintln!("  curl -fsSL https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/install.sh | bash");
+                    }
                 }
             }
         }
     }
 
-    // Save timestamp
-    if let Some(path) = &state_file {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        state.last_check_unix = now;
-        if let Ok(content) = serde_json::to_string(&state) {
-            fs::write(path, content)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_dir_writable_on_temp_dir() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        assert!(is_dir_writable(temp.path()));
+
+        let nested = temp.path().join("nested").join("subfolder");
+        assert!(is_dir_writable(&nested));
+    }
+
+    #[test]
+    fn test_user_local_bin_path_structure() {
+        let local_bin = user_local_bin_path();
+        assert!(local_bin.is_some());
+        let path = local_bin.unwrap();
+        if cfg!(windows) {
+            assert!(path.to_string_lossy().ends_with("nodewipe.exe"));
+        } else {
+            assert!(path.to_string_lossy().ends_with("nodewipe"));
+            assert!(path.to_string_lossy().contains(".local"));
         }
     }
 
-    Ok(())
+    #[test]
+    fn test_resolve_install_target_returns_valid_path() {
+        let (target, is_fallback) = resolve_install_target();
+        assert!(!target.as_os_str().is_empty());
+        let file_name = target.file_name().expect("file name").to_string_lossy();
+        assert!(file_name.starts_with("nodewipe"));
+        // If not writable in current_exe parent, is_fallback should be true
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                if !is_dir_writable(parent) {
+                    assert!(is_fallback);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_is_in_path_evaluates_system_path() {
+        if let Some(path_var) = std::env::var_os("PATH") {
+            let first_entry = std::env::split_paths(&path_var).next();
+            if let Some(first) = first_entry {
+                assert!(is_in_path(&first));
+            }
+        }
+        let fake_path = PathBuf::from("/nonexistent_path_definitely_not_in_env_path_12345");
+        assert!(!is_in_path(&fake_path));
+    }
 }
