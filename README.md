@@ -51,6 +51,8 @@
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
 * **🌐 39+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, C/C++ & Native (CMake, Ninja, Zig, Elixir, Meson), modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress, Yarn offline cache, pnpm `.ignored`), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
 * **🧠 Decision Intelligence & Directory Inspector**: `nodewipe explain <path>` (or <kbd>e</kbd> in TUI) provides clear explanations for each result: why it matched, whether it can be recreated, git branch staleness, risk rating, and exact recovery command.
+* **🎯 Targeted Reclaim Engine**: Free up an exact storage budget (`nodewipe reclaim 10GB`) with risk scoring, prioritizing zero-download local rebuilds first.
+* **📋 Named Profiles & Saved Presets**: Intent-driven cleanups (`--profile build-outputs`, `old-dependencies`, `large-models`) and reusable saved workflows (`nodewipe preset save/run`).
 * **📌 Project Pinning Protection**: Mark active projects as pinned (`nodewipe pin add` or <kbd>p</kbd> in TUI). Pinned projects and all their artifacts are strictly locked and refused by the deletion engine.
 * **🛡️ Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
@@ -294,6 +296,79 @@ nodewipe pin remove ~/Projects/critical-client-app
 
 ---
 
+## 🎯 Targeted Reclaim, Cleanup Profiles & Presets
+
+Need to free up a specific amount of disk space quickly? Want repeatable one-command cleanups for your developer setup? `nodewipe` provides intelligent budget-guided reclamation and saved workflow presets:
+
+### 1. Storage Budget Reclaim (`nodewipe reclaim <TARGET>`)
+Target an exact storage amount (e.g. `10GB`, `500MB`). `nodewipe` evaluates risk scores, prioritizing zero-download local compiler rebuilds (like Rust `target/` or Go build cache) over remote dependency downloads, factoring in source staleness and Git branch merge status:
+
+```bash
+# Preview what would be deleted to free up 10 GB (dry-run)
+nodewipe reclaim 10GB --dry-run
+
+# Reclaim 5 GB prioritizing local rebuilds with safe Trash mode
+nodewipe reclaim 5GB --prefer-local-rebuild
+
+# Headless JSON output for CI or storage alert webhooks
+nodewipe reclaim 20GB --json
+```
+
+```text
+  nodewipe reclaim — analyzing candidates in . …
+
+ Target budget: 10.00 GB
+
+ Proposed Cleanup Plan:
+ ────────────────────────────────────────────────────────────────────────────────
+ Ecosystem                      Size   Risk        Path
+ ────────────────────────────────────────────────────────────────────────────────
+  Cargo target             34.83 GB   Low         ./target
+     Rebuild recipe: cargo build
+ ────────────────────────────────────────────────────────────────────────────────
+ Total Proposed: 34.83 GB (Target: 10.00 GB)
+```
+
+### 2. Intent-Based Cleanup Profiles (`--profile <NAME>`)
+Filter artifacts according to your immediate goal across `scan`, `doctor`, and `reclaim`:
+
+| Profile | Slug | Target Ecosystems | Description |
+|:---|:---:|:---|:---|
+| **Old Dependencies** | `old-dependencies` | `node_modules`, `venv`, `vendor`, `cocoapods` | Inactive dependencies (>60d) with remote lockfiles |
+| **Build Outputs** | `build-outputs` | `target`, `dist`, `bin`, `obj`, `build` | 100% locally recompilable outputs (0 network needed) |
+| **Large Models** | `large-models` | Hugging Face, Ollama, PyTorch, Triton | Gigabyte-scale AI/ML weights and compiler caches |
+| **Safe Sweep** | `safe-sweep` | Build outputs, pycache, pytest, ruff | Zero-risk local artifacts with zero remote re-downloads |
+
+```bash
+# Doctor analysis focused exclusively on build outputs
+nodewipe doctor --profile build-outputs
+
+# Scan only AI/ML model caches
+nodewipe scan --profile large-models
+
+# Reclaim 15GB targeting only old dependencies
+nodewipe reclaim 15GB --profile old-dependencies
+```
+
+### 3. Repeatable Workflow Presets (`nodewipe preset`)
+Save complex scanning and cleaning parameters as named presets stored in `~/.config/nodewipe/config.toml`:
+
+```bash
+# Save a preset for your daily work routine
+nodewipe preset save work-sweep --path ~/Projects --profile build-outputs --min-mb 50
+
+# List all saved presets
+nodewipe preset list
+
+# Run a preset anytime
+nodewipe preset run work-sweep
+
+# Delete a preset
+nodewipe preset remove work-sweep
+```
+
+---
+
 ## 🩺 System Doctor (`nodewipe doctor`)
 
 Analyze where your storage is disappearing across all developer environments. `nodewipe doctor` scans recursively, computes aggregate totals by ecosystem, and surfaces the oldest untouched artifacts:
@@ -403,6 +478,16 @@ nodewipe pin list                          # List all pinned (deletion-protected
 nodewipe pin add ~/Projects/my-app         # Pin project to prevent accidental deletion
 nodewipe pin remove ~/Projects/my-app      # Unpin project
 
+# ── Targeted Reclaim & Guided Workflows ─────────────────────────────────────
+nodewipe reclaim 10GB                      # Interactive targeted storage budget reclaim
+nodewipe reclaim 5GB --dry-run             # Preview proposed candidates without deleting
+nodewipe reclaim 2GB --prefer-local-rebuild # Prioritize local compiler outputs (0 network)
+nodewipe reclaim 15GB --profile old-dependencies # Reclaim targeting inactive dependencies
+nodewipe preset save daily --profile build-outputs --min-mb 50 # Save reusable workflow
+nodewipe preset list                       # List saved workflow presets
+nodewipe preset run daily                  # Execute saved preset workflow
+nodewipe preset remove daily               # Remove saved preset
+
 # ── Deleting & Restoring ───────────────────────────────────────────────────
 nodewipe delete ./path/node_modules --yes                 # Safe delete (OS Trash)
 nodewipe delete ./path/target --mode archive --yes       # Compressed tar.gz or CoW snapshot backup + delete
@@ -465,6 +550,8 @@ default_exclude_types = ["venv", "rust_target"]
 | **Directory Inspector (`explain`)** | ❌ No | **✅ Deep match rationale, git staleness, risk rating & recovery recipe** |
 | **Project Pinning Protection** | ❌ No | **✅ `pin add/list/remove` with hard deleter lock (<kbd>p</kbd>)** |
 | **Recovery Recipes** | ❌ No | **✅ Exact rebuild commands (`npm install`, `cargo build`, etc.)** |
+| **Targeted Budget Reclaim** | ❌ No | **`nodewipe reclaim <SIZE>` with risk ranking & preview** |
+| **Workflow Presets & Profiles** | ❌ No | **`nodewipe preset` & `--profile` intent-based filters** |
 | **Disk Size Accuracy** | Logical byte sum | **Physical cluster block calculation (`st_blocks`)** |
 | **Safety & Recovery** | Permanent unlink only | **OS Trash + Instant CoW Snapshot + Atomic `.tar.gz` Archiving** |
 | **Interactive Dry-Run** | ❌ No | **✅ Real-time simulation toggle (<kbd>P</kbd>)** |

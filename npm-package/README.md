@@ -36,6 +36,8 @@ unrelated folder that happens to share the name is never touched.
 - **OS Trash Default**: Deletions move to your OS trash (recoverable) unless you specify `--mode permanent` or `--mode archive`.
 - **Decision Intelligence**: Run `nodewipe explain <path>` (or press `e` in the TUI) to inspect why a folder matched, assess risk, and get the exact command needed to rebuild it.
 - **Active Project Pinning**: Run `nodewipe pin add <path>` (or press `p` in the TUI) to lock active projects. Pinned paths are protected from deletion.
+- **Targeted Storage Budget**: Free up specific space amounts with `nodewipe reclaim 10GB` prioritizing zero-download local rebuilds first.
+- **Cleanup Profiles & Presets**: Use `--profile build-outputs` or save reusable workflows with `nodewipe preset save`.
 - **Dry Run Simulation**: `--dry-run` (or press `P` in the TUI) previews deletion impact without touching anything.
 
 ## This package is CLI-only
@@ -53,6 +55,9 @@ nodewipe /                      # scan from filesystem root
 nodewipe explain .              # inspect directory risk, match reason & rebuild recipe
 nodewipe pin add ./my-app       # protect active project from accidental deletion
 nodewipe pin list               # list all pinned projects
+nodewipe reclaim 10GB           # reclaim 10 GB with risk ranking & preview
+nodewipe preset save work --profile build-outputs # save workflow preset
+nodewipe preset run work        # execute saved preset
 nodewipe scan --json            # scriptable/CI output
 nodewipe scan --exclude-types venv,dist
 nodewipe delete <path> --yes    # moves to trash by default
