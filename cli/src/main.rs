@@ -8,16 +8,18 @@ use anyhow::{Context, Result};
 use clap::Parser;
 pub use cli_def::BANNER;
 use cli_def::{
-    Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PinCommand, PresetArg, SortKey,
+    Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PinCommand, PresetArg, PresetCommand,
+    ProfileArg, SortKey,
 };
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
-    ArtifactKind, DeleteMode, Entry, HistoryEntry, ScanOptions, add_ignored_pattern,
-    annotate_workspace_roots, delete, find_stale_projects, group_by_workspace, history_append,
-    list_ignored_patterns, load_config, load_ignore_patterns, remove_ignored_pattern_from_root,
-    restore, scan,
+    ArtifactKind, DeleteMode, Entry, HistoryEntry, ProfileKind, RiskLevel, ScanOptions,
+    add_ignored_pattern, annotate_workspace_roots, delete, find_stale_projects, group_by_workspace,
+    history_append, list_ignored_patterns, load_config, load_ignore_patterns,
+    remove_ignored_pattern_from_root, restore, scan,
 };
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime};
@@ -30,6 +32,15 @@ impl From<DeleteModeArg> for DeleteMode {
             DeleteModeArg::Permanent => DeleteMode::Permanent,
         }
     }
+}
+
+pub fn map_profile_arg(arg: Option<ProfileArg>) -> Option<ProfileKind> {
+    arg.map(|a| match a {
+        ProfileArg::OldDependencies => ProfileKind::OldDependencies,
+        ProfileArg::BuildOutputs => ProfileKind::BuildOutputs,
+        ProfileArg::LargeModels => ProfileKind::LargeModels,
+        ProfileArg::SafeSweep => ProfileKind::SafeSweep,
+    })
 }
 
 fn main() -> ExitCode {
@@ -63,6 +74,16 @@ fn run(cli: Cli) -> Result<ExitCode> {
     if let Some(defaults) = &config.default_exclude_types {
         exclude_kinds.extend(parse_exclude_types(defaults)?);
     }
+
+    let profile = map_profile_arg(cli.profile);
+    if let Some(prof) = profile {
+        for &k in ArtifactKind::ALL {
+            if !prof.includes_kind(k) && !exclude_kinds.contains(&k) {
+                exclude_kinds.push(k);
+            }
+        }
+    }
+
     exclude_kinds.sort_by_key(|k| k.slug());
     exclude_kinds.dedup_by_key(|k| k.slug());
 
@@ -93,6 +114,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     default_sort,
                     None,
                     None,
+                    profile,
                     None,
                     !cli.serial,
                     !cli.no_git,
@@ -147,6 +169,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 effective_sort,
                 stale_days,
                 preset,
+                profile,
                 export,
                 !cli.serial,
                 !cli.no_git,
@@ -186,6 +209,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 exclude_kinds,
                 doctor_ignore,
                 threshold,
+                profile,
                 notify,
                 install_service,
                 uninstall_service,
@@ -213,6 +237,34 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Some(Command::Update { check, yes, force }) => update::run_update(check, yes, force),
         Some(Command::Explain { path }) => cmd_explain(&path, cli.json),
         Some(Command::Pin { command, path }) => cmd_pin(command, path, cli.json),
+        Some(Command::Reclaim {
+            target,
+            path: sub_path,
+            mode,
+            yes,
+            dry_run,
+            prefer_local_rebuild,
+        }) => {
+            let reclaim_root = sub_path.unwrap_or(root);
+            cmd_reclaim(
+                &reclaim_root,
+                &target,
+                cli.profile,
+                mode,
+                yes,
+                dry_run,
+                prefer_local_rebuild,
+                cli.json,
+                cli.serial,
+                cli.no_git,
+                cli.no_ignore_file,
+                &config,
+            )
+        }
+        Some(Command::Preset {
+            ref command,
+            ref name,
+        }) => cmd_preset(command.clone(), name.clone(), &root, &cli, &config),
     }
 }
 
@@ -419,6 +471,407 @@ fn cmd_pin(
             }
         },
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_reclaim(
+    root: &Path,
+    target_str: &str,
+    profile_arg: Option<ProfileArg>,
+    mode_arg: Option<DeleteModeArg>,
+    yes: bool,
+    dry_run: bool,
+    prefer_local_rebuild: bool,
+    json: bool,
+    serial: bool,
+    no_git: bool,
+    no_ignore_file: bool,
+    config: &nodewipe_core::Config,
+) -> Result<ExitCode> {
+    let target_bytes = match nodewipe_core::parse_size_to_bytes(target_str) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error: invalid target size '{target_str}': {e}");
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+
+    let profile = map_profile_arg(profile_arg);
+
+    let ignore_patterns = if no_ignore_file {
+        nodewipe_core::Gitignore::empty()
+    } else {
+        load_ignore_patterns(root)
+    };
+
+    let mut exclude_kinds = Vec::new();
+    if let Some(defaults) = &config.default_exclude_types {
+        exclude_kinds.extend(parse_exclude_types(defaults)?);
+    }
+    if let Some(prof) = profile {
+        for kind in ArtifactKind::ALL {
+            if !prof.includes_kind(*kind) && !exclude_kinds.contains(kind) {
+                exclude_kinds.push(*kind);
+            }
+        }
+    }
+
+    if !json {
+        println!(
+            "\n {} nodewipe reclaim — analyzing candidates in {} …\n",
+            nodewipe_core::icons::PACKAGE,
+            root.display()
+        );
+        println!(
+            " Target budget: {}",
+            nodewipe_core::format_bytes(target_bytes)
+        );
+        if let Some(prof) = profile {
+            println!(" Profile:       {} ({})", prof.label(), prof.description());
+        }
+        println!();
+    }
+
+    let opts = ScanOptions {
+        root: root.to_path_buf(),
+        exclude_kinds,
+        ignore_patterns,
+        compute_sizes: true,
+        parallel: !serial,
+        inspect_git: !no_git,
+        ..Default::default()
+    };
+
+    let entries = scan(&opts)?;
+
+    let plan = nodewipe_core::plan_reclaim(&entries, target_bytes, prefer_local_rebuild, profile);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if plan.candidates.is_empty() {
+        println!("No eligible candidate directories found to reclaim space.");
+        if plan.pinned_skipped_count > 0 {
+            println!(
+                " Note: {} pinned project directories ({}) were protected from cleanup.",
+                plan.pinned_skipped_count,
+                nodewipe_core::format_bytes(plan.pinned_skipped_bytes)
+            );
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    println!(" Proposed Cleanup Plan:");
+    println!(" ────────────────────────────────────────────────────────────────────────────────");
+    println!(" {:<24} {:>10}   {:<10}  Path", "Ecosystem", "Size", "Risk");
+    println!(" ────────────────────────────────────────────────────────────────────────────────");
+
+    for cand in &plan.candidates {
+        let label = format!("{} {}", cand.icon, cand.artifact_label);
+        let risk_tag = match cand.risk_level {
+            RiskLevel::Low => "Low",
+            RiskLevel::Moderate => "Moderate",
+            RiskLevel::Caution => "Caution",
+        };
+        println!(
+            " {:<24} {:>10}   {:<10}  {}",
+            label,
+            cand.formatted_size,
+            risk_tag,
+            cand.path.display()
+        );
+        if let Some(recipe) = &cand.recovery_command {
+            println!(
+                "    {} Rebuild recipe: {}",
+                nodewipe_core::icons::TERMINAL,
+                recipe
+            );
+        }
+    }
+    println!(" ────────────────────────────────────────────────────────────────────────────────");
+    println!(
+        " Total Proposed: {} (Target: {})",
+        plan.formatted_proposed, plan.formatted_target
+    );
+    if !plan.met_target {
+        println!(" Note: Available unpinned candidates fell short of the requested target.");
+    }
+    if plan.pinned_skipped_count > 0 {
+        println!(
+            " {} {} pinned project directories ({}) protected from cleanup.",
+            nodewipe_core::icons::PIN,
+            plan.pinned_skipped_count,
+            nodewipe_core::format_bytes(plan.pinned_skipped_bytes)
+        );
+    }
+    println!();
+
+    if dry_run {
+        println!("Dry-run mode active — no directories were deleted.");
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let mode = resolve_delete_mode(mode_arg, config);
+    let mode_str = match mode {
+        DeleteMode::Trash => "OS Trash (recoverable)",
+        DeleteMode::Archive => "compressed archive (.tar.gz / .snapshot)",
+        DeleteMode::Permanent => "PERMANENT deletion (unrecoverable)",
+    };
+
+    if !yes {
+        print!(
+            "Reclaim {} by moving proposed directories to {}? [y/N] ",
+            plan.formatted_proposed, mode_str
+        );
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let trimmed = input.trim().to_lowercase();
+        if trimmed != "y" && trimmed != "yes" {
+            println!("Operation cancelled.");
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
+
+    println!("\nExecuting cleanup…");
+    let mut total_freed: u64 = 0;
+    for cand in &plan.candidates {
+        match nodewipe_core::delete(&cand.path, mode, cand.size_bytes) {
+            Ok(res) => {
+                total_freed += res.freed_bytes;
+                println!(
+                    " {} {} ({})",
+                    nodewipe_core::icons::CHECK,
+                    cand.path.display(),
+                    cand.formatted_size
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    " {} Failed to delete {}: {e}",
+                    nodewipe_core::icons::WARN,
+                    cand.path.display()
+                );
+            }
+        }
+    }
+
+    println!(
+        "\n Successfully reclaimed {} of disk space!\n",
+        nodewipe_core::format_bytes(total_freed)
+    );
+
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_preset(
+    command: Option<PresetCommand>,
+    name_arg: Option<String>,
+    root: &Path,
+    cli: &Cli,
+    config: &nodewipe_core::Config,
+) -> Result<ExitCode> {
+    if command.is_none() {
+        if let Some(name) = name_arg {
+            return run_saved_preset(&name, cli, config);
+        }
+        return list_saved_presets(cli.json);
+    }
+
+    match command.unwrap() {
+        PresetCommand::List => list_saved_presets(cli.json),
+        PresetCommand::Run { name } => run_saved_preset(&name, cli, config),
+        PresetCommand::Remove { name } => match nodewipe_core::remove_preset(&name) {
+            Ok(true) => {
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::json!({ "status": "removed", "name": name })
+                    );
+                } else {
+                    println!("Removed preset: '{name}'");
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            Ok(false) => {
+                eprintln!("Preset '{name}' not found.");
+                Ok(ExitCode::FAILURE)
+            }
+            Err(e) => {
+                eprintln!("Failed to remove preset: {e}");
+                Ok(ExitCode::FAILURE)
+            }
+        },
+        PresetCommand::Save {
+            name,
+            path,
+            profile,
+            exclude_types,
+            min_mb,
+            older_than,
+            sort,
+            description,
+        } => {
+            let preset = nodewipe_core::Preset {
+                name: name.clone(),
+                path: path.or_else(|| Some(root.to_path_buf())),
+                profile: profile.map(|p| match p {
+                    ProfileArg::OldDependencies => "old-dependencies".into(),
+                    ProfileArg::BuildOutputs => "build-outputs".into(),
+                    ProfileArg::LargeModels => "large-models".into(),
+                    ProfileArg::SafeSweep => "safe-sweep".into(),
+                }),
+                exclude_types: if exclude_types.is_empty() {
+                    None
+                } else {
+                    Some(exclude_types)
+                },
+                min_mb,
+                older_than,
+                sort: sort.map(|s| match s {
+                    SortKey::Size => "size".into(),
+                    SortKey::Age => "age".into(),
+                    SortKey::Git => "git".into(),
+                }),
+                description,
+            };
+
+            match nodewipe_core::save_preset(preset) {
+                Ok(saved_path) => {
+                    if cli.json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "status": "saved",
+                                "name": name,
+                                "config_file": saved_path.display().to_string()
+                            })
+                        );
+                    } else {
+                        println!("{} Saved preset: '{name}'", nodewipe_core::icons::CHECK);
+                        println!("   Stored in: {}", saved_path.display());
+                        println!("   Run with:  nodewipe preset run {name}");
+                    }
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(e) => {
+                    eprintln!("Failed to save preset '{name}': {e}");
+                    Ok(ExitCode::FAILURE)
+                }
+            }
+        }
+    }
+}
+
+fn list_saved_presets(json: bool) -> Result<ExitCode> {
+    let presets = nodewipe_core::list_presets();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&presets)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if presets.is_empty() {
+        println!("No workflow presets saved yet.");
+        println!("Save a preset with: nodewipe preset save <name> [--path ...] [--profile ...]");
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    println!("\n Saved Workflow Presets:");
+    println!(" ────────────────────────────────────────────────────────────");
+    for p in &presets {
+        println!(" • {}", p.name);
+        if let Some(desc) = &p.description {
+            println!("   Description: {desc}");
+        }
+        if let Some(path) = &p.path {
+            println!("   Path:        {}", path.display());
+        }
+        if let Some(prof) = &p.profile {
+            println!("   Profile:     {prof}");
+        }
+        if let Some(min_mb) = p.min_mb {
+            println!("   Min Size:    {min_mb} MB");
+        }
+        if let Some(older) = &p.older_than {
+            println!("   Older Than:  {older}");
+        }
+        if let Some(sort) = &p.sort {
+            println!("   Sort:        {sort}");
+        }
+        println!("   Run with:    nodewipe preset run {}", p.name);
+        println!(" ────────────────────────────────────────────────────────────");
+    }
+    println!();
+    Ok(ExitCode::SUCCESS)
+}
+
+fn run_saved_preset(name: &str, cli: &Cli, config: &nodewipe_core::Config) -> Result<ExitCode> {
+    let preset = match nodewipe_core::get_preset(name) {
+        Some(p) => p,
+        None => {
+            eprintln!("Error: Preset '{name}' not found.");
+            eprintln!("List saved presets with: nodewipe preset list");
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+
+    println!(
+        "\n {} Running preset '{}'…",
+        nodewipe_core::icons::PACKAGE,
+        name
+    );
+    if let Some(desc) = &preset.description {
+        println!("   Description: {desc}");
+    }
+
+    let scan_root = preset.path.clone().unwrap_or_else(|| PathBuf::from("."));
+    let scan_ignore = if cli.no_ignore_file {
+        nodewipe_core::Gitignore::empty()
+    } else {
+        load_ignore_patterns(&scan_root)
+    };
+
+    let mut exclude_kinds = Vec::new();
+    if let Some(excludes) = &preset.exclude_types {
+        exclude_kinds.extend(parse_exclude_types(excludes)?);
+    }
+
+    let profile = preset
+        .profile
+        .as_deref()
+        .and_then(nodewipe_core::ProfileKind::from_slug);
+
+    if let Some(prof) = profile {
+        for kind in ArtifactKind::ALL {
+            if !prof.includes_kind(*kind) && !exclude_kinds.contains(kind) {
+                exclude_kinds.push(*kind);
+            }
+        }
+    }
+
+    let effective_min_mb = preset.min_mb.or(config.default_min_mb).unwrap_or(0);
+    let effective_sort = parse_sort_key(preset.sort.as_deref())
+        .or_else(|| parse_sort_key(config.default_sort.as_deref()))
+        .unwrap_or(SortKey::Size);
+
+    cmd_scan(
+        &scan_root,
+        cli.json,
+        effective_min_mb,
+        false,
+        exclude_kinds,
+        scan_ignore,
+        preset.older_than,
+        effective_sort,
+        None,
+        None,
+        profile,
+        None,
+        !cli.serial,
+        !cli.no_git,
+    )
 }
 
 fn cmd_config(action: Option<ConfigAction>, json: bool) -> Result<ExitCode> {
@@ -890,10 +1343,26 @@ fn cmd_scan(
     sort: SortKey,
     stale_days: Option<u64>,
     preset: Option<PresetArg>,
+    profile: Option<nodewipe_core::ProfileKind>,
     export: Option<PathBuf>,
     parallel: bool,
     inspect_git: bool,
 ) -> Result<ExitCode> {
+    if let Some(prof) = profile {
+        for kind in ArtifactKind::ALL {
+            if !prof.includes_kind(*kind) && !exclude_kinds.contains(kind) {
+                exclude_kinds.push(*kind);
+            }
+        }
+    }
+
+    let older_than = if older_than.is_none() {
+        profile
+            .and_then(|p| p.default_min_age_days())
+            .map(|d| format!("{d}d"))
+    } else {
+        older_than
+    };
     if let Some(preset) = preset {
         let allowed: &[ArtifactKind] = match preset {
             PresetArg::Node | PresetArg::Web | PresetArg::Frontend => &[
@@ -1007,7 +1476,10 @@ fn cmd_scan(
                             let branch = git.branch.as_deref().unwrap_or("?");
                             let dirty = if git.is_dirty { "*" } else { "" };
                             let merged = if git.is_merged { " [merged]" } else { "" };
-                            format!("({branch}{dirty}{merged}) ")
+                            format!(
+                                "({} {branch}{dirty}{merged}) ",
+                                nodewipe_core::icons::GIT_BRANCH
+                            )
                         }
                         None => String::new(),
                     };
@@ -1041,18 +1513,27 @@ fn cmd_scan(
                 }
                 None => "   ?d".to_string(),
             };
+            let is_pinned = nodewipe_core::is_path_pinned(&e.path);
+            let pin_tag = if is_pinned {
+                format!(" {} [PINNED]", nodewipe_core::icons::PIN)
+            } else {
+                String::new()
+            };
             let git_info = match &e.git_status {
                 Some(git) => {
                     let branch = git.branch.as_deref().unwrap_or("?");
                     let dirty = if git.is_dirty { "*" } else { "" };
                     let merged = if git.is_merged { " [merged]" } else { "" };
-                    format!("({branch}{dirty}{merged})")
+                    format!(
+                        "({} {branch}{dirty}{merged})",
+                        nodewipe_core::icons::GIT_BRANCH
+                    )
                 }
                 None => String::new(),
             };
             if git_info.is_empty() {
                 println!(
-                    "{}  {}  {}  {}",
+                    "{}  {}  {}{pin_tag}  {}",
                     human_size(e.size_bytes),
                     age_str,
                     kind_display(e),
@@ -1060,7 +1541,7 @@ fn cmd_scan(
                 );
             } else {
                 println!(
-                    "{}  {}  {}  {:<20}  {}",
+                    "{}  {}  {}  {:<22}{pin_tag}  {}",
                     human_size(e.size_bytes),
                     age_str,
                     kind_display(e),
@@ -1333,8 +1814,8 @@ fn dir_size_quick(path: &Path) -> u64 {
 
 fn kind_display(e: &Entry) -> String {
     match &e.package_manager {
-        Some(pm) => format!("{:<14} ({pm:?})", e.kind.label()),
-        None => e.kind.label().to_string(),
+        Some(pm) => format!("{} {:<14} ({pm:?})", e.kind.icon(), e.kind.label()),
+        None => format!("{} {}", e.kind.icon(), e.kind.label()),
     }
 }
 
@@ -1543,6 +2024,7 @@ mod tests {
             default_exclude_types: Some(vec!["venv".into(), "rust_target".into()]),
             default_min_mb: Some(50),
             default_sort: Some("age".into()),
+            presets: Default::default(),
         };
         let toml_str = toml::to_string(&cfg).unwrap();
         let loaded: nodewipe_core::Config = toml::from_str(&toml_str).unwrap();
@@ -1563,6 +2045,7 @@ mod tests {
             default_exclude_types: None,
             default_min_mb: Some(42),
             default_sort: Some("age".into()),
+            presets: Default::default(),
         };
         let effective_min_mb = None.or(cfg.default_min_mb).unwrap_or(0);
         assert_eq!(effective_min_mb, 42);
@@ -1632,5 +2115,91 @@ mod tests {
         // Pin remove
         let code_rm = cmd_pin(Some(PinCommand::Remove { path: proj.clone() }), None, true).unwrap();
         assert_eq!(code_rm, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_cmd_reclaim_cli_dry_run() {
+        let tmp = tempfile::tempdir().unwrap();
+        let proj = tmp.path().join("my-rust-project");
+        let target = proj.join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(
+            proj.join("Cargo.toml"),
+            "[package]\nname=\"foo\"\nversion=\"0.1.0\"",
+        )
+        .unwrap();
+        std::fs::write(target.join("blob"), "data".repeat(1000)).unwrap();
+
+        let cfg = nodewipe_core::Config::default();
+        let code = cmd_reclaim(
+            tmp.path(),
+            "1KB",
+            Some(ProfileArg::BuildOutputs),
+            None,
+            true, // yes
+            true, // dry_run
+            true, // prefer_local_rebuild
+            true, // json
+            true, // serial
+            true, // no_git
+            true, // no_ignore_file
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_cmd_preset_cli_lifecycle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_file = tmp.path().join("config.toml");
+        unsafe {
+            std::env::set_var("NODEWIPE_CONFIG_FILE", &config_file);
+        }
+
+        let cli = Cli::parse_from(["nodewipe"]);
+        let cfg = nodewipe_core::Config::default();
+
+        // Save preset
+        let code_save = cmd_preset(
+            Some(PresetCommand::Save {
+                name: "test-preset".into(),
+                path: Some(tmp.path().to_path_buf()),
+                profile: Some(ProfileArg::BuildOutputs),
+                exclude_types: vec!["venv".into()],
+                min_mb: Some(10),
+                older_than: Some("30d".into()),
+                sort: Some(SortKey::Size),
+                description: Some("Test preset".into()),
+            }),
+            None,
+            tmp.path(),
+            &cli,
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(code_save, ExitCode::SUCCESS);
+
+        // List presets
+        let code_list =
+            cmd_preset(Some(PresetCommand::List), None, tmp.path(), &cli, &cfg).unwrap();
+        assert_eq!(code_list, ExitCode::SUCCESS);
+
+        // Remove preset
+        let code_rm = cmd_preset(
+            Some(PresetCommand::Remove {
+                name: "test-preset".into(),
+            }),
+            None,
+            tmp.path(),
+            &cli,
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(code_rm, ExitCode::SUCCESS);
+
+        unsafe {
+            std::env::remove_var("NODEWIPE_CONFIG_FILE");
+        }
     }
 }

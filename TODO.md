@@ -267,10 +267,25 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
 - [x] **Zero Emojis Policy**: Eliminated emojis across CLI doctor, stats, update, and TUI screens.
 - [x] **Lucide / Feather 2px Stroke SVGs**: 15 theme-adaptive icons created in `assets/icons/`.
 
-### 🟡 Phase 2: Workflow & Storage Automation (NEXT)
-- [ ] **Cleanup Budget (`nodewipe reclaim <SIZE>`)**: Propose and preview a set of artifacts to reclaim a target amount of space (e.g. `10GB`).
+### ✅ Phase 2: Targeted Reclaim & Guided Workflows (COMPLETED — v0.9.5)
+- [x] **Cleanup Budget Engine (`nodewipe reclaim <SIZE>`)**: Propose and preview a set of candidates to reclaim a target storage budget (e.g. `10GB`, `500MB`).
+  - Ranks candidates by risk score, prioritizing zero-download local compiler rebuilds (Rust `target/`, Go cache) over remote registry pulls.
+  - Factors in source staleness and Git branch merge status.
+  - Strictly skips pinned projects (`nodewipe pin`).
+  - Interactive preview table with total proposed calculation and recovery recipe hints.
+  - Full headless JSON export and `--dry-run` simulation support.
+- [x] **Named Cleanup Profiles (`--profile <NAME>`)**: Intent-based cleanup filters across `scan`, `doctor`, and `reclaim`:
+  - `old-dependencies`: Inactive dependencies (>60d) with remote lockfiles.
+  - `build-outputs`: 100% locally recompilable build and compiler outputs.
+  - `large-models`: Gigabyte-scale AI/ML weights and compiler caches.
+  - `safe-sweep`: Zero-risk local artifacts with zero network download requirements.
+- [x] **Repeatable Workflow Presets (`nodewipe preset <save|list|run|remove>`)**:
+  - Save scan paths, profiles, exclusions, and min-size into `~/.config/nodewipe/config.toml`.
+  - Execute saved workflows on demand with a single CLI command (`nodewipe preset run <NAME>`).
+- [x] **Nerd Font Vector Icons in Scan Output**: Integrated ``, ``, ``, ``, ` [PINNED]` icons across non-TUI `nodewipe scan` and group outputs.
+
+### 🟡 Phase 3: Advanced Drill-Down & Retention Management (NEXT)
 - [ ] **Multi-Level Monorepo Hierarchy**: Drill-down view from ecosystem → project → artifact → largest contents.
-- [ ] **Named Cleanup Profiles**: Presets for "Old Dependencies", "Build Outputs", and "Stale Caches" with customizable filters.
 - [ ] **Backup & Snapshot Retention Manager**: Dedicated view to list, manage retention policies, and restore `.snapshot` and `.tar.gz` archives.
 
 ---

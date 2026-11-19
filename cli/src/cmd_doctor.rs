@@ -17,9 +17,10 @@ use std::process::ExitCode;
 pub fn run(
     root: PathBuf,
     json: bool,
-    exclude_kinds: Vec<ArtifactKind>,
+    mut exclude_kinds: Vec<ArtifactKind>,
     ignore_patterns: Gitignore,
     threshold: Option<String>,
+    profile: Option<nodewipe_core::ProfileKind>,
     notify: bool,
     install_service: bool,
     uninstall_service: bool,
@@ -42,12 +43,27 @@ pub fn run(
         None => None,
     };
 
+    if let Some(prof) = profile {
+        for kind in ArtifactKind::ALL {
+            if !prof.includes_kind(*kind) && !exclude_kinds.contains(kind) {
+                exclude_kinds.push(*kind);
+            }
+        }
+    }
+
     if !json && !notify {
         eprintln!(
             "\n {} nodewipe doctor — scanning {} …\n",
             nodewipe_core::icons::DOCTOR,
             root.display()
         );
+        if let Some(prof) = profile {
+            eprintln!(
+                " Profile filter: {} ({})\n",
+                prof.label(),
+                prof.description()
+            );
+        }
         eprintln!(" This may take a moment on large trees.\n");
     }
 

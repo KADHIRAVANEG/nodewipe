@@ -86,6 +86,10 @@ pub struct Cli {
     /// Skip Git repository status inspection (branch, dirty status, merged check).
     #[arg(long, global = true)]
     pub no_git: bool,
+
+    /// Cleanup profile to filter artifacts by cleanup intent (old-dependencies, build-outputs, large-models, safe-sweep).
+    #[arg(long, global = true, value_enum)]
+    pub profile: Option<ProfileArg>,
 }
 
 #[derive(Subcommand)]
@@ -311,6 +315,110 @@ pub enum Command {
         #[arg(value_name = "PATH")]
         path: Option<PathBuf>,
     },
+
+    /// Target a specific amount of disk space to reclaim (e.g. `nodewipe reclaim 10GB`).
+    ///
+    /// Scans the target directory, ranks disposable artifacts by risk, staleness,
+    /// and size, and proposes an optimal deletion set with an interactive confirmation preview.
+    Reclaim {
+        /// Amount of disk space to reclaim (e.g. "10GB", "500MB", "2G", "1.5GB").
+        #[arg(value_name = "TARGET")]
+        target: String,
+
+        /// Directory to search for reclaimable artifacts (defaults to current directory).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// How to delete: trash (default, recoverable), archive (tar.gz backup), or permanent.
+        #[arg(long, value_enum)]
+        mode: Option<DeleteModeArg>,
+
+        /// Skip confirmation prompt and execute immediately.
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Preview the proposed cleanup plan without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Prefer local compiler rebuilds (Low risk) over re-downloading dependencies.
+        #[arg(long, default_value_t = true)]
+        prefer_local_rebuild: bool,
+    },
+
+    /// Manage and run repeatable scan workflows / presets.
+    Preset {
+        #[command(subcommand)]
+        command: Option<PresetCommand>,
+
+        /// Name of a preset to run directly (e.g. `nodewipe preset work`).
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PresetCommand {
+    /// Save a new repeatable scan workflow preset.
+    Save {
+        /// Unique name for the preset.
+        #[arg(value_name = "NAME")]
+        name: String,
+
+        /// Scan path for this preset.
+        #[arg(long, value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Cleanup profile to associate with this preset.
+        #[arg(long, value_enum)]
+        profile: Option<ProfileArg>,
+
+        /// Comma-separated types to exclude.
+        #[arg(long, value_delimiter = ',', value_name = "TYPES")]
+        exclude_types: Vec<String>,
+
+        /// Minimum directory size in megabytes.
+        #[arg(long, value_name = "MB")]
+        min_mb: Option<u64>,
+
+        /// Age filter (e.g. "30d", "2m", "1y").
+        #[arg(long, value_name = "AGE")]
+        older_than: Option<String>,
+
+        /// Sort order (size or age).
+        #[arg(long, value_enum)]
+        sort: Option<SortKey>,
+
+        /// Optional description for this preset.
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+    /// List all saved workflow presets.
+    List,
+    /// Run a saved workflow preset by name.
+    Run {
+        /// Name of the preset to run.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Remove a saved workflow preset.
+    Remove {
+        /// Name of the preset to delete.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ProfileArg {
+    /// Stale dependency directories (>60d) from inactive projects.
+    OldDependencies,
+    /// Compiler, bundler, and build outputs that rebuild locally.
+    BuildOutputs,
+    /// Large AI/ML model weights, checkpoints, and compiler caches.
+    LargeModels,
+    /// Zero-risk local artifacts with no network download requirements.
+    SafeSweep,
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
