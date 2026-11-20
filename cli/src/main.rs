@@ -94,10 +94,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
     };
 
     if let Some(r) = &cli.rules {
-        // Safe: invoked in single-threaded startup before worker threads are spawned
-        unsafe {
-            std::env::set_var("NODEWIPE_RULES_FILE", r);
-        }
+        nodewipe_core::custom_rules::set_global_rules_override(r.clone());
     }
 
     if !cli.json && atty_stdout() && !matches!(cli.command, Some(Command::Update { .. })) {

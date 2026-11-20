@@ -2,6 +2,14 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+static RULES_FILE_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Sets an explicit override for the global rules file location.
+pub fn set_global_rules_override(path: PathBuf) {
+    let _ = RULES_FILE_OVERRIDE.set(path);
+}
 
 fn default_low_risk() -> String {
     "low".to_string()
@@ -104,6 +112,73 @@ pub fn validate_custom_rule(rule: &CustomRule) -> Result<()> {
         );
     }
 
+    if let Some(parent_marker) = &rule.parent_marker {
+        let marker = parent_marker.trim();
+        if marker.is_empty()
+            || marker.contains('/')
+            || marker.contains('\\')
+            || marker == "."
+            || marker == ".."
+        {
+            bail!(
+                "rule '{}': parent_marker '{}' must be a single filename without slashes or path traversal",
+                rule.name,
+                marker
+            );
+        }
+    }
+
+    if let Some(self_marker) = &rule.self_marker {
+        let marker = self_marker.trim();
+        if marker.is_empty()
+            || marker.contains('/')
+            || marker.contains('\\')
+            || marker == "."
+            || marker == ".."
+        {
+            bail!(
+                "rule '{}': self_marker '{}' must be a single filename without slashes or path traversal",
+                rule.name,
+                marker
+            );
+        }
+    }
+
+    if let Some(recipe) = &rule.recipe {
+        let r = recipe.trim();
+        if r.is_empty() {
+            bail!("rule '{}': recipe cannot be empty if specified", rule.name);
+        }
+        for c in [';', '&', '|', '`', '$', '>', '<', '\n', '\r'] {
+            if r.contains(c) {
+                bail!(
+                    "rule '{}': recipe '{}' contains forbidden shell metacharacter '{}'",
+                    rule.name,
+                    r,
+                    c
+                );
+            }
+        }
+        let parts: Vec<&str> = r.split_whitespace().collect();
+        if let Some(prog) = parts.first() {
+            let forbidden = [
+                "rm", "sudo", "su", "sh", "bash", "zsh", "dash", "ksh", "dd", "mkfs", "chmod",
+                "chown", "curl", "wget",
+            ];
+            let prog_name = Path::new(prog)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(prog);
+            if forbidden.contains(&prog_name) {
+                bail!(
+                    "rule '{}': recipe cannot invoke forbidden command '{}'",
+                    rule.name,
+                    prog
+                );
+            }
+        }
+    }
+
     let valid_risks = ["low", "moderate", "medium", "caution", "high"];
     if !valid_risks.contains(&rule.risk.to_ascii_lowercase().as_str()) {
         bail!(
@@ -125,8 +200,18 @@ pub fn load_rules_from_str(content: &str) -> Result<Vec<CustomRule>> {
     Ok(config.rules)
 }
 
-/// Loads and validates custom rules from a TOML file.
+/// Loads and validates custom rules from a TOML file (enforcing a 1 MB file size limit).
 pub fn load_rules_from_file(path: &Path) -> Result<Vec<CustomRule>> {
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("failed to read metadata for rules file {}", path.display()))?;
+    const MAX_RULES_FILE_BYTES: u64 = 1024 * 1024;
+    if metadata.len() > MAX_RULES_FILE_BYTES {
+        bail!(
+            "rules file {} exceeds 1 MB limit (size: {} bytes)",
+            path.display(),
+            metadata.len()
+        );
+    }
     let content = fs::read_to_string(path)
         .with_context(|| format!("failed to read rules file {}", path.display()))?;
     load_rules_from_str(&content)
@@ -134,6 +219,9 @@ pub fn load_rules_from_file(path: &Path) -> Result<Vec<CustomRule>> {
 
 /// Default global rules file location: `~/.config/nodewipe/rules.toml`.
 pub fn global_rules_file() -> PathBuf {
+    if let Some(path) = RULES_FILE_OVERRIDE.get() {
+        return path.clone();
+    }
     if let Ok(path) = std::env::var("NODEWIPE_RULES_FILE") {
         return PathBuf::from(path);
     }
@@ -327,6 +415,77 @@ mod tests {
             ecosystem: "Custom".into(),
         };
         assert!(validate_custom_rule(&invalid_risk).is_err());
+
+        // Test marker path traversal rejection (S-01)
+        let parent_traversal = CustomRule {
+            name: "Bad Parent Marker".into(),
+            dir_name: "test".into(),
+            parent_marker: Some("../evil.json".into()),
+            self_marker: None,
+            risk: "low".into(),
+            recipe: None,
+            description: None,
+            ecosystem: "Custom".into(),
+        };
+        assert!(validate_custom_rule(&parent_traversal).is_err());
+
+        let self_traversal = CustomRule {
+            name: "Bad Self Marker".into(),
+            dir_name: "test".into(),
+            parent_marker: None,
+            self_marker: Some("../../../etc/shadow".into()),
+            risk: "low".into(),
+            recipe: None,
+            description: None,
+            ecosystem: "Custom".into(),
+        };
+        assert!(validate_custom_rule(&self_traversal).is_err());
+
+        // Test recipe shell injection rejection (S-05)
+        let recipe_shell_injection = CustomRule {
+            name: "Evil Recipe Chaining".into(),
+            dir_name: "test".into(),
+            parent_marker: None,
+            self_marker: None,
+            risk: "low".into(),
+            recipe: Some("npm build; rm -rf /".into()),
+            description: None,
+            ecosystem: "Custom".into(),
+        };
+        assert!(validate_custom_rule(&recipe_shell_injection).is_err());
+
+        let recipe_forbidden_cmd = CustomRule {
+            name: "Evil Recipe Command".into(),
+            dir_name: "test".into(),
+            parent_marker: None,
+            self_marker: None,
+            risk: "low".into(),
+            recipe: Some("rm -rf target".into()),
+            description: None,
+            ecosystem: "Custom".into(),
+        };
+        assert!(validate_custom_rule(&recipe_forbidden_cmd).is_err());
+    }
+
+    #[test]
+    fn test_rules_file_size_limit() {
+        let tmp = TempDir::new().unwrap();
+        let large_file = tmp.path().join("too_big.toml");
+        // Create file larger than 1MB
+        let large_data = vec![b'#'; 1024 * 1024 + 10];
+        fs::write(&large_file, large_data).unwrap();
+
+        let res = load_rules_from_file(&large_file);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("exceeds 1 MB limit"));
+    }
+
+    #[test]
+    fn test_global_rules_override() {
+        let tmp = TempDir::new().unwrap();
+        let override_file = tmp.path().join("my_custom_rules.toml");
+        set_global_rules_override(override_file.clone());
+        assert_eq!(global_rules_file(), override_file);
     }
 
     #[test]
