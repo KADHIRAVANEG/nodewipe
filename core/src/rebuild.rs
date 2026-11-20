@@ -22,13 +22,24 @@ pub fn resolve_rebuild_plan(entry: &Entry) -> Option<RebuildPlan> {
     {
         let parts: Vec<&str> = recipe.split_whitespace().collect();
         if !parts.is_empty() {
-            let work_dir = entry.path.parent().unwrap_or(&entry.path).to_path_buf();
-            return Some(RebuildPlan {
-                program: parts[0].to_string(),
-                args: parts[1..].iter().map(|s| s.to_string()).collect(),
-                work_dir,
-                description: recipe.clone(),
-            });
+            let prog = parts[0];
+            let forbidden = [
+                "rm", "sudo", "su", "sh", "bash", "zsh", "dash", "ksh", "dd", "mkfs", "chmod",
+                "chown", "curl", "wget",
+            ];
+            let prog_name = Path::new(prog)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(prog);
+            if !forbidden.contains(&prog_name) {
+                let work_dir = entry.path.parent().unwrap_or(&entry.path).to_path_buf();
+                return Some(RebuildPlan {
+                    program: prog.to_string(),
+                    args: parts[1..].iter().map(|s| s.to_string()).collect(),
+                    work_dir,
+                    description: recipe.clone(),
+                });
+            }
         }
     }
 
