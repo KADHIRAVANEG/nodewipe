@@ -39,6 +39,7 @@ unrelated folder that happens to share the name is never touched.
 - **Targeted Storage Budget**: Free up specific space amounts with `nodewipe reclaim 10GB` prioritizing zero-download local rebuilds first.
 - **Cleanup Profiles & Presets**: Use `--profile build-outputs` or save reusable workflows with `nodewipe preset save`.
 - **Storage Explorer & Timeline**: Inspect internal directory sizes (`nodewipe tree`) and timestamp activity (`nodewipe timeline`).
+- **Backups, Diffs & Plans**: Manage backup archives (`nodewipe backups`), measure scan drift (`nodewipe diff`), and generate declarative cleanup plans (`nodewipe plan`).
 - **Dry Run Simulation**: `--dry-run` (or press `P` in the TUI) previews deletion impact without touching anything.
 
 ## This package is CLI-only
@@ -60,6 +61,9 @@ nodewipe reclaim 10GB           # reclaim 10 GB with risk ranking & preview
 nodewipe tree ./target          # drill down into artifact subdirectory sizes
 nodewipe timeline .             # compare source vs git vs build timestamps
 nodewipe workspace .            # analyze monorepo member packages
+nodewipe backups list           # list and prune .tar.gz and CoW backup archives
+nodewipe diff snap.json         # analyze disk drift against scan snapshot
+nodewipe plan create -o plan.toml # generate declarative reviewable cleanup plan
 nodewipe preset save work --profile build-outputs # save workflow preset
 nodewipe preset run work        # execute saved preset
 nodewipe scan --json            # scriptable/CI output

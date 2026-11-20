@@ -8,8 +8,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 pub use cli_def::BANNER;
 use cli_def::{
-    Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PinCommand, PresetArg, PresetCommand,
-    ProfileArg, SortKey,
+    BackupsAction, Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PinCommand,
+    PlanAction, PresetArg, PresetCommand, ProfileArg, SortKey,
 };
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
@@ -116,6 +116,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     None,
                     profile,
                     None,
+                    None,
                     !cli.serial,
                     !cli.no_git,
                 )
@@ -147,6 +148,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             stale_days,
             preset,
             export,
+            save_snapshot,
         }) => {
             let scan_root = sub_path.unwrap_or(root);
             let scan_ignore = if cli.no_ignore_file {
@@ -171,6 +173,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 preset,
                 profile,
                 export,
+                save_snapshot,
                 !cli.serial,
                 !cli.no_git,
             )
@@ -299,6 +302,37 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 cli.no_ignore_file,
             )
         }
+        Some(Command::Backups {
+            action,
+            path: sub_path,
+        }) => {
+            let backups_path = sub_path.unwrap_or_else(|| root.clone());
+            cmd_backups(action, &backups_path, cli.json)
+        }
+        Some(Command::Diff {
+            snapshot,
+            path: sub_path,
+        }) => {
+            let diff_path = sub_path.unwrap_or_else(|| root.clone());
+            cmd_diff(
+                snapshot,
+                &diff_path,
+                cli.json,
+                cli.no_ignore_file,
+                !cli.serial,
+                !cli.no_git,
+                &config,
+            )
+        }
+        Some(Command::Plan { action }) => cmd_plan(
+            action,
+            &root,
+            cli.json,
+            cli.no_ignore_file,
+            !cli.serial,
+            !cli.no_git,
+            &config,
+        ),
     }
 }
 
@@ -903,6 +937,7 @@ fn run_saved_preset(name: &str, cli: &Cli, config: &nodewipe_core::Config) -> Re
         None,
         profile,
         None,
+        None,
         !cli.serial,
         !cli.no_git,
     )
@@ -1059,6 +1094,342 @@ fn cmd_workspace(
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_backups(action: Option<BackupsAction>, path: &Path, json: bool) -> Result<ExitCode> {
+    let action = action.unwrap_or(BackupsAction::List);
+    match action {
+        BackupsAction::List => {
+            let backups = nodewipe_core::list_backups(path);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&backups)?);
+            } else {
+                println!(
+                    "\n {} Backup Archive Manager — {}\n",
+                    nodewipe_core::icons::PACKAGE,
+                    path.display()
+                );
+                if backups.is_empty() {
+                    println!(" No backup archives found under {}.", path.display());
+                    println!(" Create one anytime with: nodewipe delete <path> --mode archive\n");
+                } else {
+                    let total_bytes: u64 = backups.iter().map(|b| b.size_bytes).sum();
+                    println!(
+                        " Total backup storage: {} across {} archives\n",
+                        nodewipe_core::format_bytes(total_bytes),
+                        backups.len()
+                    );
+                    println!(
+                        " {:<40} {:>10}  {:<8}  Type",
+                        "Archive / Snapshot", "Size", "Age"
+                    );
+                    println!(
+                        " ────────────────────────────────────────────────────────────────────────"
+                    );
+                    for b in &backups {
+                        let kind = if b.is_snapshot {
+                            "CoW Snapshot"
+                        } else {
+                            "tar.gz archive"
+                        };
+                        let age = b
+                            .age_days
+                            .map(|d| format!("{d}d ago"))
+                            .unwrap_or_else(|| "recent".into());
+                        println!(
+                            " • {:<38} {:>10}  {:<8}  {}",
+                            b.filename, b.formatted_size, age, kind
+                        );
+                    }
+                    println!(
+                        " ────────────────────────────────────────────────────────────────────────"
+                    );
+                    println!(
+                        " Prune old archives: nodewipe backups prune --older-than 14d --keep 3"
+                    );
+                    println!(" Restore an archive: nodewipe backups restore <path>\n");
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        BackupsAction::Prune {
+            older_than,
+            keep,
+            dry_run,
+            yes,
+        } => {
+            let older_days = match older_than {
+                Some(s) => {
+                    let d = parse_duration(&s)?;
+                    Some(d.as_secs() / 86400)
+                }
+                None => None,
+            };
+
+            if !yes && !dry_run {
+                print!("Prune matching backups under {}? (y/N): ", path.display());
+                std::io::stdout().flush()?;
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                if !input.trim().eq_ignore_ascii_case("y") {
+                    println!("Aborted.");
+                    return Ok(ExitCode::SUCCESS);
+                }
+            }
+
+            let report = nodewipe_core::prune_backups(path, older_days, keep, dry_run)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                let status_prefix = if dry_run {
+                    "[DRY-RUN] Would prune"
+                } else {
+                    "Pruned"
+                };
+                println!(
+                    "\n {} Backup Retention Prune Summary:\n",
+                    nodewipe_core::icons::TRASH
+                );
+                println!(
+                    " Total freed: {} ({} archives pruned, {} kept)",
+                    report.formatted_freed,
+                    report.pruned.len(),
+                    report.kept.len()
+                );
+                for p in &report.pruned {
+                    println!("   • {} {}", status_prefix, p.filename);
+                }
+                println!();
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        BackupsAction::Restore { archive } => cmd_restore(&archive, json),
+    }
+}
+
+fn cmd_diff(
+    snapshot_opt: Option<PathBuf>,
+    path: &Path,
+    json: bool,
+    no_ignore_file: bool,
+    parallel: bool,
+    inspect_git: bool,
+    config: &nodewipe_core::Config,
+) -> Result<ExitCode> {
+    let snapshot_file = snapshot_opt.unwrap_or_else(nodewipe_core::default_snapshot_file);
+    if !snapshot_file.exists() {
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({ "error": format!("Snapshot file {} does not exist", snapshot_file.display()) })
+            );
+        } else {
+            eprintln!(
+                "error: baseline snapshot file does not exist: {}",
+                snapshot_file.display()
+            );
+            eprintln!("Run `nodewipe scan --save-snapshot` to create a baseline snapshot first.");
+        }
+        return Ok(ExitCode::FAILURE);
+    }
+
+    let before = nodewipe_core::load_snapshot(&snapshot_file)?;
+
+    let ignore_patterns = if no_ignore_file {
+        nodewipe_core::Gitignore::empty()
+    } else {
+        load_ignore_patterns(path)
+    };
+
+    let mut exclude_kinds = Vec::new();
+    if let Some(defaults) = &config.default_exclude_types {
+        exclude_kinds.extend(parse_exclude_types(defaults)?);
+    }
+
+    let opts = ScanOptions {
+        root: path.to_path_buf(),
+        parallel,
+        inspect_git,
+        exclude_kinds,
+        ignore_patterns,
+        ..Default::default()
+    };
+
+    let live_entries = scan(&opts)?;
+    let diff = nodewipe_core::compute_scan_diff(&before, &live_entries);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&diff)?);
+    } else {
+        print!("{}", diff.render_text());
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_plan(
+    action: PlanAction,
+    root: &Path,
+    json: bool,
+    no_ignore_file: bool,
+    parallel: bool,
+    inspect_git: bool,
+    config: &nodewipe_core::Config,
+) -> Result<ExitCode> {
+    match action {
+        PlanAction::Create {
+            output,
+            path: sub_path,
+            profile,
+            reclaim_target,
+        } => {
+            let scan_root = sub_path.unwrap_or_else(|| root.to_path_buf());
+            let profile_kind = map_profile_arg(profile);
+            let target_bytes = match reclaim_target {
+                Some(t) => Some(nodewipe_core::parse_size_to_bytes(&t)?),
+                None => None,
+            };
+
+            let ignore_patterns = if no_ignore_file {
+                nodewipe_core::Gitignore::empty()
+            } else {
+                load_ignore_patterns(&scan_root)
+            };
+
+            let mut exclude_kinds = Vec::new();
+            if let Some(defaults) = &config.default_exclude_types {
+                exclude_kinds.extend(parse_exclude_types(defaults)?);
+            }
+
+            let opts = ScanOptions {
+                root: scan_root.clone(),
+                parallel,
+                inspect_git,
+                exclude_kinds,
+                ignore_patterns,
+                ..Default::default()
+            };
+
+            let entries = scan(&opts)?;
+            let plan = nodewipe_core::create_cleanup_plan(
+                &scan_root,
+                &entries,
+                profile_kind,
+                target_bytes,
+            );
+            nodewipe_core::save_plan_to_file(&plan, &output)?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else {
+                println!(
+                    "\n {} Created cleanup plan: {}",
+                    nodewipe_core::icons::PACKAGE,
+                    output.display()
+                );
+                println!(
+                    " Total proposed: {} across {} items",
+                    plan.formatted_total,
+                    plan.items.len()
+                );
+                println!(" Review with:  nodewipe plan view {}", output.display());
+                println!(" Apply with:   nodewipe plan apply {}\n", output.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        PlanAction::View { file } => {
+            let plan = nodewipe_core::load_plan_from_file(&file)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else {
+                println!(
+                    "\n {} Cleanup Plan: {}\n",
+                    nodewipe_core::icons::PACKAGE,
+                    file.display()
+                );
+                println!(" Root:           {}", plan.root.display());
+                println!(
+                    " Total proposed: {} across {} items\n",
+                    plan.formatted_total,
+                    plan.items.len()
+                );
+                println!(" {:<24} {:>10}   {:<10}  Path", "Ecosystem", "Size", "Risk");
+                println!(
+                    " ────────────────────────────────────────────────────────────────────────"
+                );
+                for item in &plan.items {
+                    println!(
+                        " • {:<22} {:>10}   {:<10}  {}",
+                        item.kind,
+                        item.formatted_size,
+                        item.risk_level,
+                        item.path.display()
+                    );
+                }
+                println!(
+                    " ────────────────────────────────────────────────────────────────────────"
+                );
+                println!(" Apply this plan: nodewipe plan apply {}\n", file.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        PlanAction::Apply {
+            file,
+            mode,
+            dry_run,
+            yes,
+        } => {
+            let plan = nodewipe_core::load_plan_from_file(&file)?;
+            let delete_mode = resolve_delete_mode(mode, config);
+
+            if !yes && !dry_run {
+                println!(
+                    "\n {} About to apply cleanup plan: {}",
+                    nodewipe_core::icons::WARN,
+                    file.display()
+                );
+                println!(
+                    " Total to delete: {} across {} items",
+                    plan.formatted_total,
+                    plan.items.len()
+                );
+                print!("Proceed with deletion? (y/N): ");
+                std::io::stdout().flush()?;
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                if !input.trim().eq_ignore_ascii_case("y") {
+                    println!("Aborted.");
+                    return Ok(ExitCode::SUCCESS);
+                }
+            }
+
+            let report = nodewipe_core::apply_cleanup_plan(&plan, delete_mode, dry_run)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                let status_msg = if dry_run {
+                    "[DRY-RUN] Would free"
+                } else {
+                    "Freed"
+                };
+                println!(
+                    "\n {} Plan Execution Report:\n",
+                    nodewipe_core::icons::CHECK
+                );
+                println!(
+                    " {} {} across {} items",
+                    status_msg, report.formatted_freed, report.applied_count
+                );
+                if !report.skipped.is_empty() {
+                    println!(" Skipped {} items:", report.skipped.len());
+                    for (path, reason) in &report.skipped {
+                        println!("   • {} ({reason})", path.display());
+                    }
+                }
+                println!();
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
 }
 
 fn cmd_config(action: Option<ConfigAction>, json: bool) -> Result<ExitCode> {
@@ -1532,6 +1903,7 @@ fn cmd_scan(
     preset: Option<PresetArg>,
     profile: Option<nodewipe_core::ProfileKind>,
     export: Option<PathBuf>,
+    save_snapshot: Option<Option<PathBuf>>,
     parallel: bool,
     inspect_git: bool,
 ) -> Result<ExitCode> {
@@ -1618,6 +1990,20 @@ fn cmd_scan(
 
     let mut entries: Vec<Entry> = scan(&opts)?;
     annotate_workspace_roots(&mut entries, &opts.root);
+
+    // Save snapshot if explicitly requested or auto-update default snapshot file
+    if let Some(dest_opt) = save_snapshot {
+        let dest = dest_opt.unwrap_or_else(nodewipe_core::default_snapshot_file);
+        if let Err(e) = nodewipe_core::save_snapshot(root, &entries, &dest) {
+            eprintln!(
+                "warning: failed to save scan snapshot to {}: {e}",
+                dest.display()
+            );
+        }
+    } else {
+        let default_file = nodewipe_core::default_snapshot_file();
+        let _ = nodewipe_core::save_snapshot(root, &entries, &default_file);
+    }
 
     let min_bytes = min_mb * 1024 * 1024;
     entries.retain(|e| e.size_bytes >= min_bytes);
@@ -2417,5 +2803,126 @@ mod tests {
         // Test cmd_workspace
         let code_ws = cmd_workspace(root, true, true, true, true).unwrap();
         assert_eq!(code_ws, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_cmd_backups_cli() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let archive_file = root.join("node_modules.20261120_120000.tar.gz");
+        std::fs::write(&archive_file, b"dummy archive content").unwrap();
+
+        let code_list = cmd_backups(Some(BackupsAction::List), root, true).unwrap();
+        assert_eq!(code_list, ExitCode::SUCCESS);
+
+        let code_prune = cmd_backups(
+            Some(BackupsAction::Prune {
+                older_than: None,
+                keep: Some(1),
+                dry_run: true,
+                yes: true,
+            }),
+            root,
+            true,
+        )
+        .unwrap();
+        assert_eq!(code_prune, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_cmd_diff_and_snapshot_cli() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let cargo_toml = root.join("Cargo.toml");
+        std::fs::write(
+            &cargo_toml,
+            "[package]\nname = \"diff-test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let target_dir = root.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(target_dir.join("lib.rlib"), vec![0u8; 1024]).unwrap();
+
+        let snapshot_file = tmp.path().join("scan_snap.json");
+        let opts = nodewipe_core::ScanOptions {
+            root: root.to_path_buf(),
+            ..Default::default()
+        };
+        let entries = nodewipe_core::scan(&opts).unwrap();
+        nodewipe_core::save_snapshot(root, &entries, &snapshot_file).unwrap();
+
+        let cfg = nodewipe_core::Config::default();
+        let code_diff = cmd_diff(Some(snapshot_file), root, true, false, true, true, &cfg).unwrap();
+        assert_eq!(code_diff, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_cmd_plan_cli() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let cargo_toml = root.join("Cargo.toml");
+        std::fs::write(
+            &cargo_toml,
+            "[package]\nname = \"plan-test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let target_dir = root.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(target_dir.join("lib.rlib"), vec![0u8; 1024]).unwrap();
+
+        let plan_file = tmp.path().join("cleanup.toml");
+        let cfg = nodewipe_core::Config::default();
+
+        let code_create = cmd_plan(
+            PlanAction::Create {
+                output: plan_file.clone(),
+                path: Some(root.to_path_buf()),
+                profile: None,
+                reclaim_target: None,
+            },
+            root,
+            true,
+            false,
+            true,
+            true,
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(code_create, ExitCode::SUCCESS);
+        assert!(plan_file.exists());
+
+        let code_view = cmd_plan(
+            PlanAction::View {
+                file: plan_file.clone(),
+            },
+            root,
+            true,
+            false,
+            true,
+            true,
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(code_view, ExitCode::SUCCESS);
+
+        let code_apply = cmd_plan(
+            PlanAction::Apply {
+                file: plan_file,
+                mode: None,
+                dry_run: true,
+                yes: true,
+            },
+            root,
+            true,
+            false,
+            true,
+            true,
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(code_apply, ExitCode::SUCCESS);
     }
 }
