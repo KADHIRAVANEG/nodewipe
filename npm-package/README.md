@@ -40,6 +40,7 @@ unrelated folder that happens to share the name is never touched.
 - **Cleanup Profiles & Presets**: Use `--profile build-outputs` or save reusable workflows with `nodewipe preset save`.
 - **Storage Explorer & Timeline**: Inspect internal directory sizes (`nodewipe tree`) and timestamp activity (`nodewipe timeline`).
 - **Backups, Diffs & Plans**: Manage backup archives (`nodewipe backups`), measure scan drift (`nodewipe diff`), and generate declarative cleanup plans (`nodewipe plan`).
+- **Custom Rules & Catalog**: Define custom artifact rules (`nodewipe rules init/check/test`) and explore the 39+ ecosystem catalog (`nodewipe rules list`).
 - **Dry Run Simulation**: `--dry-run` (or press `P` in the TUI) previews deletion impact without touching anything.
 
 ## This package is CLI-only
@@ -64,6 +65,10 @@ nodewipe workspace .            # analyze monorepo member packages
 nodewipe backups list           # list and prune .tar.gz and CoW backup archives
 nodewipe diff snap.json         # analyze disk drift against scan snapshot
 nodewipe plan create -o plan.toml # generate declarative reviewable cleanup plan
+nodewipe rules init              # scaffold starter .nodewipe.toml rules template
+nodewipe rules check             # validate custom rules syntax and safety
+nodewipe rules test ./target     # test path against active custom & built-in rules
+nodewipe rules list              # list active rules and built-in catalog
 nodewipe preset save work --profile build-outputs # save workflow preset
 nodewipe preset run work        # execute saved preset
 nodewipe scan --json            # scriptable/CI output

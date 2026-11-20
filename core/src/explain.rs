@@ -184,7 +184,30 @@ pub fn analyze_artifact_rule(kind: ArtifactKind, path: &Path) -> (String, RiskLe
 /// Generates a comprehensive explanation for an already-scanned `Entry`.
 pub fn explain_entry(entry: &Entry) -> Explanation {
     let project_root = entry.path.parent().map(|p| p.to_path_buf());
-    let (match_reason, risk_level, risk_desc) = analyze_artifact_rule(entry.kind, &entry.path);
+    let (match_reason, risk_level, risk_desc) = if let Some(rule) = &entry.custom_rule {
+        let reason = if let Some(pm) = &rule.parent_marker {
+            format!(
+                "Detected by custom rule '{}' matching parent marker '{}'",
+                rule.name, pm
+            )
+        } else if let Some(sm) = &rule.self_marker {
+            format!(
+                "Detected by custom rule '{}' matching self marker '{}'",
+                rule.name, sm
+            )
+        } else {
+            format!(
+                "Detected by custom rule '{}' matching directory name '{}'",
+                rule.name, rule.dir_name
+            )
+        };
+        let desc = rule.description.clone().unwrap_or_else(|| {
+            format!("Custom artifact rule '{}' ({}).", rule.name, rule.ecosystem)
+        });
+        (reason, rule.risk_level(), desc)
+    } else {
+        analyze_artifact_rule(entry.kind, &entry.path)
+    };
     let rebuild_plan = resolve_rebuild_plan(entry);
     let is_pinned = is_path_pinned(&entry.path);
 
@@ -220,7 +243,7 @@ pub fn explain_entry(entry: &Entry) -> Explanation {
         path: entry.path.clone(),
         project_root,
         artifact_kind: entry.kind,
-        artifact_label: entry.kind.label().to_string(),
+        artifact_label: entry.display_label().to_string(),
         size_bytes: entry.size_bytes,
         formatted_size: format_size(entry.size_bytes),
         match_reason,
@@ -257,6 +280,13 @@ pub fn explain_path(target: &Path) -> Result<Explanation> {
             None
         };
         let size = compute_dir_size(&canonical);
+        let custom_rule = if kind == ArtifactKind::Custom {
+            crate::custom_rules::load_active_rules(canonical.parent().unwrap_or(&canonical))
+                .into_iter()
+                .find(|r| r.matches_path(&canonical))
+        } else {
+            None
+        };
         let entry = Entry {
             path: canonical,
             size_bytes: size,
@@ -265,6 +295,7 @@ pub fn explain_path(target: &Path) -> Result<Explanation> {
             last_modified: fs::metadata(target).ok().and_then(|m| m.modified().ok()),
             workspace_root: None,
             git_status: None,
+            custom_rule,
         };
         return Ok(explain_entry(&entry));
     }
@@ -284,6 +315,13 @@ pub fn explain_path(target: &Path) -> Result<Explanation> {
                     None
                 };
                 let size = compute_dir_size(&child_path);
+                let custom_rule = if kind == ArtifactKind::Custom {
+                    crate::custom_rules::load_active_rules(&canonical)
+                        .into_iter()
+                        .find(|r| r.matches_path(&child_path))
+                } else {
+                    None
+                };
                 let entry = Entry {
                     path: child_path,
                     size_bytes: size,
@@ -292,6 +330,7 @@ pub fn explain_path(target: &Path) -> Result<Explanation> {
                     last_modified: child.metadata().ok().and_then(|m| m.modified().ok()),
                     workspace_root: None,
                     git_status: None,
+                    custom_rule,
                 };
                 return Ok(explain_entry(&entry));
             }

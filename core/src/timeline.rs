@@ -274,6 +274,7 @@ mod tests {
             last_modified: Some(old_time), // build was 10 days ago
             workspace_root: None,
             git_status: None,
+            custom_rule: None,
         };
 
         let timeline = inspect_timeline(&entry);

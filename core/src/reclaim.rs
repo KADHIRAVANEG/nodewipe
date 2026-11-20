@@ -316,6 +316,7 @@ mod tests {
                 git_status: None,
                 package_manager: None,
                 workspace_root: None,
+                custom_rule: None,
             },
             Entry {
                 path: PathBuf::from("/tmp/proj2/target"),
@@ -325,6 +326,7 @@ mod tests {
                 git_status: None,
                 package_manager: None,
                 workspace_root: None,
+                custom_rule: None,
             },
             Entry {
                 path: PathBuf::from("/tmp/proj3/node_modules"),
@@ -334,6 +336,7 @@ mod tests {
                 git_status: None,
                 package_manager: None,
                 workspace_root: None,
+                custom_rule: None,
             },
         ];
 
