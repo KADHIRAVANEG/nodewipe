@@ -86,6 +86,8 @@ pub enum ArtifactKind {
     PnpmIgnored,
     /// Yarn global offline package cache (`~/.cache/yarn/v6` or `~/Library/Caches/Yarn/v6`).
     YarnCache,
+    /// User-defined or team-defined custom artifact rule.
+    Custom,
 }
 
 impl ArtifactKind {
@@ -130,6 +132,7 @@ impl ArtifactKind {
         ArtifactKind::MesonBuild,
         ArtifactKind::PnpmIgnored,
         ArtifactKind::YarnCache,
+        ArtifactKind::Custom,
     ];
 
     /// Short slug used in CLI flags (`--exclude-types venv,pycache`) and JSON.
@@ -174,6 +177,7 @@ impl ArtifactKind {
             ArtifactKind::MesonBuild => "meson_build",
             ArtifactKind::PnpmIgnored => "pnpm_ignored",
             ArtifactKind::YarnCache => "yarn_cache",
+            ArtifactKind::Custom => "custom",
         }
     }
 
@@ -218,6 +222,7 @@ impl ArtifactKind {
             "meson_build" | "meson" => ArtifactKind::MesonBuild,
             "pnpm_ignored" | "node_modules_ignored" | "ignored" => ArtifactKind::PnpmIgnored,
             "yarn_cache" | "yarn" => ArtifactKind::YarnCache,
+            "custom" => ArtifactKind::Custom,
             _ => return None,
         })
     }
@@ -263,6 +268,50 @@ impl ArtifactKind {
             ArtifactKind::MesonBuild => "Meson build",
             ArtifactKind::PnpmIgnored => "pnpm .ignored",
             ArtifactKind::YarnCache => "Yarn cache",
+            ArtifactKind::Custom => "Custom artifact",
+        }
+    }
+
+    /// Returns the Nerd Font icon corresponding to this artifact kind.
+    pub fn icon(&self) -> &'static str {
+        match self {
+            ArtifactKind::RustTarget => "\u{e7a8}", // 
+            ArtifactKind::NodeModules
+            | ArtifactKind::PnpmIgnored
+            | ArtifactKind::YarnCache
+            | ArtifactKind::GenericDist
+            | ArtifactKind::NextCache
+            | ArtifactKind::NuxtCache
+            | ArtifactKind::SvelteKitCache
+            | ArtifactKind::AstroCache
+            | ArtifactKind::DocusaurusCache
+            | ArtifactKind::ViteCache => "\u{e718}", // 
+            ArtifactKind::PythonVenv
+            | ArtifactKind::PythonPycache
+            | ArtifactKind::PythonPytestCache
+            | ArtifactKind::PythonMypyCache
+            | ArtifactKind::PythonRuffCache => "\u{e73c}", // 
+            ArtifactKind::GoModCache | ArtifactKind::GoBuildCache => "\u{e627}", // 
+            ArtifactKind::JavaMavenTarget
+            | ArtifactKind::JavaGradleBuild
+            | ArtifactKind::GradleCache => "\u{e738}", // 
+            ArtifactKind::PhpVendor => "\u{e73d}",  // 
+            ArtifactKind::DotnetBin | ArtifactKind::DotnetObj => "\u{e77f}", // 
+            ArtifactKind::SwiftPmBuild
+            | ArtifactKind::XcodeDerivedData
+            | ArtifactKind::CocoaPods => "\u{e755}", // 
+            ArtifactKind::CmakeBuild | ArtifactKind::ZigCache | ArtifactKind::MesonBuild => {
+                "\u{e61e}"
+            } // 
+            ArtifactKind::ElixirBuild => "\u{e62d}", // 
+            ArtifactKind::HuggingFaceCache
+            | ArtifactKind::OllamaModels
+            | ArtifactKind::TorchCache
+            | ArtifactKind::TritonCache => "\u{f085}", // 
+            ArtifactKind::AndroidBuildCache => "\u{e70e}", // 
+            ArtifactKind::PlaywrightBrowsers | ArtifactKind::CypressCache => "\u{f268}", // 
+            ArtifactKind::TurboCache => "\u{f1b2}", // 
+            ArtifactKind::Custom => "\u{f013}",     // 
         }
     }
 
@@ -383,6 +432,7 @@ impl ArtifactKind {
             ArtifactKind::YarnCache => {
                 "Yarn global package tarball cache (v6). Safe to delete; packages will be re-downloaded if needed."
             }
+            ArtifactKind::Custom => "User-defined custom artifact directory rule.",
         }
     }
 
@@ -428,6 +478,25 @@ impl ArtifactKind {
     }
 }
 
+/// Standard Nerd Font vector icon glyphs for terminal UI elements.
+pub mod icons {
+    pub const PIN: &str = "\u{f08d}"; //  Pushpin
+    pub const DOCTOR: &str = "\u{f0fa}"; //  Medical briefcase
+    pub const FOLDER: &str = "\u{f07b}"; //  Folder
+    pub const GIT_BRANCH: &str = "\u{f126}"; //  Git branch
+    pub const STATS: &str = "\u{f080}"; //  Chart
+    pub const TRASH: &str = "\u{f1f8}"; //  Trash
+    pub const CHECK: &str = "\u{f00c}"; //  Check
+    pub const WARN: &str = "\u{f071}"; //  Warning
+    pub const TERMINAL: &str = "\u{f120}"; //  Terminal prompt
+    pub const SHIELD: &str = "\u{f132}"; //  Shield
+    pub const PACKAGE: &str = "\u{f1b2}"; //  Cube package
+    pub const SETTINGS: &str = "\u{f013}"; //  Gear
+    pub const SUCCESS: &str = "\u{f00c}"; //  Check
+    pub const ERROR: &str = "\u{f00d}"; //  Cross
+    pub const INSPECT: &str = "\u{f002}"; //  Magnifying glass
+}
+
 /// A single discovered disposable artifact directory.
 #[derive(Debug, Clone, Serialize)]
 pub struct Entry {
@@ -441,6 +510,20 @@ pub struct Entry {
     pub workspace_root: Option<PathBuf>,
     /// Git repository status if this artifact resides inside a Git repository.
     pub git_status: Option<GitStatus>,
+    /// Optional custom rule definition if this entry matched a user-defined rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_rule: Option<crate::custom_rules::CustomRule>,
+}
+
+impl Entry {
+    /// Returns the human-readable label for this entry (custom rule name if present, or built-in kind label).
+    pub fn display_label(&self) -> &str {
+        if let Some(rule) = &self.custom_rule {
+            &rule.name
+        } else {
+            self.kind.label()
+        }
+    }
 }
 
 /// Git status information for an artifact's enclosing repository.
@@ -487,6 +570,8 @@ pub struct ScanOptions {
     pub parallel: bool,
     /// Inspect git status (branch name, dirty status, merged branch check) for projects (default: true).
     pub inspect_git: bool,
+    /// Active custom artifact detection rules.
+    pub custom_rules: Vec<crate::custom_rules::CustomRule>,
 }
 
 impl Default for ScanOptions {
@@ -518,6 +603,7 @@ impl Default for ScanOptions {
             compute_sizes: true,
             parallel: true,
             inspect_git: true,
+            custom_rules: Vec::new(),
         }
     }
 }

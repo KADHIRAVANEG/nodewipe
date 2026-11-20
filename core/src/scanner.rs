@@ -322,6 +322,14 @@ const RULES: &[Rule] = &[
 /// kind (for risk warnings) even when given a raw path with no scan results
 /// to draw from.
 pub fn classify_path(path: &Path) -> Option<ArtifactKind> {
+    classify_path_with_custom(path, &[])
+}
+
+/// Classifies a path with additional custom rules given explicitly.
+pub fn classify_path_with_custom(
+    path: &Path,
+    custom_rules: &[crate::custom_rules::CustomRule],
+) -> Option<ArtifactKind> {
     let name = path.file_name()?.to_str()?;
     for rule in RULES {
         if rule.name != name {
@@ -362,11 +370,21 @@ pub fn classify_path(path: &Path) -> Option<ArtifactKind> {
             return Some(rule.kind);
         }
     }
-    None
-}
 
-fn classify(entry: &DirEntry) -> Option<ArtifactKind> {
-    classify_path(entry.path())
+    for cr in custom_rules {
+        if cr.matches_path(path) {
+            return Some(ArtifactKind::Custom);
+        }
+    }
+
+    let active = crate::custom_rules::load_active_rules(path.parent().unwrap_or(path));
+    for cr in active {
+        if cr.matches_path(path) {
+            return Some(ArtifactKind::Custom);
+        }
+    }
+
+    None
 }
 
 /// Walks `opts.root` and returns every discovered disposable artifact
@@ -394,13 +412,19 @@ pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
         return Ok(Vec::new());
     }
 
+    let mut effective_opts = opts.clone();
+    if effective_opts.custom_rules.is_empty() {
+        effective_opts.custom_rules = crate::custom_rules::load_active_rules(&opts.root);
+    }
+    let opts = &effective_opts;
+
     if is_root_excluded(&opts.root, &opts.exclude_dirs)
         || crate::ignorefile::is_ignored(&opts.root, &opts.ignore_patterns)
     {
         return Ok(Vec::new());
     }
 
-    if let Some(kind) = classify_path(&opts.root) {
+    if let Some(kind) = classify_path_with_custom(&opts.root, &opts.custom_rules) {
         if !opts.exclude_kinds.contains(&kind) {
             let interner = PathInterner::new();
             return Ok(vec![build_entry(
@@ -408,6 +432,7 @@ pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
                 kind,
                 opts.compute_sizes,
                 &interner,
+                &opts.custom_rules,
             )]);
         } else {
             return Ok(Vec::new());
@@ -425,7 +450,15 @@ pub fn scan(opts: &ScanOptions) -> Result<Vec<Entry>> {
     let interner = PathInterner::new();
     let mut entries: Vec<Entry> = matches
         .par_iter()
-        .map(|(kind, path)| build_entry(path, *kind, opts.compute_sizes, &interner))
+        .map(|(kind, path)| {
+            build_entry(
+                path,
+                *kind,
+                opts.compute_sizes,
+                &interner,
+                &opts.custom_rules,
+            )
+        })
         .collect();
 
     if opts.inspect_git {
@@ -493,7 +526,7 @@ fn scan_dir_parallel(
             continue;
         }
 
-        if let Some(kind) = classify_path(&child_path) {
+        if let Some(kind) = classify_path_with_custom(&child_path, &opts.custom_rules) {
             let matched_nm = kind == ArtifactKind::NodeModules;
             let nm_included =
                 matched_nm && !opts.exclude_kinds.contains(&ArtifactKind::NodeModules);
@@ -561,7 +594,7 @@ fn scan_sequential(opts: &ScanOptions) -> Result<Vec<(ArtifactKind, PathBuf)>> {
             continue;
         }
 
-        if let Some(kind) = classify(&entry) {
+        if let Some(kind) = classify_path_with_custom(entry.path(), &opts.custom_rules) {
             let matched_nm = kind == ArtifactKind::NodeModules;
             let nm_included =
                 matched_nm && !opts.exclude_kinds.contains(&ArtifactKind::NodeModules);
@@ -605,11 +638,26 @@ fn build_entry(
     kind: ArtifactKind,
     compute_sizes: bool,
     interner: &PathInterner,
+    custom_rules: &[crate::custom_rules::CustomRule],
 ) -> Entry {
     let size_bytes = if compute_sizes { dir_size(path) } else { 0 };
     let last_modified = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
     let package_manager = if kind == ArtifactKind::NodeModules {
         Some(detect_package_manager(path))
+    } else {
+        None
+    };
+
+    let custom_rule = if kind == ArtifactKind::Custom {
+        custom_rules
+            .iter()
+            .find(|r| r.matches_path(path))
+            .cloned()
+            .or_else(|| {
+                crate::custom_rules::load_active_rules(path.parent().unwrap_or(path))
+                    .into_iter()
+                    .find(|r| r.matches_path(path))
+            })
     } else {
         None
     };
@@ -622,6 +670,7 @@ fn build_entry(
         last_modified,
         workspace_root: None, // filled in by `workspace::annotate_workspace_roots`
         git_status: None,     // annotated by `git::annotate_git_status`
+        custom_rule,
     }
 }
 
@@ -650,7 +699,7 @@ pub fn dir_size(path: &Path) -> u64 {
 
 /// Looks at the parent directory of `node_modules` for lockfiles to infer
 /// which package manager created it.
-fn detect_package_manager(node_modules_path: &Path) -> PackageManager {
+pub fn detect_package_manager(node_modules_path: &Path) -> PackageManager {
     let project_root = match node_modules_path.parent() {
         Some(p) => p,
         None => return PackageManager::Unknown,

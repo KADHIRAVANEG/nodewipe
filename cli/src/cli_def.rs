@@ -86,6 +86,14 @@ pub struct Cli {
     /// Skip Git repository status inspection (branch, dirty status, merged check).
     #[arg(long, global = true)]
     pub no_git: bool,
+
+    /// Cleanup profile to filter artifacts by cleanup intent (old-dependencies, build-outputs, large-models, safe-sweep).
+    #[arg(long, global = true, value_enum)]
+    pub profile: Option<ProfileArg>,
+
+    /// Path to a custom artifact rules file (.nodewipe.toml).
+    #[arg(long, global = true, value_name = "FILE")]
+    pub rules: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -131,6 +139,10 @@ pub enum Command {
         /// Export scan results to a file (JSON or CSV based on extension or content).
         #[arg(long, value_name = "FILE")]
         export: Option<PathBuf>,
+
+        /// Save scan results as a baseline snapshot for future diff comparisons.
+        #[arg(long, value_name = "FILE")]
+        save_snapshot: Option<Option<PathBuf>>,
     },
 
     /// Delete one or more artifact directories.
@@ -294,6 +306,334 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    /// Explain an artifact directory: why it matched, risk level, staleness, and rebuild recipe.
+    Explain {
+        /// Path to the artifact or project directory to inspect.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Manage pinned projects to protect them from cleanup and deletion.
+    Pin {
+        #[command(subcommand)]
+        command: Option<PinCommand>,
+
+        /// Path to pin directly without typing 'add' (e.g. `nodewipe pin .`).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+
+    /// Target a specific amount of disk space to reclaim (e.g. `nodewipe reclaim 10GB`).
+    ///
+    /// Scans the target directory, ranks disposable artifacts by risk, staleness,
+    /// and size, and proposes an optimal deletion set with an interactive confirmation preview.
+    Reclaim {
+        /// Amount of disk space to reclaim (e.g. "10GB", "500MB", "2G", "1.5GB").
+        #[arg(value_name = "TARGET")]
+        target: String,
+
+        /// Directory to search for reclaimable artifacts (defaults to current directory).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// How to delete: trash (default, recoverable), archive (tar.gz backup), or permanent.
+        #[arg(long, value_enum)]
+        mode: Option<DeleteModeArg>,
+
+        /// Skip confirmation prompt and execute immediately.
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Preview the proposed cleanup plan without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Prefer local compiler rebuilds (Low risk) over re-downloading dependencies.
+        #[arg(long, default_value_t = true)]
+        prefer_local_rebuild: bool,
+    },
+
+    /// Manage and run repeatable scan workflows / presets.
+    Preset {
+        #[command(subcommand)]
+        command: Option<PresetCommand>,
+
+        /// Name of a preset to run directly (e.g. `nodewipe preset work`).
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+    },
+
+    /// Inspect the internal storage layout and largest subdirectories of an artifact directory.
+    Tree {
+        /// Path to the artifact directory (e.g. `target/`, `node_modules/`).
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+
+        /// Maximum directory depth to inspect.
+        #[arg(long, default_value_t = 2)]
+        depth: usize,
+
+        /// Maximum number of largest children to display per directory.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+
+    /// Compare source modification, git commit, and artifact build timestamps to evaluate project staleness.
+    Timeline {
+        /// Path to the project or artifact directory.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Analyze monorepo workspaces and report member packages, artifact footprints, and shared dependencies.
+    Workspace {
+        /// Path to the monorepo root or child directory.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Manage, list, and prune .tar.gz and .snapshot backup archives.
+    Backups {
+        #[command(subcommand)]
+        action: Option<BackupsAction>,
+
+        /// Root directory to search for backups (defaults to current directory).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+
+    /// Compare current dev artifact storage against a previous scan snapshot to detect drift and growth.
+    Diff {
+        /// Path to baseline snapshot file (defaults to ~/.local/share/nodewipe/last_scan.json).
+        #[arg(value_name = "SNAPSHOT")]
+        snapshot: Option<PathBuf>,
+
+        /// Target directory to scan for comparison (defaults to current directory).
+        #[arg(long, value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+
+    /// Create, inspect, or execute declarative cleanup plans (TOML or JSON).
+    Plan {
+        #[command(subcommand)]
+        action: PlanAction,
+    },
+
+    /// Manage, list, and test custom artifact rules (.nodewipe.toml) and the built-in ecosystem catalog.
+    Rules {
+        #[command(subcommand)]
+        action: Option<RulesAction>,
+
+        /// Path to custom rules file, directory, or target to test.
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum RulesAction {
+    /// List active custom rules and the built-in ecosystem catalog (default).
+    List {
+        /// Show only custom user-defined rules.
+        #[arg(long)]
+        custom_only: bool,
+
+        /// Show only the built-in ecosystem catalog.
+        #[arg(long)]
+        builtin_only: bool,
+
+        /// Filter rules or catalog by category or keyword.
+        #[arg(long, value_name = "CATEGORY")]
+        category: Option<String>,
+    },
+
+    /// Test a path against active rules and explain any match.
+    Test {
+        /// Path to the directory or artifact to test against rules.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+
+    /// Validate syntax and security safety of a custom rules file (.nodewipe.toml).
+    Check {
+        /// Path to the custom rules file to check (defaults to discovering .nodewipe.toml).
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
+    },
+
+    /// Scaffold a starter .nodewipe.toml configuration template.
+    Init {
+        /// Destination path for the generated template (default: .nodewipe.toml).
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+
+        /// Overwrite file if it already exists.
+        #[arg(short, long)]
+        force: bool,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum BackupsAction {
+    /// List all discovered backups (default).
+    List,
+    /// Prune old backups according to retention criteria.
+    Prune {
+        /// Prune backups older than this duration (e.g. "14d", "30d").
+        #[arg(long, value_name = "AGE")]
+        older_than: Option<String>,
+
+        /// Protect at least this many newest backups from deletion.
+        #[arg(long, value_name = "N")]
+        keep: Option<usize>,
+
+        /// Preview backups that would be deleted without deleting them.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompt.
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Restore a specific backup archive.
+    Restore {
+        /// Path to the archive (.tar.gz or .snapshot) to restore.
+        #[arg(value_name = "ARCHIVE")]
+        archive: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PlanAction {
+    /// Generate a reviewable cleanup plan document.
+    Create {
+        /// Output plan file path (e.g. `cleanup.toml` or `cleanup.json`).
+        #[arg(short, long, value_name = "FILE")]
+        output: PathBuf,
+
+        /// Target directory to generate plan for (defaults to current directory).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Cleanup profile to filter artifacts by cleanup intent.
+        #[arg(long, value_enum)]
+        profile: Option<ProfileArg>,
+
+        /// Target storage budget to reclaim (e.g. "10GB", "500MB"). Aliased as `--budget`.
+        #[arg(long, alias = "budget", value_name = "SIZE")]
+        reclaim_target: Option<String>,
+    },
+    /// Inspect an existing cleanup plan document.
+    View {
+        /// Path to the cleanup plan file.
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+    },
+    /// Execute an approved cleanup plan.
+    Apply {
+        /// Path to the cleanup plan file to execute.
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+
+        /// Deletion mode: trash (default), archive, or permanent.
+        #[arg(long, value_enum)]
+        mode: Option<DeleteModeArg>,
+
+        /// Preview execution without deleting.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompt.
+        #[arg(short, long)]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PresetCommand {
+    /// Save a new repeatable scan workflow preset.
+    Save {
+        /// Unique name for the preset.
+        #[arg(value_name = "NAME")]
+        name: String,
+
+        /// Scan path for this preset.
+        #[arg(long, value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Cleanup profile to associate with this preset.
+        #[arg(long, value_enum)]
+        profile: Option<ProfileArg>,
+
+        /// Comma-separated types to exclude.
+        #[arg(long, value_delimiter = ',', value_name = "TYPES")]
+        exclude_types: Vec<String>,
+
+        /// Minimum directory size in megabytes.
+        #[arg(long, value_name = "MB")]
+        min_mb: Option<u64>,
+
+        /// Age filter (e.g. "30d", "2m", "1y").
+        #[arg(long, value_name = "AGE")]
+        older_than: Option<String>,
+
+        /// Sort order (size or age).
+        #[arg(long, value_enum)]
+        sort: Option<SortKey>,
+
+        /// Optional description for this preset.
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+    /// List all saved workflow presets.
+    List,
+    /// Run a saved workflow preset by name.
+    Run {
+        /// Name of the preset to run.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Remove a saved workflow preset.
+    Remove {
+        /// Name of the preset to delete.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ProfileArg {
+    /// Stale dependency directories (>60d) from inactive projects.
+    OldDependencies,
+    /// Compiler, bundler, and build outputs that rebuild locally.
+    BuildOutputs,
+    /// Large AI/ML model weights, checkpoints, and compiler caches.
+    LargeModels,
+    /// Zero-risk local artifacts with no network download requirements.
+    SafeSweep,
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PinCommand {
+    /// Pin a project directory to protect it from deletion.
+    Add {
+        /// Path to the project directory.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+
+        /// Optional reason or note for pinning this project.
+        #[arg(short, long)]
+        reason: Option<String>,
+    },
+    /// List all currently pinned projects.
+    List,
+    /// Unpin a project directory to allow cleanup.
+    Remove {
+        /// Path to the project directory to unpin.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
@@ -306,7 +646,7 @@ pub enum ConfigAction {
     Init,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum DeleteModeArg {
     /// Move to the OS trash (recoverable via your file manager).
     Trash,

@@ -1,5 +1,26 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
+
+/// A saved scan workflow / preset that stores reusable scan parameters.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Preset {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude_types: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_mb: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub older_than: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
 
 /// User-level defaults loaded from `~/.config/nodewipe/config.toml` (or the
 /// platform equivalent — `dirs::config_dir()` resolves to the right place
@@ -20,10 +41,16 @@ pub struct Config {
     pub default_exclude_types: Option<Vec<String>>,
     pub default_min_mb: Option<u64>,
     pub default_sort: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub presets: BTreeMap<String, Preset>,
 }
 
 pub fn config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("nodewipe").join("config.toml"))
+    std::env::var("NODEWIPE_CONFIG_FILE")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::config_dir().map(|d| d.join("nodewipe").join("config.toml")))
 }
 
 pub fn legacy_npkillrc_path() -> Option<PathBuf> {
@@ -114,4 +141,56 @@ default_sort = "size"
 "#;
     std::fs::write(&path, template)?;
     Ok((path, true))
+}
+
+pub fn save_preset(preset: Preset) -> std::io::Result<PathBuf> {
+    let mut cfg = load_config();
+    let name = preset.name.clone();
+    cfg.presets.insert(name, preset);
+    save_config(&cfg)
+}
+
+pub fn get_preset(name: &str) -> Option<Preset> {
+    let cfg = load_config();
+    cfg.presets.get(name).cloned()
+}
+
+pub fn list_presets() -> Vec<Preset> {
+    let cfg = load_config();
+    cfg.presets.into_values().collect()
+}
+
+pub fn remove_preset(name: &str) -> std::io::Result<bool> {
+    let mut cfg = load_config();
+    if cfg.presets.remove(name).is_some() {
+        save_config(&cfg)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_preset_serialization_roundtrip() {
+        let mut cfg = Config::default();
+        let preset = Preset {
+            name: "work".into(),
+            path: Some(PathBuf::from("/home/user/work")),
+            profile: Some("build-outputs".into()),
+            exclude_types: Some(vec!["venv".into()]),
+            min_mb: Some(50),
+            older_than: Some("30d".into()),
+            sort: Some("size".into()),
+            description: Some("Work repositories build cleanup".into()),
+        };
+        cfg.presets.insert("work".into(), preset.clone());
+
+        let toml_str = toml::to_string(&cfg).unwrap();
+        let parsed: Config = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.presets.get("work"), Some(&preset));
+    }
 }

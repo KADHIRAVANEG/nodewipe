@@ -1,9 +1,9 @@
 use crate::model::{ArtifactKind, Entry, PackageManager};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// A planned toolchain rebuild command to regenerate dev-dependencies or build output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RebuildPlan {
     /// Executable binary to invoke (e.g. "pnpm", "cargo", "npm", "python3").
     pub program: String,
@@ -17,6 +17,32 @@ pub struct RebuildPlan {
 
 /// Resolves the appropriate toolchain reinstall/rebuild plan for a given artifact entry.
 pub fn resolve_rebuild_plan(entry: &Entry) -> Option<RebuildPlan> {
+    if let Some(rule) = &entry.custom_rule
+        && let Some(recipe) = &rule.recipe
+    {
+        let parts: Vec<&str> = recipe.split_whitespace().collect();
+        if !parts.is_empty() {
+            let prog = parts[0];
+            let forbidden = [
+                "rm", "sudo", "su", "sh", "bash", "zsh", "dash", "ksh", "dd", "mkfs", "chmod",
+                "chown", "curl", "wget",
+            ];
+            let prog_name = Path::new(prog)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(prog);
+            if !forbidden.contains(&prog_name) {
+                let work_dir = entry.path.parent().unwrap_or(&entry.path).to_path_buf();
+                return Some(RebuildPlan {
+                    program: prog.to_string(),
+                    args: parts[1..].iter().map(|s| s.to_string()).collect(),
+                    work_dir,
+                    description: recipe.clone(),
+                });
+            }
+        }
+    }
+
     let work_dir = determine_project_root(&entry.path, entry.workspace_root.as_deref())?;
 
     match entry.kind {

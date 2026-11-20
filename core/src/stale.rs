@@ -114,7 +114,7 @@ pub fn find_stale_projects(entries: &[Entry], threshold: Duration) -> Vec<StaleP
 /// "Source files" = anything that isn't a known artifact directory.
 /// We cap the walk at depth 6 to support monorepo structures (e.g.,
 /// `apps/web/src/pages/index.tsx`) while still staying fast on large trees.
-fn youngest_source_file_mtime(root: &Path, artifact_path: &Path) -> Option<SystemTime> {
+pub fn youngest_source_file_mtime(root: &Path, artifact_path: &Path) -> Option<SystemTime> {
     use std::fs;
 
     let mut youngest: Option<SystemTime> = None;
@@ -185,7 +185,7 @@ fn youngest_source_file_mtime(root: &Path, artifact_path: &Path) -> Option<Syste
 /// Quick check: is this directory one of our known artifact kinds?
 /// Used to skip them during source-file walks so their mtimes don't pollute
 /// the "last touched by the developer" signal.
-fn is_known_artifact_dir(path: &Path) -> bool {
+pub(crate) fn is_known_artifact_dir(path: &Path) -> bool {
     let name = match path.file_name().and_then(|n| n.to_str()) {
         Some(n) => n,
         None => return false,

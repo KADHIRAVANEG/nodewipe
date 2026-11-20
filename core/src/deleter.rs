@@ -46,6 +46,14 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
         anyhow::bail!("refusing to delete user home directory: {}", path.display());
     }
 
+    // Safety guard: Never delete pinned projects or artifacts
+    if crate::pin::is_path_pinned(path) {
+        anyhow::bail!(
+            "refusing to delete pinned project or artifact: {} (unpin first with 'nodewipe pin remove <path>' or 'p' in TUI)",
+            path.display()
+        );
+    }
+
     if crate::scanner::classify_path(path).is_none() {
         anyhow::bail!(
             "refusing to delete a directory that doesn't look like a known disposable artifact: {}",
@@ -429,9 +437,15 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
 
+    // Unpack into an isolated staging directory in dest_dir first, then atomically install
+    let staging_dir = tempfile::Builder::new()
+        .prefix(".nodewipe_restore_staging_")
+        .tempdir_in(dest_dir)
+        .context("creating secure staging directory for restore")?;
+
     let mut restored_name: Option<String> = None;
 
-    // Validate entries without extracting first
+    // Validate and safely extract entries in a single pass to eliminate TOCTOU risks
     let entries = archive.entries().with_context(|| {
         format!(
             "failed to read archive entries in {}",
@@ -440,8 +454,8 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
     })?;
 
     for entry in entries {
-        let entry = entry?;
-        let path = entry.path()?;
+        let mut entry = entry?;
+        let path = entry.path()?.to_path_buf();
 
         // Prevent path traversal
         for component in path.components() {
@@ -485,6 +499,19 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
         if let Some(comp) = top_level {
             match &restored_name {
                 None => {
+                    if !VALID_ARTIFACT_NAMES.contains(&comp.as_str()) {
+                        anyhow::bail!(
+                            "refusing to restore: archive contains an unexpected top-level directory name '{}'",
+                            comp
+                        );
+                    }
+                    let candidate_path = dest_dir.join(&comp);
+                    if std::fs::symlink_metadata(&candidate_path).is_ok() {
+                        anyhow::bail!(
+                            "refusing to restore: {} already exists (delete it first if you really want to overwrite)",
+                            candidate_path.display()
+                        );
+                    }
                     restored_name = Some(comp);
                 }
                 Some(expected) => {
@@ -498,6 +525,14 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
                 }
             }
         }
+
+        // Safely extract this single validated entry into the staging directory
+        entry.unpack_in(staging_dir.path()).with_context(|| {
+            format!(
+                "failed to safely extract entry '{}' to staging directory",
+                path.display()
+            )
+        })?;
     }
 
     let restored_name = restored_name.ok_or_else(|| {
@@ -507,35 +542,7 @@ fn restore_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<PathBuf> {
         )
     })?;
 
-    if !VALID_ARTIFACT_NAMES.contains(&restored_name.as_str()) {
-        anyhow::bail!(
-            "refusing to restore: archive contains an unexpected top-level directory name '{}'",
-            restored_name
-        );
-    }
-
     let restored_path = dest_dir.join(&restored_name);
-
-    if std::fs::symlink_metadata(&restored_path).is_ok() {
-        anyhow::bail!(
-            "refusing to restore: {} already exists (delete it first if you really want to overwrite)",
-            restored_path.display()
-        );
-    }
-
-    // Unpack into an isolated staging directory in dest_dir first, then atomically install
-    let staging_dir = tempfile::Builder::new()
-        .prefix(".nodewipe_restore_staging_")
-        .tempdir_in(dest_dir)
-        .context("creating secure staging directory for restore")?;
-
-    let file = File::open(archive_path)?;
-    let decoder = flate2::read::GzDecoder::new(file);
-    let mut archive = tar::Archive::new(decoder);
-    archive
-        .unpack(staging_dir.path())
-        .with_context(|| format!("failed to extract {}", archive_path.display()))?;
-
     let staged_artifact = staging_dir.path().join(&restored_name);
     if std::fs::symlink_metadata(&staged_artifact).is_err() {
         anyhow::bail!(

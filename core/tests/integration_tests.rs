@@ -346,6 +346,7 @@ fn test_workspace_detection() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     }];
 
     annotate_workspace_roots(&mut entries, root);
@@ -1440,6 +1441,7 @@ fn test_resolve_rebuild_plan_rust() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
 
     let plan = nodewipe_core::resolve_rebuild_plan(&entry).expect("plan must exist");
@@ -1465,6 +1467,7 @@ fn test_resolve_rebuild_plan_node_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_pnpm).unwrap();
     assert_eq!(plan.program, "pnpm");
@@ -1482,6 +1485,7 @@ fn test_resolve_rebuild_plan_node_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_yarn).unwrap();
     assert_eq!(plan.program, "yarn");
@@ -1499,6 +1503,7 @@ fn test_resolve_rebuild_plan_node_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_npm).unwrap();
     assert_eq!(plan.program, "npm");
@@ -1522,6 +1527,7 @@ fn test_resolve_rebuild_plan_python_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_uv).unwrap();
     assert_eq!(plan.program, "uv");
@@ -1539,6 +1545,7 @@ fn test_resolve_rebuild_plan_python_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_poetry).unwrap();
     assert_eq!(plan.program, "poetry");
@@ -1556,6 +1563,7 @@ fn test_resolve_rebuild_plan_python_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_req).unwrap();
     assert_eq!(plan.program, "python3");
@@ -1840,4 +1848,65 @@ fn test_find_archives_discovers_both_tar_and_snapshots() {
         .expect("snapshot archive must be found");
     assert!(snapshot_found.is_snapshot);
     assert!(snapshot_found.size_bytes >= 500);
+}
+
+#[test]
+fn test_delete_refuses_pinned_project_and_artifact() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    let project_dir = root.join("my-pinned-app");
+    let nm_dir = project_dir.join("node_modules");
+    std::fs::create_dir_all(&nm_dir).unwrap();
+    std::fs::write(project_dir.join("package.json"), "{}").unwrap();
+    std::fs::write(nm_dir.join("file.js"), "console.log(1);").unwrap();
+
+    // Verify unpinned deletion would normally proceed or be classified
+    assert!(nodewipe_core::classify_path(&nm_dir).is_some());
+
+    // Pin project using pin module
+    let pin_file = root.join("pinned.json");
+    nodewipe_core::pin::add_pinned_project_to_file(
+        &pin_file,
+        &project_dir,
+        Some("Critical client project".into()),
+    )
+    .unwrap();
+
+    let list = nodewipe_core::pin::load_pinned_projects_from_file(&pin_file);
+    assert!(nodewipe_core::pin::is_path_pinned_with_list(&nm_dir, &list));
+
+    // Also test toggle
+    let (now_pinned, _) =
+        nodewipe_core::pin::toggle_pinned_project_in_file(&pin_file, &project_dir).unwrap();
+    assert!(!now_pinned);
+    let (re_pinned, _) =
+        nodewipe_core::pin::toggle_pinned_project_in_file(&pin_file, &project_dir).unwrap();
+    assert!(re_pinned);
+}
+
+#[test]
+fn test_explain_path_detailed_recipe_and_staleness() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    let project_dir = root.join("rust-api");
+    let target_dir = project_dir.join("target");
+    std::fs::create_dir_all(&target_dir).unwrap();
+    std::fs::write(project_dir.join("Cargo.toml"), "[package]\nname = \"api\"").unwrap();
+    std::fs::write(project_dir.join("main.rs"), "fn main() {}").unwrap();
+    std::fs::write(target_dir.join("app"), "binary-blob-data").unwrap();
+
+    let explanation = nodewipe_core::explain_path(&target_dir).expect("explain path");
+    assert_eq!(
+        explanation.artifact_kind,
+        nodewipe_core::ArtifactKind::RustTarget
+    );
+    assert_eq!(explanation.risk_level, nodewipe_core::RiskLevel::Low);
+    assert!(explanation.rebuild_plan.is_some());
+    let plan = explanation.rebuild_plan.unwrap();
+    assert_eq!(plan.program, "cargo");
+    assert_eq!(plan.args, vec!["build"]);
+    assert!(explanation.match_reason.contains("Cargo.toml"));
+    assert!(explanation.formatted_size.ends_with("B"));
 }

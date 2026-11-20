@@ -120,9 +120,9 @@ fn test_stress_malformed_corrupt_tar_and_gzip_fuzzing() {
         raw_tar.extend_from_slice(data);
         let pad = 512 - (data.len() % 512);
         if pad < 512 {
-            raw_tar.extend(std::iter::repeat(0).take(pad));
+            raw_tar.extend(std::iter::repeat_n(0, pad));
         }
-        raw_tar.extend(std::iter::repeat(0).take(1024));
+        raw_tar.extend(std::iter::repeat_n(0, 1024));
 
         gz.write_all(&raw_tar).unwrap();
         gz.finish().unwrap();
