@@ -1113,11 +1113,59 @@ impl App {
             lines.push(format!("Rebuild In: {}", plan.work_dir.display()));
         }
 
+        let timeline = match self.rows.get(self.cursor) {
+            Some(ResultRow::Entry { entry_index }) => self
+                .entries
+                .get(*entry_index)
+                .map(nodewipe_core::inspect_timeline),
+            _ => None,
+        };
+        if let Some(tl) = timeline {
+            lines.push(String::new());
+            lines.push(format!("Timeline: {}", tl.verdict.label()));
+            lines.push(format!("Timeline Analysis: {}", tl.summary));
+            lines.push(format!("Recommendation: {}", tl.recommendation));
+        }
+
         lines.push(String::new());
         lines.push("Press any key to dismiss".to_string());
 
         let is_warning = exp.risk_level == nodewipe_core::RiskLevel::Caution;
         self.modal_text = Some((title, lines, is_warning));
+    }
+
+    /// Drill down and show top subdirectories and sizes of current entry in a modal.
+    fn tree_current_entry(&mut self) {
+        let path = match self.rows.get(self.cursor) {
+            Some(ResultRow::Entry { entry_index }) => {
+                self.entries.get(*entry_index).map(|e| e.path.clone())
+            }
+            Some(ResultRow::Group { root, .. }) => Some(root.clone()),
+            None => None,
+        };
+
+        let Some(p) = path else {
+            self.status = "No artifact selected to inspect".to_string();
+            return;
+        };
+
+        let tree = match nodewipe_core::inspect_artifact_tree(&p, 2, 8) {
+            Ok(t) => t,
+            Err(e) => {
+                self.status = format!("Drill-down failed: {e}");
+                return;
+            }
+        };
+
+        let title = format!("Storage Tree: {}", p.display());
+        let mut lines = Vec::new();
+        let rendered = tree.render_text();
+        for line in rendered.lines() {
+            lines.push(line.to_string());
+        }
+        lines.push(String::new());
+        lines.push("Press any key to dismiss".to_string());
+        self.modal_text = Some((title, lines, false));
     }
 
     /// Toggle pin status of the selected project or directory.
@@ -1361,6 +1409,7 @@ fn event_loop(
 
                         // ── Explain & Pin ──────────────────────────────────────────
                         KeyCode::Char('e') => app.explain_current_entry(),
+                        KeyCode::Char('v') => app.tree_current_entry(),
                         KeyCode::Char('p') => app.toggle_pin_current_entry(),
 
                         // ── Ignore ─────────────────────────────────────────────────
@@ -1964,8 +2013,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
 
     let dry_run_indicator = if app.dry_run { " [DRY-RUN ON]" } else { "" };
     let help1 = "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select";
-    let help2 =
-        "d trash · a archive · x permanent · p pin/unpin · e explain · i ignore · y copy · o open";
+    let help2 = "d trash · a archive · x permanent · p pin/unpin · e explain · v tree · i ignore · y copy · o open";
     let help3 =
         "b rebuild · g group · Tab collapse · f age · S sort · P dry-run · R restore · q quit";
 

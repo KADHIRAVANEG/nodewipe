@@ -38,6 +38,7 @@ unrelated folder that happens to share the name is never touched.
 - **Active Project Pinning**: Run `nodewipe pin add <path>` (or press `p` in the TUI) to lock active projects. Pinned paths are protected from deletion.
 - **Targeted Storage Budget**: Free up specific space amounts with `nodewipe reclaim 10GB` prioritizing zero-download local rebuilds first.
 - **Cleanup Profiles & Presets**: Use `--profile build-outputs` or save reusable workflows with `nodewipe preset save`.
+- **Storage Explorer & Timeline**: Inspect internal directory sizes (`nodewipe tree`) and timestamp activity (`nodewipe timeline`).
 - **Dry Run Simulation**: `--dry-run` (or press `P` in the TUI) previews deletion impact without touching anything.
 
 ## This package is CLI-only
@@ -56,6 +57,9 @@ nodewipe explain .              # inspect directory risk, match reason & rebuild
 nodewipe pin add ./my-app       # protect active project from accidental deletion
 nodewipe pin list               # list all pinned projects
 nodewipe reclaim 10GB           # reclaim 10 GB with risk ranking & preview
+nodewipe tree ./target          # drill down into artifact subdirectory sizes
+nodewipe timeline .             # compare source vs git vs build timestamps
+nodewipe workspace .            # analyze monorepo member packages
 nodewipe preset save work --profile build-outputs # save workflow preset
 nodewipe preset run work        # execute saved preset
 nodewipe scan --json            # scriptable/CI output

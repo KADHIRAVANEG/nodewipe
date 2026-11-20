@@ -355,6 +355,35 @@ pub enum Command {
         #[arg(value_name = "NAME")]
         name: Option<String>,
     },
+
+    /// Inspect the internal storage layout and largest subdirectories of an artifact directory.
+    Tree {
+        /// Path to the artifact directory (e.g. `target/`, `node_modules/`).
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+
+        /// Maximum directory depth to inspect.
+        #[arg(long, default_value_t = 2)]
+        depth: usize,
+
+        /// Maximum number of largest children to display per directory.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+
+    /// Compare source modification, git commit, and artifact build timestamps to evaluate project staleness.
+    Timeline {
+        /// Path to the project or artifact directory.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Analyze monorepo workspaces and report member packages, artifact footprints, and shared dependencies.
+    Workspace {
+        /// Path to the monorepo root or child directory.
+        #[arg(value_name = "PATH", default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
