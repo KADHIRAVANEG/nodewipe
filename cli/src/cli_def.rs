@@ -135,6 +135,10 @@ pub enum Command {
         /// Export scan results to a file (JSON or CSV based on extension or content).
         #[arg(long, value_name = "FILE")]
         export: Option<PathBuf>,
+
+        /// Save scan results as a baseline snapshot for future diff comparisons.
+        #[arg(long, value_name = "FILE")]
+        save_snapshot: Option<Option<PathBuf>>,
     },
 
     /// Delete one or more artifact directories.
@@ -384,6 +388,109 @@ pub enum Command {
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
     },
+
+    /// Manage, list, and prune .tar.gz and .snapshot backup archives.
+    Backups {
+        #[command(subcommand)]
+        action: Option<BackupsAction>,
+
+        /// Root directory to search for backups (defaults to current directory).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+
+    /// Compare current dev artifact storage against a previous scan snapshot to detect drift and growth.
+    Diff {
+        /// Path to baseline snapshot file (defaults to ~/.local/share/nodewipe/last_scan.json).
+        #[arg(value_name = "SNAPSHOT")]
+        snapshot: Option<PathBuf>,
+
+        /// Target directory to scan for comparison (defaults to current directory).
+        #[arg(long, value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+
+    /// Create, inspect, or execute declarative cleanup plans (TOML or JSON).
+    Plan {
+        #[command(subcommand)]
+        action: PlanAction,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum BackupsAction {
+    /// List all discovered backups (default).
+    List,
+    /// Prune old backups according to retention criteria.
+    Prune {
+        /// Prune backups older than this duration (e.g. "14d", "30d").
+        #[arg(long, value_name = "AGE")]
+        older_than: Option<String>,
+
+        /// Protect at least this many newest backups from deletion.
+        #[arg(long, value_name = "N")]
+        keep: Option<usize>,
+
+        /// Preview backups that would be deleted without deleting them.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompt.
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Restore a specific backup archive.
+    Restore {
+        /// Path to the archive (.tar.gz or .snapshot) to restore.
+        #[arg(value_name = "ARCHIVE")]
+        archive: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PlanAction {
+    /// Generate a reviewable cleanup plan document.
+    Create {
+        /// Output plan file path (e.g. `cleanup.toml` or `cleanup.json`).
+        #[arg(short, long, value_name = "FILE")]
+        output: PathBuf,
+
+        /// Target directory to generate plan for (defaults to current directory).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Cleanup profile to filter artifacts by cleanup intent.
+        #[arg(long, value_enum)]
+        profile: Option<ProfileArg>,
+
+        /// Target storage budget to reclaim (e.g. "10GB", "500MB"). Aliased as `--budget`.
+        #[arg(long, alias = "budget", value_name = "SIZE")]
+        reclaim_target: Option<String>,
+    },
+    /// Inspect an existing cleanup plan document.
+    View {
+        /// Path to the cleanup plan file.
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+    },
+    /// Execute an approved cleanup plan.
+    Apply {
+        /// Path to the cleanup plan file to execute.
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+
+        /// Deletion mode: trash (default), archive, or permanent.
+        #[arg(long, value_enum)]
+        mode: Option<DeleteModeArg>,
+
+        /// Preview execution without deleting.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompt.
+        #[arg(short, long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
@@ -482,7 +589,7 @@ pub enum ConfigAction {
     Init,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum DeleteModeArg {
     /// Move to the OS trash (recoverable via your file manager).
     Trash,

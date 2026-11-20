@@ -56,6 +56,7 @@
 * **🌳 Storage Explorer & Drill-Down**: Inspect internal layout of massive artifacts (`nodewipe tree <path>` or <kbd>v</kbd> in TUI) to see which subpackages, incremental builds, or caches consume disk space.
 * **⏱️ Project Activity Timeline**: Correlate Source modification vs Git commits vs Build output timestamps (`nodewipe timeline <path>`) to differentiate fresh builds from abandoned ones.
 * **🏢 Deep Monorepo Workspace Analytics**: Multi-package rollups and deduplication insights (`nodewipe workspace <path>`) for pnpm, Cargo, Turborepo, Nx, and Lerna.
+* **📦 Backup Manager, Scan Diffs & Declarative Plans**: List, prune, and restore archives (`nodewipe backups`), track storage drift between scan snapshots (`nodewipe diff`), and generate reviewable TOML/JSON cleanup plans (`nodewipe plan`).
 * **📌 Project Pinning Protection**: Mark active projects as pinned (`nodewipe pin add` or <kbd>p</kbd> in TUI). Pinned projects and all their artifacts are strictly locked and refused by the deletion engine.
 * **🛡️ Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
@@ -439,6 +440,64 @@ nodewipe workspace .
 
 ---
 
+## 📦 Backup Management, Scan Diffs & Declarative Plans
+
+### 1. Backup Archive Manager (`nodewipe backups`)
+Inspect, prune, and restore `.tar.gz` and `.nodewipe-snap` archives created when deleting with `--mode archive`:
+
+```bash
+# List all backup archives with sizes and ages
+nodewipe backups list
+
+# Prune archives older than 30 days while retaining at least 3 newest
+nodewipe backups prune --older-than 30d --keep 3
+
+# Restore an archived artifact back to its original location
+nodewipe backups restore ./node_modules.20261120_120000.tar.gz
+```
+
+### 2. Scan Diffs & Drift Analysis (`nodewipe diff`)
+Track how project build footprints grow or shrink over time:
+
+```bash
+# Save a baseline scan snapshot
+nodewipe scan --save-snapshot ~/snapshots/baseline.json
+
+# Compare current filesystem state against snapshot
+nodewipe diff ~/snapshots/baseline.json
+```
+
+```text
+  Scan Diff Analysis
+ ──────────────────────────────────────────────────────────────────────
+ Net Disk Drift: +1.24 GB
+
+ New Artifacts (+):
+   +840.50 MB  ./apps/web/.next
+   +420.10 MB  ./core/target
+
+ Shrunk Artifacts (-):
+   -20.60 MB   ./legacy/node_modules
+ ──────────────────────────────────────────────────────────────────────
+```
+
+### 3. Declarative Cleanup Plans (`nodewipe plan`)
+Generate human-reviewable, auditable cleanup plan documents (in TOML or JSON) for team signoff or scripted execution:
+
+```bash
+# Create a cleanup plan targeting build outputs
+nodewipe plan create --output cleanup.toml --profile build-outputs
+
+# Inspect plan details, risks, and recovery commands
+nodewipe plan view cleanup.toml
+
+# Apply approved plan with safety prompt (or preview with --dry-run)
+nodewipe plan apply cleanup.toml --dry-run
+nodewipe plan apply cleanup.toml --yes
+```
+
+---
+
 ## 🩺 System Doctor (`nodewipe doctor`)
 
 Analyze where your storage is disappearing across all developer environments. `nodewipe doctor` scans recursively, computes aggregate totals by ecosystem, and surfaces the oldest untouched artifacts:
@@ -577,6 +636,14 @@ nodewipe ignore remove ./legacy-app        # Remove path from ignore list
 nodewipe tree ./target --depth 2           # Inspect internal storage layout & largest subdirs
 nodewipe timeline .                        # Compare source vs git vs build timestamps & staleness
 nodewipe workspace .                       # Analyze monorepo member packages & shared root artifacts
+nodewipe backups list                      # List all .tar.gz and CoW backup archives
+nodewipe backups prune --older-than 30d    # Prune obsolete backups with retention limits
+nodewipe backups restore <archive>         # Unpack archive back to original project
+nodewipe scan --save-snapshot snap.json    # Save scan state to snapshot file
+nodewipe diff snap.json                    # Show artifact growth / shrinkage drift
+nodewipe plan create -o cleanup.toml       # Export declarative TOML cleanup plan
+nodewipe plan view cleanup.toml            # Review proposed cleanup candidates
+nodewipe plan apply cleanup.toml           # Execute approved cleanup plan
 nodewipe doctor ~                          # Run system-wide disk-hog analysis
 nodewipe stats                             # Lifetime savings breakdown and bar chart
 nodewipe types                             # List all supported artifact types & slugs
@@ -628,6 +695,9 @@ default_exclude_types = ["venv", "rust_target"]
 | **Storage Explorer & Drill-Down** | ❌ No | **`nodewipe tree` / <kbd>v</kbd> (Internal size drill-down)** |
 | **Project Activity Timeline** | ❌ No | **`nodewipe timeline` (Source vs Git vs Build mtimes)** |
 | **Monorepo Workspace Analytics** | ❌ No | **`nodewipe workspace` (Package rollup & shared root analysis)** |
+| **Backup Archive Manager** | ❌ No | **`nodewipe backups list/prune/restore`** |
+| **Scan Diffs & Drift Tracking** | ❌ No | **`nodewipe diff` (Net disk growth & shrinkage)** |
+| **Declarative Cleanup Plans** | ❌ No | **`nodewipe plan create/view/apply` (TOML/JSON)** |
 | **Disk Size Accuracy** | Logical byte sum | **Physical cluster block calculation (`st_blocks`)** |
 | **Safety & Recovery** | Permanent unlink only | **OS Trash + Instant CoW Snapshot + Atomic `.tar.gz` Archiving** |
 | **Interactive Dry-Run** | ❌ No | **✅ Real-time simulation toggle (<kbd>P</kbd>)** |

@@ -297,10 +297,10 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
   - Full multi-package workspace rollups for pnpm, Cargo, Turborepo, Nx, and Lerna.
   - Identifies shared root artifact dependencies and hoisting recommendations.
 
-### 🟡 Phase 4: Backup Management & Scan Diffs (NEXT)
-- [ ] **Backup & Snapshot Retention Manager (`nodewipe backups`)**: Dedicated view to list, manage retention policies, and restore `.snapshot` and `.tar.gz` archives.
-- [ ] **Before-and-After Scan Diffs (`nodewipe diff`)**: Track disk growth or reductions between scan snapshots.
-- [ ] **Exportable Reviewable Cleanup Plans (`nodewipe plan`)**: Generate declarative YAML/JSON cleanup plans for team reviews.
+### ✅ Phase 4: Backup Management, Scan Diffs & Declarative Plans (COMPLETED — v0.9.7)
+- [x] **Backup & Snapshot Retention Manager (`nodewipe backups`)**: Dedicated CLI to list, prune with age/keep retention limits, and restore `.snapshot` and `.tar.gz` archives.
+- [x] **Before-and-After Scan Diffs (`nodewipe diff`)**: Track disk growth or reductions between scan snapshots, with automatic baseline tracking in `nodewipe scan`.
+- [x] **Exportable Reviewable Cleanup Plans (`nodewipe plan`)**: Generate declarative TOML/JSON cleanup plans for team reviews, dry-run simulation, and automated batch execution.
 
 ---
 
@@ -310,4 +310,7 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
 - Tier 2: 8/8 implemented (100% COMPLETE)
 - Tier 3: 4/4 implemented (100% COMPLETE)
 - Phase 1 Decision Intelligence: 6/6 implemented (100% COMPLETE)
+- Phase 2 Targeted Reclaim & Workflows: 4/4 implemented (100% COMPLETE)
+- Phase 3 Storage Explorer & Timeline: 3/3 implemented (100% COMPLETE)
+- Phase 4 Backup Management & Plans: 3/3 implemented (100% COMPLETE)
 - Solved vs npkill: **All 11 open issues + all 112 closed issues addressed with 100% architectural immunity and feature superiority**

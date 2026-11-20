@@ -1,6 +1,8 @@
+pub mod backup;
 pub mod config;
 pub mod dedupe;
 pub mod deleter;
+pub mod diff;
 pub mod doctor;
 pub mod explain;
 pub mod git;
@@ -9,6 +11,7 @@ pub mod ignorefile;
 pub mod interner;
 pub mod model;
 pub mod pin;
+pub mod plan;
 pub mod profile;
 pub mod rebuild;
 pub mod reclaim;
@@ -19,12 +22,17 @@ pub mod timeline;
 pub mod tree;
 pub mod workspace;
 
+pub use backup::{BackupInfo, PruneReport, list_backups, prune_backups, restore_backup_archive};
 pub use config::{
     Config, Preset, config_path, get_preset, init_default_config, list_presets, load_config,
     remove_preset, save_config, save_preset,
 };
 pub use dedupe::{DedupeOptions, DedupeStats, dedupe_paths};
 pub use deleter::{DeleteMode, DeleteResult, DiscoveredArchive, delete, find_archives, restore};
+pub use diff::{
+    ScanDiff, ScanSnapshot, ScanSnapshotEntry, SizeDrift, compute_scan_diff, default_snapshot_file,
+    load_snapshot, save_snapshot,
+};
 pub use explain::{Explanation, RiskLevel, SourceStaleness, explain_entry, explain_path};
 pub use git::{annotate_git_status, find_git_repo_root, inspect_git_repo};
 pub use history::{
@@ -45,6 +53,10 @@ pub use pin::{
     PinnedProject, add_pinned_project, is_path_pinned, is_path_pinned_with_list,
     list_pinned_projects, load_pinned_projects, remove_pinned_project, save_pinned_projects,
     toggle_pinned_project,
+};
+pub use plan::{
+    CleanupPlan, PlanExecutionReport, PlanItem, apply_cleanup_plan, create_cleanup_plan,
+    load_plan_from_file, save_plan_to_file,
 };
 pub use profile::ProfileKind;
 pub use rebuild::{RebuildPlan, resolve_rebuild_plan};
