@@ -346,6 +346,7 @@ fn test_workspace_detection() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     }];
 
     annotate_workspace_roots(&mut entries, root);
@@ -1440,6 +1441,7 @@ fn test_resolve_rebuild_plan_rust() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
 
     let plan = nodewipe_core::resolve_rebuild_plan(&entry).expect("plan must exist");
@@ -1465,6 +1467,7 @@ fn test_resolve_rebuild_plan_node_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_pnpm).unwrap();
     assert_eq!(plan.program, "pnpm");
@@ -1482,6 +1485,7 @@ fn test_resolve_rebuild_plan_node_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_yarn).unwrap();
     assert_eq!(plan.program, "yarn");
@@ -1499,6 +1503,7 @@ fn test_resolve_rebuild_plan_node_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_npm).unwrap();
     assert_eq!(plan.program, "npm");
@@ -1522,6 +1527,7 @@ fn test_resolve_rebuild_plan_python_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_uv).unwrap();
     assert_eq!(plan.program, "uv");
@@ -1539,6 +1545,7 @@ fn test_resolve_rebuild_plan_python_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_poetry).unwrap();
     assert_eq!(plan.program, "poetry");
@@ -1556,6 +1563,7 @@ fn test_resolve_rebuild_plan_python_variants() {
         last_modified: None,
         workspace_root: None,
         git_status: None,
+        custom_rule: None,
     };
     let plan = nodewipe_core::resolve_rebuild_plan(&entry_req).unwrap();
     assert_eq!(plan.program, "python3");

@@ -309,6 +309,7 @@ mod tests {
             last_modified: None,
             workspace_root: None,
             git_status: None,
+            custom_rule: None,
         };
 
         save_snapshot(tmp.path(), std::slice::from_ref(&entry1), &file).unwrap();
@@ -328,6 +329,7 @@ mod tests {
             last_modified: None,
             workspace_root: None,
             git_status: None,
+            custom_rule: None,
         };
 
         let diff = compute_scan_diff(&loaded, &[entry1_grown, entry2]);

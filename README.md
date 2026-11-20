@@ -57,6 +57,7 @@
 * **⏱️ Project Activity Timeline**: Correlate Source modification vs Git commits vs Build output timestamps (`nodewipe timeline <path>`) to differentiate fresh builds from abandoned ones.
 * **🏢 Deep Monorepo Workspace Analytics**: Multi-package rollups and deduplication insights (`nodewipe workspace <path>`) for pnpm, Cargo, Turborepo, Nx, and Lerna.
 * **📦 Backup Manager, Scan Diffs & Declarative Plans**: List, prune, and restore archives (`nodewipe backups`), track storage drift between scan snapshots (`nodewipe diff`), and generate reviewable TOML/JSON cleanup plans (`nodewipe plan`).
+* **⚙️ Extensibility & Custom Rules**: Define user/team-specific artifact rules (`.nodewipe.toml` / `nodewipe rules init/check/test`) and browse the full 39+ ecosystem catalog (`nodewipe rules list`).
 * **📌 Project Pinning Protection**: Mark active projects as pinned (`nodewipe pin add` or <kbd>p</kbd> in TUI). Pinned projects and all their artifacts are strictly locked and refused by the deletion engine.
 * **🛡️ Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
@@ -496,6 +497,36 @@ nodewipe plan apply cleanup.toml --dry-run
 nodewipe plan apply cleanup.toml --yes
 ```
 
+### 4. Extensibility & Custom Rules (`nodewipe rules`)
+Define custom, proprietary, or project-specific build artifacts without modifying nodewipe code. Use `.nodewipe.toml` in your repository or `~/.config/nodewipe/rules.toml` globally:
+
+```bash
+# Scaffold a starter custom rules configuration (.nodewipe.toml)
+nodewipe rules init
+
+# Validate syntax and directory safety (enforces single directory name, no traversal)
+nodewipe rules check
+
+# Test directory or artifact against active rules and built-in signatures
+nodewipe rules test ./my-project/.sim_cache
+
+# Browse the built-in ecosystem catalog (39+ ecosystems)
+nodewipe rules list --builtin-only
+nodewipe rules list --category python
+```
+
+#### Custom Rule Schema (`.nodewipe.toml`)
+```toml
+[[rules]]
+name = "Simulator Cache"
+dir_name = ".sim_cache"
+parent_marker = "simulator.json"
+risk = "low"
+recipe = "cargo run --bin build-sim"
+description = "Hardware simulator intermediate cache and waveforms"
+ecosystem = "Hardware Simulation"
+```
+
 ---
 
 ## 🩺 System Doctor (`nodewipe doctor`)
@@ -644,6 +675,10 @@ nodewipe diff snap.json                    # Show artifact growth / shrinkage dr
 nodewipe plan create -o cleanup.toml       # Export declarative TOML cleanup plan
 nodewipe plan view cleanup.toml            # Review proposed cleanup candidates
 nodewipe plan apply cleanup.toml           # Execute approved cleanup plan
+nodewipe rules init                        # Scaffold starter .nodewipe.toml rules template
+nodewipe rules check                       # Validate custom rules syntax and directory safety
+nodewipe rules test <path>                 # Test path against active custom & built-in rules
+nodewipe rules list                        # List active rules and 39+ ecosystem catalog
 nodewipe doctor ~                          # Run system-wide disk-hog analysis
 nodewipe stats                             # Lifetime savings breakdown and bar chart
 nodewipe types                             # List all supported artifact types & slugs
@@ -698,6 +733,7 @@ default_exclude_types = ["venv", "rust_target"]
 | **Backup Archive Manager** | ❌ No | **`nodewipe backups list/prune/restore`** |
 | **Scan Diffs & Drift Tracking** | ❌ No | **`nodewipe diff` (Net disk growth & shrinkage)** |
 | **Declarative Cleanup Plans** | ❌ No | **`nodewipe plan create/view/apply` (TOML/JSON)** |
+| **Custom Rules & Extensibility** | ❌ No | **`nodewipe rules init/check/test/list` (`.nodewipe.toml`)** |
 | **Disk Size Accuracy** | Logical byte sum | **Physical cluster block calculation (`st_blocks`)** |
 | **Safety & Recovery** | Permanent unlink only | **OS Trash + Instant CoW Snapshot + Atomic `.tar.gz` Archiving** |
 | **Interactive Dry-Run** | ❌ No | **✅ Real-time simulation toggle (<kbd>P</kbd>)** |

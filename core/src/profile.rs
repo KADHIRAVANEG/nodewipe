@@ -105,6 +105,7 @@ impl ProfileKind {
                 ArtifactKind::MesonBuild,
                 ArtifactKind::SwiftPmBuild,
                 ArtifactKind::TurboCache,
+                ArtifactKind::Custom,
             ],
             Self::LargeModels => &[
                 ArtifactKind::HuggingFaceCache,

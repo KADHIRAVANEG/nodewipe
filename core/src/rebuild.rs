@@ -17,6 +17,21 @@ pub struct RebuildPlan {
 
 /// Resolves the appropriate toolchain reinstall/rebuild plan for a given artifact entry.
 pub fn resolve_rebuild_plan(entry: &Entry) -> Option<RebuildPlan> {
+    if let Some(rule) = &entry.custom_rule
+        && let Some(recipe) = &rule.recipe
+    {
+        let parts: Vec<&str> = recipe.split_whitespace().collect();
+        if !parts.is_empty() {
+            let work_dir = entry.path.parent().unwrap_or(&entry.path).to_path_buf();
+            return Some(RebuildPlan {
+                program: parts[0].to_string(),
+                args: parts[1..].iter().map(|s| s.to_string()).collect(),
+                work_dir,
+                description: recipe.clone(),
+            });
+        }
+    }
+
     let work_dir = determine_project_root(&entry.path, entry.workspace_root.as_deref())?;
 
     match entry.kind {

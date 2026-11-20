@@ -1,5 +1,7 @@
 pub mod backup;
+pub mod catalog;
 pub mod config;
+pub mod custom_rules;
 pub mod dedupe;
 pub mod deleter;
 pub mod diff;
@@ -23,9 +25,17 @@ pub mod tree;
 pub mod workspace;
 
 pub use backup::{BackupInfo, PruneReport, list_backups, prune_backups, restore_backup_archive};
+pub use catalog::{
+    CatalogEntry, EcosystemCategory, by_ecosystem, catalog, get_by_kind, get_by_name, get_by_slug,
+};
 pub use config::{
     Config, Preset, config_path, get_preset, init_default_config, list_presets, load_config,
     remove_preset, save_config, save_preset,
+};
+pub use custom_rules::{
+    CustomRule, generate_default_rules_template, global_rules_file, load_active_rules,
+    load_global_rules, load_project_rules, load_rules_from_file, load_rules_from_str,
+    save_rules_to_file, validate_custom_rule,
 };
 pub use dedupe::{DedupeOptions, DedupeStats, dedupe_paths};
 pub use deleter::{DeleteMode, DeleteResult, DiscoveredArchive, delete, find_archives, restore};
@@ -62,7 +72,7 @@ pub use profile::ProfileKind;
 pub use rebuild::{RebuildPlan, resolve_rebuild_plan};
 pub use reclaim::{ReclaimCandidate, ReclaimPlan, format_bytes, parse_size_to_bytes, plan_reclaim};
 pub use reflink::{ReflinkDirStats, reflink_dir, supports_reflink};
-pub use scanner::{classify_path, scan};
+pub use scanner::{classify_path, classify_path_with_custom, scan};
 pub use stale::{StaleProject, find_stale_projects};
 pub use timeline::{ProjectTimeline, TimelineVerdict, format_timeline_text, inspect_timeline};
 pub use tree::{ArtifactTree, TreeNode, inspect_artifact_tree};

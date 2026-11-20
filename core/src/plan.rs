@@ -201,6 +201,7 @@ mod tests {
             last_modified: None,
             workspace_root: None,
             git_status: None,
+            custom_rule: None,
         };
 
         let plan = create_cleanup_plan(tmp.path(), &[entry], None, None);

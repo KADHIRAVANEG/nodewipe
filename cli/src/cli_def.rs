@@ -90,6 +90,10 @@ pub struct Cli {
     /// Cleanup profile to filter artifacts by cleanup intent (old-dependencies, build-outputs, large-models, safe-sweep).
     #[arg(long, global = true, value_enum)]
     pub profile: Option<ProfileArg>,
+
+    /// Path to a custom artifact rules file (.nodewipe.toml).
+    #[arg(long, global = true, value_name = "FILE")]
+    pub rules: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -414,6 +418,59 @@ pub enum Command {
     Plan {
         #[command(subcommand)]
         action: PlanAction,
+    },
+
+    /// Manage, list, and test custom artifact rules (.nodewipe.toml) and the built-in ecosystem catalog.
+    Rules {
+        #[command(subcommand)]
+        action: Option<RulesAction>,
+
+        /// Path to custom rules file, directory, or target to test.
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum RulesAction {
+    /// List active custom rules and the built-in ecosystem catalog (default).
+    List {
+        /// Show only custom user-defined rules.
+        #[arg(long)]
+        custom_only: bool,
+
+        /// Show only the built-in ecosystem catalog.
+        #[arg(long)]
+        builtin_only: bool,
+
+        /// Filter rules or catalog by category or keyword.
+        #[arg(long, value_name = "CATEGORY")]
+        category: Option<String>,
+    },
+
+    /// Test a path against active rules and explain any match.
+    Test {
+        /// Path to the directory or artifact to test against rules.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+
+    /// Validate syntax and security safety of a custom rules file (.nodewipe.toml).
+    Check {
+        /// Path to the custom rules file to check (defaults to discovering .nodewipe.toml).
+        #[arg(value_name = "FILE")]
+        file: Option<PathBuf>,
+    },
+
+    /// Scaffold a starter .nodewipe.toml configuration template.
+    Init {
+        /// Destination path for the generated template (default: .nodewipe.toml).
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+
+        /// Overwrite file if it already exists.
+        #[arg(short, long)]
+        force: bool,
     },
 }
 
