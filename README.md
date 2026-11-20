@@ -53,6 +53,9 @@
 * **🧠 Decision Intelligence & Directory Inspector**: `nodewipe explain <path>` (or <kbd>e</kbd> in TUI) provides clear explanations for each result: why it matched, whether it can be recreated, git branch staleness, risk rating, and exact recovery command.
 * **🎯 Targeted Reclaim Engine**: Free up an exact storage budget (`nodewipe reclaim 10GB`) with risk scoring, prioritizing zero-download local rebuilds first.
 * **📋 Named Profiles & Saved Presets**: Intent-driven cleanups (`--profile build-outputs`, `old-dependencies`, `large-models`) and reusable saved workflows (`nodewipe preset save/run`).
+* **🌳 Storage Explorer & Drill-Down**: Inspect internal layout of massive artifacts (`nodewipe tree <path>` or <kbd>v</kbd> in TUI) to see which subpackages, incremental builds, or caches consume disk space.
+* **⏱️ Project Activity Timeline**: Correlate Source modification vs Git commits vs Build output timestamps (`nodewipe timeline <path>`) to differentiate fresh builds from abandoned ones.
+* **🏢 Deep Monorepo Workspace Analytics**: Multi-package rollups and deduplication insights (`nodewipe workspace <path>`) for pnpm, Cargo, Turborepo, Nx, and Lerna.
 * **📌 Project Pinning Protection**: Mark active projects as pinned (`nodewipe pin add` or <kbd>p</kbd> in TUI). Pinned projects and all their artifacts are strictly locked and refused by the deletion engine.
 * **🛡️ Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
 * **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
@@ -369,6 +372,73 @@ nodewipe preset remove work-sweep
 
 ---
 
+## 🌳 Storage Explorer, Project Timeline & Monorepo Analytics
+
+### 1. Artifact Subdirectory Drill-Down (`nodewipe tree <path>`)
+Inspect what's eating up storage inside oversized artifacts (e.g. `target/`, `node_modules/`) without external tools:
+
+```bash
+# Inspect top subdirectories inside target/
+nodewipe tree ./target --depth 2 --limit 5
+```
+
+```text
+  Storage Explorer — ./target
+
+  target/ (34.83 GB)
+ ├──  debug/ (32.10 GB · 92.2%)
+ │   ├──  incremental/ (18.40 GB · 52.8%)
+ │   ├──  deps/ (11.20 GB · 32.2%)
+ │   └──  build/ (2.50 GB · 7.2%)
+ └──  release/ (2.73 GB · 7.8%)
+```
+
+> [!TIP]
+> In the interactive TUI, press <kbd>v</kbd> on any row to instantly open the Storage Tree Drill-Down modal!
+
+### 2. Multi-Timestamp Project Activity Timeline (`nodewipe timeline <path>`)
+Compare the chronological relationship between your **Source Code**, **Git Commits**, and **Build Artifacts** to determine whether a build is active, stale, or abandoned:
+
+```bash
+nodewipe timeline .
+```
+
+```text
+  Project Timeline: /home/kadhir/Projects/npkill-rs
+ ──────────────────────────────────────────────────────────────────────
+ • Source Code:    today (0 days ago)
+ • Build Output:   ./target (7 days ago)
+ • Git Status:      feature/phase3-storage-explorer (clean, commit 0d ago)
+ • Verdict:        Stale Build (Source Modified Since)
+   Summary:        Source files were modified after this artifact was created. The build is already out of date.
+   Action:         Safe to delete: compiler/bundler will rebuild anyway on next run.
+ ──────────────────────────────────────────────────────────────────────
+```
+
+### 3. Monorepo Workspace Analytics (`nodewipe workspace <path>`)
+Aggregate disk consumption across all subpackages in pnpm, Cargo, Turborepo, Nx, and Lerna monorepos:
+
+```bash
+nodewipe workspace .
+```
+
+```text
+  Workspace Analysis: /home/kadhir/Projects/npkill-rs (Cargo workspace)
+
+ Total Artifact Footprint: 34.83 GB across 2 member packages
+ Shared Root Artifacts:    34.58 GB
+
+ Member Packages (sorted by size):
+ ────────────────────────────────────────────────────────────────────────
+ • core                             250.00 MB  (1 artifacts)
+ • cli                                0.00 B  (0 artifacts)
+ ────────────────────────────────────────────────────────────────────────
+ Recommendations:
+  Root workspace dependencies consume 34.58 GB.
+```
+
+---
+
 ## 🩺 System Doctor (`nodewipe doctor`)
 
 Analyze where your storage is disappearing across all developer environments. `nodewipe doctor` scans recursively, computes aggregate totals by ecosystem, and surfaces the oldest untouched artifacts:
@@ -504,6 +574,9 @@ nodewipe ignore add ./legacy-app           # Add path to ignore list
 nodewipe ignore remove ./legacy-app        # Remove path from ignore list
 
 # ── Analysis & Tooling ──────────────────────────────────────────────────────
+nodewipe tree ./target --depth 2           # Inspect internal storage layout & largest subdirs
+nodewipe timeline .                        # Compare source vs git vs build timestamps & staleness
+nodewipe workspace .                       # Analyze monorepo member packages & shared root artifacts
 nodewipe doctor ~                          # Run system-wide disk-hog analysis
 nodewipe stats                             # Lifetime savings breakdown and bar chart
 nodewipe types                             # List all supported artifact types & slugs
@@ -552,6 +625,9 @@ default_exclude_types = ["venv", "rust_target"]
 | **Recovery Recipes** | ❌ No | **✅ Exact rebuild commands (`npm install`, `cargo build`, etc.)** |
 | **Targeted Budget Reclaim** | ❌ No | **`nodewipe reclaim <SIZE>` with risk ranking & preview** |
 | **Workflow Presets & Profiles** | ❌ No | **`nodewipe preset` & `--profile` intent-based filters** |
+| **Storage Explorer & Drill-Down** | ❌ No | **`nodewipe tree` / <kbd>v</kbd> (Internal size drill-down)** |
+| **Project Activity Timeline** | ❌ No | **`nodewipe timeline` (Source vs Git vs Build mtimes)** |
+| **Monorepo Workspace Analytics** | ❌ No | **`nodewipe workspace` (Package rollup & shared root analysis)** |
 | **Disk Size Accuracy** | Logical byte sum | **Physical cluster block calculation (`st_blocks`)** |
 | **Safety & Recovery** | Permanent unlink only | **OS Trash + Instant CoW Snapshot + Atomic `.tar.gz` Archiving** |
 | **Interactive Dry-Run** | ❌ No | **✅ Real-time simulation toggle (<kbd>P</kbd>)** |

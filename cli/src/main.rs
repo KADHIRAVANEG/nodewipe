@@ -265,6 +265,40 @@ fn run(cli: Cli) -> Result<ExitCode> {
             ref command,
             ref name,
         }) => cmd_preset(command.clone(), name.clone(), &root, &cli, &config),
+        Some(Command::Tree {
+            path: sub_path,
+            depth,
+            limit,
+        }) => {
+            let tree_path = if sub_path == Path::new(".") {
+                root
+            } else {
+                sub_path
+            };
+            cmd_tree(&tree_path, depth, limit, cli.json)
+        }
+        Some(Command::Timeline { path: sub_path }) => {
+            let time_path = if sub_path == Path::new(".") {
+                root
+            } else {
+                sub_path
+            };
+            cmd_timeline(&time_path, cli.json, cli.no_git)
+        }
+        Some(Command::Workspace { path: sub_path }) => {
+            let ws_path = if sub_path == Path::new(".") {
+                root
+            } else {
+                sub_path
+            };
+            cmd_workspace(
+                &ws_path,
+                cli.json,
+                cli.serial,
+                cli.no_git,
+                cli.no_ignore_file,
+            )
+        }
     }
 }
 
@@ -872,6 +906,159 @@ fn run_saved_preset(name: &str, cli: &Cli, config: &nodewipe_core::Config) -> Re
         !cli.serial,
         !cli.no_git,
     )
+}
+
+fn cmd_tree(path: &Path, depth: usize, limit: usize, json: bool) -> Result<ExitCode> {
+    if !path.exists() {
+        eprintln!("error: path does not exist: {}", path.display());
+        return Ok(ExitCode::FAILURE);
+    }
+    let tree = match nodewipe_core::inspect_artifact_tree(path, depth, limit) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("error: failed to inspect directory tree: {e}");
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&tree)?);
+    } else {
+        println!(
+            "\n {} Storage Explorer — {}\n",
+            nodewipe_core::icons::FOLDER,
+            path.display()
+        );
+        print!("{}", tree.render_text());
+        println!();
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_timeline(path: &Path, json: bool, no_git: bool) -> Result<ExitCode> {
+    if !path.exists() {
+        eprintln!("error: path does not exist: {}", path.display());
+        return Ok(ExitCode::FAILURE);
+    }
+
+    let explanation = match nodewipe_core::explain_path(path) {
+        Ok(exp) => exp,
+        Err(e) => {
+            if json {
+                println!("{}", serde_json::json!({ "error": e.to_string() }));
+            } else {
+                eprintln!("error: {e}");
+            }
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+
+    let git_status = if no_git {
+        None
+    } else {
+        nodewipe_core::inspect_git_repo(path)
+    };
+
+    let entry = Entry {
+        path: explanation.path.clone(),
+        size_bytes: explanation.size_bytes,
+        kind: explanation.artifact_kind,
+        package_manager: None,
+        last_modified: std::fs::metadata(&explanation.path)
+            .ok()
+            .and_then(|m| m.modified().ok()),
+        workspace_root: explanation.project_root.clone(),
+        git_status,
+    };
+
+    let timeline = nodewipe_core::inspect_timeline(&entry);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&timeline)?);
+    } else {
+        print!("{}", nodewipe_core::format_timeline_text(&timeline));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_workspace(
+    path: &Path,
+    json: bool,
+    serial: bool,
+    no_git: bool,
+    no_ignore_file: bool,
+) -> Result<ExitCode> {
+    let ignore_patterns = if no_ignore_file {
+        nodewipe_core::Gitignore::empty()
+    } else {
+        load_ignore_patterns(path)
+    };
+
+    let opts = ScanOptions {
+        root: path.to_path_buf(),
+        parallel: !serial,
+        inspect_git: !no_git,
+        ignore_patterns,
+        ..Default::default()
+    };
+
+    let entries = scan(&opts)?;
+    let analysis = match nodewipe_core::analyze_workspace(path, &entries) {
+        Some(a) => a,
+        None => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "error": "No monorepo workspace marker found in target path" })
+                );
+            } else {
+                println!(
+                    "\n No monorepo workspace marker (pnpm-workspace.yaml, turbo.json, Cargo.toml [workspace], etc.) found at {}.",
+                    path.display()
+                );
+            }
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&analysis)?);
+    } else {
+        println!(
+            "\n {} Workspace Analysis: {} ({})\n",
+            nodewipe_core::icons::PACKAGE,
+            analysis.root.display(),
+            analysis.workspace_type
+        );
+        println!(
+            " Total Artifact Footprint: {} across {} member packages",
+            analysis.formatted_total,
+            analysis.member_packages.len()
+        );
+        if analysis.shared_root_artifact_bytes > 0 {
+            println!(
+                " Shared Root Artifacts:    {}",
+                nodewipe_core::format_bytes(analysis.shared_root_artifact_bytes)
+            );
+        }
+        println!("\n Member Packages (sorted by size):");
+        println!(" ────────────────────────────────────────────────────────────────────────");
+        for pkg in &analysis.member_packages {
+            println!(
+                " • {:<32} {:>10}  ({} artifacts)",
+                pkg.name,
+                pkg.formatted_total,
+                pkg.entries.len()
+            );
+        }
+        println!(" ────────────────────────────────────────────────────────────────────────");
+        if !analysis.deduplication_advice.is_empty() {
+            println!(" Recommendations:");
+            for advice in &analysis.deduplication_advice {
+                println!(" {} {}", nodewipe_core::icons::CHECK, advice);
+            }
+            println!();
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 fn cmd_config(action: Option<ConfigAction>, json: bool) -> Result<ExitCode> {
@@ -2201,5 +2388,34 @@ mod tests {
         unsafe {
             std::env::remove_var("NODEWIPE_CONFIG_FILE");
         }
+    }
+
+    #[test]
+    fn test_cmd_tree_and_workspace_cli() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let cargo_toml = root.join("Cargo.toml");
+        std::fs::write(&cargo_toml, "[workspace]\nmembers = [\"core\"]\n").unwrap();
+
+        let core_dir = root.join("core");
+        std::fs::create_dir_all(&core_dir).unwrap();
+        std::fs::write(
+            core_dir.join("Cargo.toml"),
+            "[package]\nname = \"core\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let target_dir = core_dir.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(target_dir.join("libcore.rlib"), vec![0u8; 1024]).unwrap();
+
+        // Test cmd_tree
+        let code_tree = cmd_tree(&target_dir, 2, 5, true).unwrap();
+        assert_eq!(code_tree, ExitCode::SUCCESS);
+
+        // Test cmd_workspace
+        let code_ws = cmd_workspace(root, true, true, true, true).unwrap();
+        assert_eq!(code_ws, ExitCode::SUCCESS);
     }
 }

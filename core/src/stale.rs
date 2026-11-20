@@ -185,7 +185,7 @@ pub fn youngest_source_file_mtime(root: &Path, artifact_path: &Path) -> Option<S
 /// Quick check: is this directory one of our known artifact kinds?
 /// Used to skip them during source-file walks so their mtimes don't pollute
 /// the "last touched by the developer" signal.
-fn is_known_artifact_dir(path: &Path) -> bool {
+pub(crate) fn is_known_artifact_dir(path: &Path) -> bool {
     let name = match path.file_name().and_then(|n| n.to_str()) {
         Some(n) => n,
         None => return false,

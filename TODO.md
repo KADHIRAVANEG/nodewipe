@@ -284,9 +284,23 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
   - Execute saved workflows on demand with a single CLI command (`nodewipe preset run <NAME>`).
 - [x] **Nerd Font Vector Icons in Scan Output**: Integrated ``, ``, ``, ``, ` [PINNED]` icons across non-TUI `nodewipe scan` and group outputs.
 
-### 🟡 Phase 3: Advanced Drill-Down & Retention Management (NEXT)
-- [ ] **Multi-Level Monorepo Hierarchy**: Drill-down view from ecosystem → project → artifact → largest contents.
-- [ ] **Backup & Snapshot Retention Manager**: Dedicated view to list, manage retention policies, and restore `.snapshot` and `.tar.gz` archives.
+### ✅ Phase 3: Storage Explorer & Project Timeline (COMPLETED — v0.9.6)
+- [x] **Artifact Subdirectory Drill-Down (`nodewipe tree <path>`)**:
+  - Computes immediate children and top space-consuming subpaths inside massive artifacts.
+  - Formatted tree output with box-drawing characters, directory percentages, and Nerd Font vector icons.
+  - Interactive TUI drill-down modal accessible via <kbd>v</kbd> on any highlighted artifact.
+- [x] **Multi-Timestamp Project Activity Timeline (`nodewipe timeline <path>`)**:
+  - Compares Source mtime vs Git commit mtime vs Build artifact mtime.
+  - Classifies project status: Stale Build (source modified since), Fresh Build, Active Work-in-Progress, Abandoned, or Orphaned Build.
+  - Integrated into TUI Explain Inspector modal (<kbd>e</kbd>).
+- [x] **Deep Monorepo Workspace Analytics (`nodewipe workspace <path>`)**:
+  - Full multi-package workspace rollups for pnpm, Cargo, Turborepo, Nx, and Lerna.
+  - Identifies shared root artifact dependencies and hoisting recommendations.
+
+### 🟡 Phase 4: Backup Management & Scan Diffs (NEXT)
+- [ ] **Backup & Snapshot Retention Manager (`nodewipe backups`)**: Dedicated view to list, manage retention policies, and restore `.snapshot` and `.tar.gz` archives.
+- [ ] **Before-and-After Scan Diffs (`nodewipe diff`)**: Track disk growth or reductions between scan snapshots.
+- [ ] **Exportable Reviewable Cleanup Plans (`nodewipe plan`)**: Generate declarative YAML/JSON cleanup plans for team reviews.
 
 ---
 

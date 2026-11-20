@@ -15,6 +15,8 @@ pub mod reclaim;
 pub mod reflink;
 pub mod scanner;
 pub mod stale;
+pub mod timeline;
+pub mod tree;
 pub mod workspace;
 
 pub use config::{
@@ -50,4 +52,9 @@ pub use reclaim::{ReclaimCandidate, ReclaimPlan, format_bytes, parse_size_to_byt
 pub use reflink::{ReflinkDirStats, reflink_dir, supports_reflink};
 pub use scanner::{classify_path, scan};
 pub use stale::{StaleProject, find_stale_projects};
-pub use workspace::{annotate_workspace_roots, group_by_workspace};
+pub use timeline::{ProjectTimeline, TimelineVerdict, format_timeline_text, inspect_timeline};
+pub use tree::{ArtifactTree, TreeNode, inspect_artifact_tree};
+pub use workspace::{
+    WorkspaceAnalysis, WorkspacePackage, analyze_workspace, annotate_workspace_roots,
+    group_by_workspace,
+};
