@@ -1,6 +1,7 @@
 # nodewipe
 
 [![GitHub stars](https://img.shields.io/github/stars/KADHIRAVANEG/nodewipe?style=flat-square&color=eab308&logo=github)](https://github.com/KADHIRAVANEG/nodewipe)
+[![Medium Story](https://img.shields.io/badge/Medium-Architecture_Deep_Dive-000000?style=flat-square&logo=medium&logoColor=white)](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk)
 [![npm downloads](https://img.shields.io/npm/dt/@joker53/nodewipe?style=flat-square&color=22c55e&logo=npm)](https://www.npmjs.com/package/@joker53/nodewipe)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://github.com/KADHIRAVANEG/nodewipe/blob/main/LICENSE)
 

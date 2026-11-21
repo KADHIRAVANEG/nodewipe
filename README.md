@@ -15,6 +15,7 @@
 
   [![Release](https://img.shields.io/github/v/release/KADHIRAVANEG/nodewipe?style=for-the-badge&color=8b5cf6&logo=github)](https://github.com/KADHIRAVANEG/nodewipe/releases)
   [![GitHub stars](https://img.shields.io/github/stars/KADHIRAVANEG/nodewipe?style=for-the-badge&color=eab308&logo=github)](https://github.com/KADHIRAVANEG/nodewipe/stargazers)
+  [![Medium Story](https://img.shields.io/badge/Medium-Architecture_Deep_Dive-000000?style=for-the-badge&logo=medium&logoColor=white)](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk)
   [![npm downloads](https://img.shields.io/npm/dt/@joker53/nodewipe?style=for-the-badge&color=22c55e&logo=npm)](https://www.npmjs.com/package/@joker53/nodewipe)
   [![AUR](https://img.shields.io/aur/version/nodewipe?style=for-the-badge&color=1793d1&logo=arch-linux&logoColor=white&label=AUR)](https://aur.archlinux.org/packages/nodewipe)
   [![npm](https://img.shields.io/npm/v/@joker53/nodewipe?style=for-the-badge&color=cb3837&logo=npm)](https://www.npmjs.com/package/@joker53/nodewipe)
@@ -34,6 +35,7 @@
   <br><br>
 
   [**Website & Live Demo**](https://joker53.me/nodewipe/) •
+  [**Medium Deep Dive**](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk) •
   [**Installation**](#-installation) •
   [**Key Features**](#-key-features) •
   [**Supported Ecosystems**](#-supported-ecosystems) •
@@ -45,6 +47,9 @@
 </div>
 
 ---
+
+> [!NOTE]
+> **Read the Engineering Deep Dive:** [Reclaiming 80 GB of Invisible Dev Bloat: Building nodewipe in Rust](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk) — Learn about Rayon parallel directory traversal, physical block accounting with `st_blocks * 512`, and CoW reflink snapshot safety.
 
 ## ⚡ Key Features
 
