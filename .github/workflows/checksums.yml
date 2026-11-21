@@ -1,0 +1,30 @@
+name: checksums
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag'
+        required: true
+        default: 'v0.9.9'
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate and upload SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          mkdir -p /tmp/release-assets
+          cd /tmp/release-assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir .
+          rm -f SHA256SUMS
+          sha256sum * > SHA256SUMS
+          echo "Generated SHA256SUMS:"
+          cat SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber

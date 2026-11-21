@@ -131,12 +131,12 @@ jobs:
         run: |
           mkdir -p /tmp/release-assets
           cd /tmp/release-assets
-          gh release download "${{ github.ref_name }}" --dir .
+          gh release download "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --dir .
           rm -f SHA256SUMS
           sha256sum * > SHA256SUMS
           echo "Generated SHA256SUMS:"
           cat SHA256SUMS
-          gh release upload "${{ github.ref_name }}" SHA256SUMS --clobber
+          gh release upload "${{ github.ref_name }}" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
 
   update-homebrew:
     needs: [build-cli]
