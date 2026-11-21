@@ -118,6 +118,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  generate-checksums:
+    needs: [build-cli, build-gui]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all release assets and generate SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/release-assets
+          cd /tmp/release-assets
+          gh release download "${{ github.ref_name }}" --dir .
+          rm -f SHA256SUMS
+          sha256sum * > SHA256SUMS
+          echo "Generated SHA256SUMS:"
+          cat SHA256SUMS
+          gh release upload "${{ github.ref_name }}" SHA256SUMS --clobber
+
   update-homebrew:
     needs: [build-cli]
     runs-on: ubuntu-latest
@@ -131,10 +151,11 @@ jobs:
           echo "Updating Homebrew formula for version ${VERSION}..."
           sed -i "s/version \".*\"/version \"${VERSION}\"/" packaging/homebrew/Formula/nodewipe.rb
           
-          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/KADHIRAVANEG/homebrew-nodewipe.git" /tmp/homebrew-tap || true
+          git clone "https://github.com/KADHIRAVANEG/homebrew-nodewipe.git" /tmp/homebrew-tap || true
           if [ -d /tmp/homebrew-tap ]; then
             cp packaging/homebrew/Formula/nodewipe.rb /tmp/homebrew-tap/Formula/nodewipe.rb
             cd /tmp/homebrew-tap
+            git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/KADHIRAVANEG/homebrew-nodewipe.git"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add Formula/nodewipe.rb

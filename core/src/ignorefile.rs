@@ -15,21 +15,58 @@ pub struct IgnoredPattern {
     pub source: IgnoreSource,
 }
 
+fn add_ignore_file_to_builder(builder: &mut GitignoreBuilder, file: &Path, root: &Path) {
+    if let Ok(content) = std::fs::read_to_string(file) {
+        let root_canonical = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let p = Path::new(trimmed);
+            if p.is_absolute() {
+                let p_canonical = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+                if let Ok(rel) = p_canonical.strip_prefix(&root_canonical) {
+                    let rel_str = rel.to_string_lossy();
+                    if rel_str.is_empty() {
+                        let _ = builder.add_line(None, "*");
+                    } else {
+                        let _ = builder.add_line(None, &format!("/{rel_str}"));
+                        let _ = builder.add_line(None, &format!("/{rel_str}/**"));
+                    }
+                } else if root_canonical.starts_with(&p_canonical) {
+                    // The entire root directory falls within this ignored path
+                    let _ = builder.add_line(None, "*");
+                }
+            } else {
+                let _ = builder.add_line(None, trimmed);
+            }
+        }
+    }
+}
+
 pub fn load_patterns(root: &Path) -> Gitignore {
     let mut builder = GitignoreBuilder::new(root);
 
     if let Some(home) = dirs::home_dir() {
         let global_ignore = home.join(".nodewipeignore");
         if global_ignore.exists() {
-            let _ = builder.add(global_ignore);
+            add_ignore_file_to_builder(&mut builder, &global_ignore, root);
         }
     }
 
     let local_ignore = root.join(".nodewipeignore");
     if local_ignore.exists() {
-        let _ = builder.add(local_ignore);
+        add_ignore_file_to_builder(&mut builder, &local_ignore, root);
     }
 
+    builder.build().unwrap_or_else(|_| Gitignore::empty())
+}
+
+/// Loads patterns from a specific ignore file into a Gitignore matcher rooted at `root`.
+pub fn load_patterns_from_file(root: &Path, file: &Path) -> Gitignore {
+    let mut builder = GitignoreBuilder::new(root);
+    add_ignore_file_to_builder(&mut builder, file, root);
     builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
@@ -212,4 +249,66 @@ pub fn is_ignored(path: &Path, ignore: &Gitignore) -> bool {
         )
     }))
     .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_absolute_path_ignore_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let scan_root = tmp.path().join("workspace");
+        let project_dir = scan_root.join("my-project");
+        let node_modules = project_dir.join("node_modules");
+        std::fs::create_dir_all(&node_modules).unwrap();
+
+        let ignore_file = tmp.path().join("test_ignore");
+
+        // Add absolute path to ignore file
+        let added = add_ignored_pattern_to_file(&ignore_file, &node_modules);
+        assert!(added.is_ok());
+
+        // Load patterns with root = scan_root
+        let matcher = load_patterns_from_file(&scan_root, &ignore_file);
+
+        // Verify that node_modules is ignored
+        assert!(
+            is_ignored(&node_modules, &matcher),
+            "absolute path should be properly matched by load_patterns"
+        );
+
+        // Subdirectory of ignored node_modules should also be ignored
+        let subpkg = node_modules.join("react");
+        assert!(is_ignored(&subpkg, &matcher));
+
+        // Unrelated directory should not be ignored
+        let other_dir = project_dir.join("src");
+        assert!(!is_ignored(&other_dir, &matcher));
+
+        // Remove pattern
+        let removed =
+            remove_ignored_pattern_from_file(&ignore_file, &node_modules.to_string_lossy());
+        assert!(removed.is_ok());
+        assert!(removed.unwrap());
+
+        let matcher_after = load_patterns_from_file(&scan_root, &ignore_file);
+        assert!(!is_ignored(&node_modules, &matcher_after));
+    }
+
+    #[test]
+    fn test_relative_pattern_ignore() {
+        let tmp = TempDir::new().unwrap();
+        let scan_root = tmp.path().join("workspace");
+        let project_dir = scan_root.join("my-project");
+        let target_dir = project_dir.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let ignore_file = scan_root.join(".nodewipeignore");
+        std::fs::write(&ignore_file, "target\n").unwrap();
+
+        let matcher = load_patterns_from_file(&scan_root, &ignore_file);
+        assert!(is_ignored(&target_dir, &matcher));
+    }
 }

@@ -18,7 +18,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use std::collections::HashSet;
-use std::io::stdout;
+use std::io::{Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
@@ -1448,7 +1448,24 @@ fn event_loop(
                                     println!(
                                         "└──────────────────────────────────────────────────────────────────┘\n"
                                     );
+                                    print!(
+                                        "Execute '{}' in '{}'? [y/N]: ",
+                                        plan.description,
+                                        plan.work_dir.display()
+                                    );
+                                    let _ = std::io::stdout().flush();
+                                    let mut confirm = String::new();
+                                    let _ = std::io::stdin().read_line(&mut confirm);
 
+                                    if !confirm.trim().eq_ignore_ascii_case("y") {
+                                        enable_raw_mode()?;
+                                        terminal.backend_mut().execute(EnterAlternateScreen)?;
+                                        terminal.clear()?;
+                                        app.status = "Rebuild cancelled by user".to_string();
+                                        continue;
+                                    }
+
+                                    println!();
                                     let status = std::process::Command::new(&plan.program)
                                         .args(&plan.args)
                                         .current_dir(&plan.work_dir)

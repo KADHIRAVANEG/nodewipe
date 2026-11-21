@@ -335,3 +335,79 @@ Phase 5 (Sprint 4)  → T2-7 JSON completeness + T2-8 --include-types + T3-x eco
 - Phase 5 Extensibility & Custom Rules: 4/4 implemented (100% COMPLETE)
 - **ALL 5 PHASES FULLY COMPLETE (100%)**
 - Solved vs npkill: **All 11 open issues + all 112 closed issues addressed with 100% architectural immunity and feature superiority**
+
+---
+
+## Post-Review Hardening & Supply-Chain Integrity (v0.9.9 / v1.0.0)
+
+> Comprehensive action plan derived from the triple-peer security & architecture audit.
+> Core engine rated **A− (Best-in-class delete safety)**; this section resolves all plumbing, distribution, and UX gaps.
+
+### Group 1: Functional Plumbing & Logic Bugs
+
+- [ ] **BUG-01: Fix `ignore add` Path Anchoring (`core/src/ignorefile.rs`, `cli/src/main.rs`)**
+  - **Problem**: `add_ignored_pattern_to_file` writes absolute paths (`/home/user/proj/node_modules`) to `~/.nodewipeignore`. `GitignoreBuilder::new(root)` treats leading `/` as anchored to `root`, so absolute paths never match scan targets.
+  - **Fix**: Store and match paths relative to the scan root or evaluate canonical prefix matching for absolute ignore patterns.
+  - **Verification**: Add end-to-end roundtrip test: `ignore add <dir>` -> `scan` -> assert excluded from scan results.
+
+- [ ] **BUG-02: Fix GitHub Action Commands & Metrics (`.github/actions/nodewipe/action.yml`)**
+  - **Problem**: Action executes non-existent `nodewipe clean "$TARGET" --force` and greps for non-existent `"lifetime_bytes_reclaimed"` in `stats --json`. Also hardcodes outdated fallback version `v0.9.1`.
+  - **Fix**: Update command to `nodewipe delete "$TARGET" --yes "${ARGS[@]}"` (or `--dry-run`), grep for `"total_freed_bytes"`, and use dynamic pinned version fallback.
+  - **Verification**: Validate syntax and run action dry-run simulation.
+
+- [ ] **BUG-03: Fix `man --raw` Flag Error (`install.sh`, `packaging/aur/PKGBUILD`)**
+  - **Problem**: Installer and PKGBUILD call `nodewipe man --raw`. The CLI accepts `nodewipe man` without `--raw`, causing silent pipe failures.
+  - **Fix**: Remove `--raw` argument so man pages generate cleanly into system and user man paths.
+  - **Verification**: Test `nodewipe man > /tmp/nodewipe.1` produces valid roff markup.
+
+- [ ] **BUG-04: Accurate Dedupe Messaging (`cli/src/main.rs`)**
+  - **Problem**: On non-reflink filesystems (ext4) with `--allow-hardlinks` disabled, dedupe links 0 files but still prints *"✅ Deduplication complete! Hardlinked identical files with zero data loss."*
+  - **Fix**: Check `stats.files_linked == 0`; print informative message: *"0 duplicate files linked (filesystem does not support reflink; pass --allow-hardlinks to hardlink identical files)"*.
+  - **Verification**: Run dedupe on non-reflink test directory and assert correct diagnostic output.
+
+- [ ] **BUG-05: Interactive Confirmation for TUI Rebuild (`cli/src/tui.rs`)**
+  - **Problem**: Pressing <kbd>b</kbd> (Rebuild) immediately invokes repo-local scripts like `./gradlew` or `./mvnw` with zero confirmation, allowing untrusted repos to execute arbitrary code.
+  - **Fix**: Add interactive confirmation modal displaying exact command, args, and working directory before executing.
+  - **Verification**: Unit/integration test for TUI confirmation modal state.
+
+- [ ] **BUG-06: CSV Formula Injection & Quoting Escapes (`cli/src/main.rs`)**
+  - **Problem**: `--export` manually quotes strings without escaping internal `"` and does not sanitize formulas starting with `=`, `+`, `-`, `@`.
+  - **Fix**: Escape internal double quotes as `""` and prepend a single quote `'` to cells beginning with formula trigger characters.
+  - **Verification**: Unit test exporting `=cmd|calc!A1` and paths containing quotes.
+
+- [ ] **BUG-07: Global & System `node_modules` Safeguard (`core/src/scanner.rs`)**
+  - **Problem**: Scanning `/` or `/usr` flags `/usr/lib/node_modules/npm` or `~/.nvm/.../lib/node_modules` because `node_modules` currently requires no marker.
+  - **Fix**: Require sibling `package.json` or explicitly ignore `node_modules` if parent directory is named `lib`.
+  - **Verification**: Scan mock `/usr/lib/node_modules` and assert it is skipped.
+
+- [ ] **BUG-08: Config Error Resilience (`core/src/config.rs`, `cli/src/main.rs`)**
+  - **Problem**: Unrecognized artifact slug in `config.toml` fatally crashes all CLI commands including `types` and `stats`. Setting `default_delete_mode = "permanent"` in config poses silent data loss risk.
+  - **Fix**: Warn on unknown slugs and fall back to default; refuse `permanent` delete mode from config file unless explicit `--permanent` CLI flag is passed.
+  - **Verification**: Test invalid config loading and permanent mode protection.
+
+---
+
+### Group 2: Supply Chain & Release Integrity
+
+- [ ] **SEC-01: Publish SHA256SUMS in CI Pipeline (`.github/workflows/release.yml`)**
+  - **Fix**: Add step in release workflow to compute `sha256sum` for all CLI binaries and GUI bundles and publish `SHA256SUMS` to GitHub Release assets.
+
+- [ ] **SEC-02: Strict Integrity & Version Pinning in npm Shim (`npm-package/scripts/download-binary.js`)**
+  - **Fix**: Remove silent fallback to `releases/latest/download/...`. Verify downloaded binary against published SHA256 checksum, failing closed on mismatch.
+
+- [ ] **SEC-03: Harden Shell Installer (`install.sh`)**
+  - **Fix**: Use secure `mktemp -d` instead of predictable `/tmp/nodewipe-download`. Verify downloaded binary hash against `SHA256SUMS`.
+
+- [ ] **SEC-04: Checksum Verification in Built-in Updater (`cli/src/update.rs`)**
+  - **Fix**: Verify SHA256 checksum of downloaded asset before replacing current executable.
+
+---
+
+### Group 3: Documentation Honesty & Test Coverage
+
+- [ ] **DOC-01: Honest Metrics Across All Manifests & README**
+  - Standardize terminology: **"39+ artifact kinds across 25+ language & toolchain ecosystems"** across README, Winget, Scoop, and action descriptions.
+  - Clarify performance comparison table.
+
+- [ ] **TEST-01: End-to-End CLI Smoke Test Suite**
+  - Add integration tests exercising real CLI execution for `ignore add/list/remove`, `man`, `stats --json`, `diff`, `plan`, and `rules check`.
