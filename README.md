@@ -30,7 +30,13 @@
 
   <br><br>
 
-  <img src="docs/screenshots/tui-dryrun.png" alt="nodewipe interactive TUI overview" width="920">
+  <p align="center">
+    <a href="docs/media/nodewipe-demo.mp4">
+      <img src="docs/media/nodewipe-demo.gif" alt="nodewipe authentic terminal, TUI, and GUI showcase demo" width="920">
+    </a>
+    <br>
+    <a href="docs/media/nodewipe-demo.mp4">🎬 <strong>Watch Full 1080p Showcase Video</strong> (<code>docs/media/nodewipe-demo.mp4</code>)</a>
+  </p>
 
   <br><br>
 
