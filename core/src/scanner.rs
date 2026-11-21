@@ -335,6 +335,19 @@ pub fn classify_path_with_custom(
         if rule.name != name {
             continue;
         }
+
+        // Global/system node_modules safeguard:
+        // Exclude system tools (e.g. /usr/lib/node_modules, /usr/local/lib/node_modules)
+        // when parent is `lib` or `lib64` unless a sibling package.json is present.
+        if rule.name == "node_modules"
+            && let Some(parent) = path.parent()
+            && let Some(parent_name) = parent.file_name().and_then(|n| n.to_str())
+            && (parent_name == "lib" || parent_name == "lib64")
+            && !parent.join("package.json").exists()
+        {
+            continue;
+        }
+
         let satisfied = match rule.marker {
             Marker::None => true,
             Marker::ParentHasAny(files) => path

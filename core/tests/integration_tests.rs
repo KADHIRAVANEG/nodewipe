@@ -1910,3 +1910,37 @@ fn test_explain_path_detailed_recipe_and_staleness() {
     assert!(explanation.match_reason.contains("Cargo.toml"));
     assert!(explanation.formatted_size.ends_with("B"));
 }
+
+#[test]
+fn test_system_lib_node_modules_safeguard() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    // Mock system path /usr/lib/node_modules/npm without package.json in lib
+    let sys_lib = root.join("usr").join("lib");
+    let sys_nm = sys_lib.join("node_modules");
+    std::fs::create_dir_all(&sys_nm).unwrap();
+    std::fs::write(sys_nm.join("npm-cli.js"), "// system npm").unwrap();
+
+    // Normal project in another directory
+    let proj = root.join("my-app");
+    let proj_nm = proj.join("node_modules");
+    std::fs::create_dir_all(&proj_nm).unwrap();
+    std::fs::write(proj.join("package.json"), "{}").unwrap();
+
+    let opts = nodewipe_core::ScanOptions {
+        root: root.to_path_buf(),
+        ..Default::default()
+    };
+    let entries = nodewipe_core::scan(&opts).unwrap();
+
+    let found_paths: Vec<_> = entries.iter().map(|e| &e.path).collect();
+    assert!(
+        !found_paths.contains(&&sys_nm),
+        "system /usr/lib/node_modules must be protected and skipped"
+    );
+    assert!(
+        found_paths.contains(&&proj_nm),
+        "project node_modules must be detected"
+    );
+}

@@ -91,15 +91,40 @@ choose_install_dir() {
 }
 
 install_binary() {
-  local url="$1" dest="$2"
-  if [ "${USE_SUDO:-0}" = "1" ]; then
-    curl -fsSL "$url" -o /tmp/nodewipe-download
-    sudo install -m 755 /tmp/nodewipe-download "$dest"
-    rm -f /tmp/nodewipe-download
-  else
-    curl -fsSL "$url" -o "$dest"
-    chmod +x "$dest"
+  local url="$1" dest="$2" asset_name="${3:-}"
+  local tmp_dir
+  tmp_dir="$(mktemp -d 2>/dev/null || mktemp -d -t 'nodewipe-install')"
+  local tmp_bin="$tmp_dir/nodewipe-bin"
+
+  curl -fsSL "$url" -o "$tmp_bin" || { rm -rf "$tmp_dir"; error "Failed to download $url"; }
+
+  # Verify SHA256 checksum if SHA256SUMS is published in the release
+  local sums_url="https://github.com/KADHIRAVANEG/nodewipe/releases/latest/download/SHA256SUMS"
+  if [ -n "$asset_name" ] && curl -fsSL "$sums_url" -o "$tmp_dir/SHA256SUMS" 2>/dev/null; then
+    if grep -F "$asset_name" "$tmp_dir/SHA256SUMS" >/dev/null 2>&1; then
+      local expected_sum actual_sum
+      expected_sum=$(grep -F "$asset_name" "$tmp_dir/SHA256SUMS" | awk '{print $1}' | head -n1)
+      if command -v sha256sum >/dev/null 2>&1; then
+        actual_sum=$(sha256sum "$tmp_bin" | awk '{print $1}')
+      elif command -v shasum >/dev/null 2>&1; then
+        actual_sum=$(shasum -a 256 "$tmp_bin" | awk '{print $1}')
+      fi
+      if [ -n "$expected_sum" ] && [ -n "$actual_sum" ]; then
+        if [ "$expected_sum" != "$actual_sum" ]; then
+          rm -rf "$tmp_dir"
+          error "SHA-256 integrity verification failed for $asset_name! Expected: $expected_sum, Got: $actual_sum"
+        fi
+        info "Verified SHA-256 checksum ($actual_sum)"
+      fi
+    fi
   fi
+
+  if [ "${USE_SUDO:-0}" = "1" ]; then
+    sudo install -m 755 "$tmp_bin" "$dest"
+  else
+    install -m 755 "$tmp_bin" "$dest" 2>/dev/null || { cp "$tmp_bin" "$dest" && chmod +x "$dest"; }
+  fi
+  rm -rf "$tmp_dir"
 }
 
 ensure_on_path() {
@@ -139,7 +164,7 @@ install_cli() {
   dest="$INSTALL_DIR/nodewipe"
 
   info "Downloading CLI from $url"
-  install_binary "$url" "$dest"
+  install_binary "$url" "$dest" "$CLI_ASSET"
   info "Installed CLI to $dest"
 
   # Install man page
@@ -147,14 +172,14 @@ install_cli() {
     if [ "${USE_SUDO:-0}" = "1" ] && { [ -d /usr/local/share/man/man1 ] || [ -d /usr/share/man/man1 ]; }; then
       local sys_man="/usr/local/share/man/man1"
       sudo mkdir -p "$sys_man"
-      "$dest" man --raw 2>/dev/null | sudo tee "$sys_man/nodewipe.1" >/dev/null || true
+      "$dest" man 2>/dev/null | sudo tee "$sys_man/nodewipe.1" >/dev/null || true
       if command -v mandb >/dev/null 2>&1; then
         sudo mandb -u >/dev/null 2>&1 || true
       fi
     else
       local user_man="${XDG_DATA_HOME:-$HOME/.local/share}/man/man1"
       mkdir -p "$user_man"
-      "$dest" man --raw > "$user_man/nodewipe.1" 2>/dev/null || true
+      "$dest" man > "$user_man/nodewipe.1" 2>/dev/null || true
       if command -v mandb >/dev/null 2>&1; then
         mandb -u >/dev/null 2>&1 || true
       fi

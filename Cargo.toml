@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core", "cli", "gui/src-tauri"]
 
 [workspace.package]
-version = "0.9.8"
+version = "0.9.9"
 edition = "2024"
 license = "MIT"
 

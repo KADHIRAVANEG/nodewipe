@@ -4,6 +4,7 @@
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const REPO = "KADHIRAVANEG/nodewipe"; 
 const BIN_DIR = path.join(__dirname, "..", "bin");
@@ -22,20 +23,20 @@ function assetNameForPlatform() {
   throw new Error(`Unsupported platform: ${platform}/${arch}. Build from source instead.`);
 }
 
-function download(url, dest, redirectsLeft = 5) {
+function fetchBuffer(url, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
     https
       .get(url, { headers: { "User-Agent": "nodewipe-installer" } }, (res) => {
         if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
           if (redirectsLeft <= 0) return reject(new Error("Too many redirects"));
-          return resolve(download(res.headers.location, dest, redirectsLeft - 1));
+          return resolve(fetchBuffer(res.headers.location, redirectsLeft - 1));
         }
         if (res.statusCode !== 200) {
           return reject(new Error(`Download failed: HTTP ${res.statusCode} for ${url}`));
         }
-        const file = fs.createWriteStream(dest);
-        res.pipe(file);
-        file.on("finish", () => file.close(resolve));
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => resolve(Buffer.concat(chunks)));
       })
       .on("error", reject);
   });
@@ -45,29 +46,46 @@ async function main() {
   const asset = assetNameForPlatform();
   const version = PKG.version;
   const versionedUrl = `https://github.com/${REPO}/releases/download/v${version}/${asset}`;
-  const latestUrl = `https://github.com/${REPO}/releases/latest/download/${asset}`;
+  const sumsUrl = `https://github.com/${REPO}/releases/download/v${version}/SHA256SUMS`;
   const binName = process.platform === "win32" ? "nodewipe.exe" : "nodewipe";
   const dest = path.join(BIN_DIR, binName);
 
   fs.mkdirSync(BIN_DIR, { recursive: true });
 
   console.log(`nodewipe: downloading ${asset} (v${version}) ...`);
+  const binaryData = await fetchBuffer(versionedUrl);
+
+  // Integrity verification
   try {
-    await download(versionedUrl, dest);
+    const sumsData = await fetchBuffer(sumsUrl);
+    const sumsText = sumsData.toString("utf8");
+    const match = sumsText.split("\n").find((line) => line.includes(asset));
+    if (match) {
+      const expectedHash = match.trim().split(/\s+/)[0];
+      const actualHash = crypto.createHash("sha256").update(binaryData).digest("hex");
+      if (expectedHash !== actualHash) {
+        throw new Error(`Checksum mismatch for ${asset}! Expected: ${expectedHash}, Got: ${actualHash}`);
+      }
+      console.log(`nodewipe: verified SHA-256 checksum (${actualHash}).`);
+    }
   } catch (err) {
-    console.warn(`nodewipe: exact version v${version} asset not found (${err.message}), falling back to latest release...`);
-    await download(latestUrl, dest);
+    if (err.message && err.message.includes("Checksum mismatch")) {
+      throw err;
+    }
+    // If SHA256SUMS is not yet available for an older release tag, proceed with caution
   }
+
+  fs.writeFileSync(dest, binaryData);
 
   if (process.platform !== "win32") {
     fs.chmodSync(dest, 0o755);
   }
 
-  console.log("nodewipe: installed.");
+  console.log("nodewipe: installed successfully.");
 }
 
 main().catch((err) => {
   console.error(`nodewipe install failed: ${err.message}`);
-  console.error("If no release has been published yet, build from source instead — see the main README.");
+  console.error("Please build from source with 'cargo install nodewipe-cli' instead.");
   process.exit(1);
 });
