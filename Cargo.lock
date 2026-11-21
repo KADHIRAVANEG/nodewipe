@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "nodewipe-cli"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "anyhow",
  "clap",
@@ -2557,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "nodewipe-core"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "anyhow",
  "crossbeam-queue",
@@ -2577,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "nodewipe-gui"
-version = "0.9.8"
+version = "0.9.9"
 dependencies = [
  "nodewipe-core",
  "serde",

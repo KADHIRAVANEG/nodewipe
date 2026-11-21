@@ -72,7 +72,14 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
     }
     if let Some(defaults) = &config.default_exclude_types {
-        exclude_kinds.extend(parse_exclude_types(defaults)?);
+        match parse_exclude_types(defaults) {
+            Ok(kinds) => exclude_kinds.extend(kinds),
+            Err(e) => {
+                eprintln!(
+                    "warning: invalid artifact type in config default_exclude_types: {e} (skipping)"
+                );
+            }
+        }
     }
 
     let profile = map_profile_arg(cli.profile);
@@ -581,7 +588,14 @@ fn cmd_reclaim(
 
     let mut exclude_kinds = Vec::new();
     if let Some(defaults) = &config.default_exclude_types {
-        exclude_kinds.extend(parse_exclude_types(defaults)?);
+        match parse_exclude_types(defaults) {
+            Ok(kinds) => exclude_kinds.extend(kinds),
+            Err(e) => {
+                eprintln!(
+                    "warning: invalid artifact type in config default_exclude_types: {e} (skipping)"
+                );
+            }
+        }
     }
     if let Some(prof) = profile {
         for kind in ArtifactKind::ALL {
@@ -1251,7 +1265,14 @@ fn cmd_diff(
 
     let mut exclude_kinds = Vec::new();
     if let Some(defaults) = &config.default_exclude_types {
-        exclude_kinds.extend(parse_exclude_types(defaults)?);
+        match parse_exclude_types(defaults) {
+            Ok(kinds) => exclude_kinds.extend(kinds),
+            Err(e) => {
+                eprintln!(
+                    "warning: invalid artifact type in config default_exclude_types: {e} (skipping)"
+                );
+            }
+        }
     }
 
     let opts = ScanOptions {
@@ -1993,7 +2014,12 @@ fn resolve_delete_mode(
     }
     match config.default_delete_mode.as_deref() {
         Some("archive") => DeleteMode::Archive,
-        Some("permanent") => DeleteMode::Permanent,
+        Some("permanent") => {
+            eprintln!(
+                "warning: 'permanent' delete mode cannot be set silently via config file; using 'trash' (pass --mode permanent on CLI to delete permanently)"
+            );
+            DeleteMode::Trash
+        }
         Some("trash") | None => DeleteMode::Trash,
         Some(other) => {
             eprintln!("warning: unknown default_delete_mode '{other}' in config, using trash");
@@ -2273,8 +2299,12 @@ fn cmd_dedupe(
         println!("\n No duplicate files found. Your storage is already deduplicated!");
     } else if dry_run {
         println!("\n Run without `--dry-run` to execute hardlink/reflink deduplication.");
+    } else if stats.duplicate_files_linked == 0 {
+        println!(
+            "\n 0 duplicate files linked. Current filesystem does not support CoW reflink clones;\n pass `--allow-hardlinks` to deduplicate identical files using hardlinks."
+        );
     } else {
-        println!("\n Deduplication complete! Hardlinked identical files with zero data loss.");
+        println!("\n Deduplication complete! Linked identical files with zero data loss.");
     }
     println!();
 
@@ -2603,6 +2633,23 @@ fn cmd_scan(
     Ok(ExitCode::SUCCESS)
 }
 
+/// Sanitizes and escapes a string field for RFC 4180 compliant CSV export,
+/// preventing spreadsheet formula injection (=, +, -, @).
+fn escape_csv_field(s: &str) -> String {
+    let sanitized = if s.starts_with('=')
+        || s.starts_with('+')
+        || s.starts_with('-')
+        || s.starts_with('@')
+        || s.starts_with('\t')
+        || s.starts_with('\r')
+    {
+        format!("'{s}")
+    } else {
+        s.to_string()
+    };
+    sanitized.replace('"', "\"\"")
+}
+
 fn export_scan_results(
     path: &Path,
     entries: &[Entry],
@@ -2633,12 +2680,12 @@ fn export_scan_results(
             };
             wtr.push_str(&format!(
                 "\"{}\",\"{}\",{},\"{}\",{},\"{}\",{},{}\n",
-                e.path.display(),
-                e.kind.slug(),
+                escape_csv_field(&e.path.to_string_lossy()),
+                escape_csv_field(e.kind.slug()),
                 e.size_bytes,
-                pm,
+                escape_csv_field(&pm),
                 mtime,
-                branch,
+                escape_csv_field(branch),
                 dirty,
                 merged,
             ));
@@ -2953,6 +3000,18 @@ mod tests {
         );
         assert_eq!(
             resolve_delete_mode(Some(DeleteModeArg::Permanent), &archive_config),
+            DeleteMode::Permanent
+        );
+
+        let perm_config = nodewipe_core::Config {
+            default_delete_mode: Some("permanent".into()),
+            ..Default::default()
+        };
+        // Permanent in config falls back to trash for safety
+        assert_eq!(resolve_delete_mode(None, &perm_config), DeleteMode::Trash);
+        // But explicit CLI flag still permits permanent deletion
+        assert_eq!(
+            resolve_delete_mode(Some(DeleteModeArg::Permanent), &perm_config),
             DeleteMode::Permanent
         );
     }
@@ -3440,5 +3499,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(code_cat, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_escape_csv_field_formula_and_quotes() {
+        assert_eq!(escape_csv_field("=cmd|calc!A1"), "'=cmd|calc!A1");
+        assert_eq!(escape_csv_field("+123"), "'+123");
+        assert_eq!(escape_csv_field("-cmd"), "'-cmd");
+        assert_eq!(escape_csv_field("@SUM(A1)"), "'@SUM(A1)");
+        assert_eq!(
+            escape_csv_field("path/with \"quotes\"/node_modules"),
+            "path/with \"\"quotes\"\"/node_modules"
+        );
+        assert_eq!(escape_csv_field("normal/path"), "normal/path");
     }
 }
