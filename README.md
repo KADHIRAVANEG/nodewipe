@@ -25,7 +25,7 @@
   <br>
 
   <p align="center">
-    <strong>⭐ Enjoying nodewipe? Please consider starring the repository on GitHub to help others discover it!</strong>
+    <strong>Enjoying nodewipe? Please consider starring the repository on GitHub to help others discover it!</strong>
   </p>
 
   <br><br>
@@ -34,8 +34,6 @@
     <a href="docs/media/nodewipe-demo.mp4">
       <img src="docs/media/nodewipe-demo.gif" alt="nodewipe authentic terminal, TUI, and GUI showcase demo" width="920">
     </a>
-    <br>
-    <a href="docs/media/nodewipe-demo.mp4">🎬 <strong>Watch Full 1080p Showcase Video</strong> (<code>docs/media/nodewipe-demo.mp4</code>)</a>
   </p>
 
   <br><br>
@@ -58,30 +56,30 @@
 > **Read the Engineering Deep Dive:** [Reclaiming 80 GB of Invisible Dev Bloat: Building nodewipe in Rust](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk) — Learn about Rayon parallel directory traversal, physical block accounting with `st_blocks * 512`, and CoW reflink snapshot safety.
 
 <a id="key-features"></a>
-## ⚡ Key Features
+## Key Features
 
-* **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
-* **🌐 39+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, C/C++ & Native (CMake, Ninja, Zig, Elixir, Meson), modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress, Yarn offline cache, pnpm `.ignored`), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
-* **🧠 Decision Intelligence & Directory Inspector**: `nodewipe explain <path>` (or <kbd>e</kbd> in TUI) provides clear explanations for each result: why it matched, whether it can be recreated, git branch staleness, risk rating, and exact recovery command.
-* **🎯 Targeted Reclaim Engine**: Free up an exact storage budget (`nodewipe reclaim 10GB`) with risk scoring, prioritizing zero-download local rebuilds first.
-* **📋 Named Profiles & Saved Presets**: Intent-driven cleanups (`--profile build-outputs`, `old-dependencies`, `large-models`) and reusable saved workflows (`nodewipe preset save/run`).
-* **🌳 Storage Explorer & Drill-Down**: Inspect internal layout of massive artifacts (`nodewipe tree <path>` or <kbd>v</kbd> in TUI) to see which subpackages, incremental builds, or caches consume disk space.
-* **⏱️ Project Activity Timeline**: Correlate Source modification vs Git commits vs Build output timestamps (`nodewipe timeline <path>`) to differentiate fresh builds from abandoned ones.
-* **🏢 Deep Monorepo Workspace Analytics**: Multi-package rollups and deduplication insights (`nodewipe workspace <path>`) for pnpm, Cargo, Turborepo, Nx, and Lerna.
-* **📦 Backup Manager, Scan Diffs & Declarative Plans**: List, prune, and restore archives (`nodewipe backups`), track storage drift between scan snapshots (`nodewipe diff`), and generate reviewable TOML/JSON cleanup plans (`nodewipe plan`).
-* **⚙️ Extensibility & Custom Rules**: Define user/team-specific artifact rules (`.nodewipe.toml` / `nodewipe rules init/check/test`) and browse the full 39+ ecosystem catalog (`nodewipe rules list`).
-* **📌 Project Pinning Protection**: Mark active projects as pinned (`nodewipe pin add` or <kbd>p</kbd> in TUI). Pinned projects and all their artifacts are strictly locked and refused by the deletion engine.
-* **🛡️ Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
-* **🔍 Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
+* **Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
+* **39+ Ecosystems Covered**: Not just `node_modules` — handles Rust `target/`, Python `venv` / caches, C/C++ & Native (CMake, Ninja, Zig, Elixir, Meson), modern web (Astro, SvelteKit, Nuxt, Docusaurus, Vite, Playwright, Cypress, Yarn offline cache, pnpm `.ignored`), AI/ML models (Hugging Face, Ollama, PyTorch, Triton), Mobile & Apple (Xcode DerivedData, SwiftPM, CocoaPods, Gradle cache, Android cache), Java Maven & Gradle, Go caches, .NET `bin/obj`, PHP `vendor`, Next.js, and Turborepo.
+* **Decision Intelligence & Directory Inspector**: `nodewipe explain <path>` (or <kbd>e</kbd> in TUI) provides clear explanations for each result: why it matched, whether it can be recreated, git branch staleness, risk rating, and exact recovery command.
+* **Targeted Reclaim Engine**: Free up an exact storage budget (`nodewipe reclaim 10GB`) with risk scoring, prioritizing zero-download local rebuilds first.
+* **Named Profiles & Saved Presets**: Intent-driven cleanups (`--profile build-outputs`, `old-dependencies`, `large-models`) and reusable saved workflows (`nodewipe preset save/run`).
+* **Storage Explorer & Drill-Down**: Inspect internal layout of massive artifacts (`nodewipe tree <path>` or <kbd>v</kbd> in TUI) to see which subpackages, incremental builds, or caches consume disk space.
+* **Project Activity Timeline**: Correlate Source modification vs Git commits vs Build output timestamps (`nodewipe timeline <path>`) to differentiate fresh builds from abandoned ones.
+* **Deep Monorepo Workspace Analytics**: Multi-package rollups and deduplication insights (`nodewipe workspace <path>`) for pnpm, Cargo, Turborepo, Nx, and Lerna.
+* **Backup Manager, Scan Diffs & Declarative Plans**: List, prune, and restore archives (`nodewipe backups`), track storage drift between scan snapshots (`nodewipe diff`), and generate reviewable TOML/JSON cleanup plans (`nodewipe plan`).
+* **Extensibility & Custom Rules**: Define user/team-specific artifact rules (`.nodewipe.toml` / `nodewipe rules init/check/test`) and browse the full 39+ ecosystem catalog (`nodewipe rules list`).
+* **Project Pinning Protection**: Mark active projects as pinned (`nodewipe pin add` or <kbd>p</kbd> in TUI). Pinned projects and all their artifacts are strictly locked and refused by the deletion engine.
+* **Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
+* **Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
 * **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
-* **📦 Monorepo & Workspace Aware**: Automatically groups nested packages and monorepo roots (`pnpm`, `Cargo`, `Turborepo`, `Nx`) with interactive expand/collapse.
-* **📊 Lifetime Savings Dashboard**: Track every byte reclaimed over time (`nodewipe stats`) with a 30-day interactive history chart.
-* **🖥️ Native Desktop GUI**: A lightweight, responsive Tauri desktop app wrapping the exact same high-speed Rust engine.
+* **Monorepo & Workspace Aware**: Automatically groups nested packages and monorepo roots (`pnpm`, `Cargo`, `Turborepo`, `Nx`) with interactive expand/collapse.
+* **Lifetime Savings Dashboard**: Track every byte reclaimed over time (`nodewipe stats`) with a 30-day interactive history chart.
+* **Native Desktop GUI**: A lightweight, responsive Tauri desktop app wrapping the exact same high-speed Rust engine.
 
 ---
 
 <a id="installation"></a>
-## 📦 Installation
+## Installation
 
 Choose your preferred installation method:
 
@@ -157,7 +155,7 @@ cargo build --release
 ---
 
 <a id="supported-ecosystems"></a>
-## 🌐 Supported Ecosystems
+## Supported Ecosystems
 
 `nodewipe` uses strict **marker validation** to avoid false positives. A directory named `target`, `build`, or `dist` is only considered disposable if confirmed by sibling configuration files:
 
@@ -211,7 +209,7 @@ nodewipe types
 ---
 
 <a id="interactive-tui--dry-run-mode"></a>
-## 💻 Interactive TUI & Dry-Run Mode
+## Interactive TUI & Dry-Run Mode
 
 Launching `nodewipe` with no arguments in a terminal opens the **Ratatui-powered interactive TUI**:
 
@@ -258,7 +256,7 @@ Press <kbd>P</kbd> at any time in the TUI to activate **Dry-Run Mode**. It calcu
 
 ---
 
-## 🧠 Decision Intelligence & Project Pinning
+## Decision Intelligence & Project Pinning
 
 `nodewipe` transforms everyday cleanup from a guessing game into an informed, safe decision.
 
@@ -316,7 +314,7 @@ nodewipe pin remove ~/Projects/critical-client-app
 
 ---
 
-## 🎯 Targeted Reclaim, Cleanup Profiles & Presets
+## Targeted Reclaim, Cleanup Profiles & Presets
 
 Need to free up a specific amount of disk space quickly? Want repeatable one-command cleanups for your developer setup? `nodewipe` provides intelligent budget-guided reclamation and saved workflow presets:
 
@@ -389,7 +387,7 @@ nodewipe preset remove work-sweep
 
 ---
 
-## 🌳 Storage Explorer, Project Timeline & Monorepo Analytics
+## Storage Explorer, Project Timeline & Monorepo Analytics
 
 ### 1. Artifact Subdirectory Drill-Down (`nodewipe tree <path>`)
 Inspect what's eating up storage inside oversized artifacts (e.g. `target/`, `node_modules/`) without external tools:
@@ -456,7 +454,7 @@ nodewipe workspace .
 
 ---
 
-## 📦 Backup Management, Scan Diffs & Declarative Plans
+## Backup Management, Scan Diffs & Declarative Plans
 
 ### 1. Backup Archive Manager (`nodewipe backups`)
 Inspect, prune, and restore `.tar.gz` and `.nodewipe-snap` archives created when deleting with `--mode archive`:
@@ -585,7 +583,7 @@ nodewipe doctor ~
 ---
 
 <a id="desktop-gui"></a>
-## 🖥️ Desktop GUI
+## Desktop GUI
 
 `nodewipe` includes an optional native desktop application built with **Tauri v2** and Vanilla JS for near-zero memory footprint:
 
@@ -597,13 +595,13 @@ nodewipe gui
   <img src="docs/screenshots/gui-overview.png" alt="nodewipe Desktop GUI Application" width="850">
 </div>
 
-* **🔍 Scan Tab**: Real-time path filtering, ecosystem filter chips, sortable columns, and collapsible monorepo tree view.
+* **Scan Tab**: Real-time path filtering, ecosystem filter chips, sortable columns, and collapsible monorepo tree view.
 * **🩺 Doctor Tab**: High-level ecosystem breakdown table and top disk hogs.
-* **📊 Stats Tab**: Visual bar chart of historical savings over the last 30 days.
+* **Stats Tab**: Visual bar chart of historical savings over the last 30 days.
 
 ---
 
-## 📊 Lifetime Stats (`nodewipe stats`)
+## Lifetime Stats (`nodewipe stats`)
 
 Every deletion made through the CLI, TUI, or GUI is recorded to `~/.local/share/nodewipe/history.json`. Review your all-time disk savings with:
 
@@ -631,7 +629,7 @@ nodewipe stats
 ---
 
 <a id="cli-cheat-sheet"></a>
-## 📖 CLI Cheat Sheet
+## CLI Cheat Sheet
 
 ```bash
 # ── Scanning ────────────────────────────────────────────────────────────────
@@ -707,7 +705,7 @@ nodewipe gui                               # Launch desktop GUI
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### `.nodewipeignore`
 Place a `.nodewipeignore` file in your scan root (or in `~/.nodewipeignore` for global defaults). Supports standard `.gitignore` glob syntax:
@@ -732,7 +730,7 @@ default_exclude_types = ["venv", "rust_target"]
 
 ---
 
-## 🥊 Performance & Architecture Comparison
+## Performance & Architecture Comparison
 
 `nodewipe` is engineered from the ground up for modern, high-volume developer workspaces and multi-language stacks:
 
@@ -740,32 +738,32 @@ default_exclude_types = ["venv", "rust_target"]
 |---|:---:|:---:|
 | **Language & Engine** | Node.js (V8 runtime) | **Pure Rust (`rayon` multithreaded)** |
 | **Supported Ecosystems** | `node_modules` only | **39+ (Node, Rust, Python, Java, Go, .NET, PHP, Caches, AI/ML, Mobile, Native)** |
-| **Directory Inspector (`explain`)** | ❌ No | **✅ Deep match rationale, git staleness, risk rating & recovery recipe** |
-| **Project Pinning Protection** | ❌ No | **✅ `pin add/list/remove` with hard deleter lock (<kbd>p</kbd>)** |
-| **Recovery Recipes** | ❌ No | **✅ Exact rebuild commands (`npm install`, `cargo build`, etc.)** |
-| **Targeted Budget Reclaim** | ❌ No | **`nodewipe reclaim <SIZE>` with risk ranking & preview** |
-| **Workflow Presets & Profiles** | ❌ No | **`nodewipe preset` & `--profile` intent-based filters** |
-| **Storage Explorer & Drill-Down** | ❌ No | **`nodewipe tree` / <kbd>v</kbd> (Internal size drill-down)** |
-| **Project Activity Timeline** | ❌ No | **`nodewipe timeline` (Source vs Git vs Build mtimes)** |
-| **Monorepo Workspace Analytics** | ❌ No | **`nodewipe workspace` (Package rollup & shared root analysis)** |
-| **Backup Archive Manager** | ❌ No | **`nodewipe backups list/prune/restore`** |
-| **Scan Diffs & Drift Tracking** | ❌ No | **`nodewipe diff` (Net disk growth & shrinkage)** |
-| **Declarative Cleanup Plans** | ❌ No | **`nodewipe plan create/view/apply` (TOML/JSON)** |
-| **Custom Rules & Extensibility** | ❌ No | **`nodewipe rules init/check/test/list` (`.nodewipe.toml`)** |
+| **Directory Inspector (`explain`)** | No | **Yes — Deep match rationale, git staleness, risk rating & recovery recipe** |
+| **Project Pinning Protection** | No | **Yes — `pin add/list/remove` with hard deleter lock (<kbd>p</kbd>)** |
+| **Recovery Recipes** | No | **Yes — Exact rebuild commands (`npm install`, `cargo build`, etc.)** |
+| **Targeted Budget Reclaim** | No | **`nodewipe reclaim <SIZE>` with risk ranking & preview** |
+| **Workflow Presets & Profiles** | No | **`nodewipe preset` & `--profile` intent-based filters** |
+| **Storage Explorer & Drill-Down** | No | **`nodewipe tree` / <kbd>v</kbd> (Internal size drill-down)** |
+| **Project Activity Timeline** | No | **`nodewipe timeline` (Source vs Git vs Build mtimes)** |
+| **Monorepo Workspace Analytics** | No | **`nodewipe workspace` (Package rollup & shared root analysis)** |
+| **Backup Archive Manager** | No | **`nodewipe backups list/prune/restore`** |
+| **Scan Diffs & Drift Tracking** | No | **`nodewipe diff` (Net disk growth & shrinkage)** |
+| **Declarative Cleanup Plans** | No | **`nodewipe plan create/view/apply` (TOML/JSON)** |
+| **Custom Rules & Extensibility** | No | **`nodewipe rules init/check/test/list` (`.nodewipe.toml`)** |
 | **Disk Size Accuracy** | Logical byte sum | **Physical cluster block calculation (`st_blocks`)** |
 | **Safety & Recovery** | Permanent unlink only | **OS Trash + Instant CoW Snapshot + Atomic `.tar.gz` Archiving** |
-| **Interactive Dry-Run** | ❌ No | **✅ Real-time simulation toggle (<kbd>P</kbd>)** |
+| **Interactive Dry-Run** | No | **Yes — Real-time simulation toggle (<kbd>P</kbd>)** |
 | **Monorepo / Workspace Support**| Flat results flood screen | **Automatic grouping by workspace root with interactive collapse (<kbd>Tab</kbd>)** |
-| **Toolchain Rebuild** | ❌ No | **✅ In-place dependency rebuild/reinstall (<kbd>b</kbd>)** |
-| **Age & Staleness Filtering** | ❌ No | **✅ Interactive age cycling (<kbd>f</kbd>) & Git staleness flags** |
-| **Scriptable Headless Mode** | ❌ No | **`--json`, `--yes`, `--export csv/json`, exit codes** |
-| **System Doctor Analysis** | ❌ No | **`nodewipe doctor` (Ecosystem breakdown & staleness)** |
-| **Lifetime History Tracking** | ❌ No | **`nodewipe stats` (Dashboard & historical bar chart)** |
-| **Native Desktop App** | ❌ No | **Tauri v2 Desktop GUI (`nodewipe gui`)** |
+| **Toolchain Rebuild** | No | **Yes — In-place dependency rebuild/reinstall (<kbd>b</kbd>)** |
+| **Age & Staleness Filtering** | No | **Yes — Interactive age cycling (<kbd>f</kbd>) & Git staleness flags** |
+| **Scriptable Headless Mode** | No | **`--json`, `--yes`, `--export csv/json`, exit codes** |
+| **System Doctor Analysis** | No | **`nodewipe doctor` (Ecosystem breakdown & staleness)** |
+| **Lifetime History Tracking** | No | **`nodewipe stats` (Dashboard & historical bar chart)** |
+| **Native Desktop App** | No | **Tauri v2 Desktop GUI (`nodewipe gui`)** |
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 flowchart TD
@@ -798,7 +796,7 @@ flowchart TD
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions, issues, and feature requests are welcome!
 
@@ -811,7 +809,7 @@ Contributions, issues, and feature requests are welcome!
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
 Developed and maintained by [**KADHIRAVANEG**](https://github.com/KADHIRAVANEG).
