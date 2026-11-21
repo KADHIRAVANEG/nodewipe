@@ -34,15 +34,15 @@
 
   <br><br>
 
-  [**Website & Live Demo**](https://joker53.me/nodewipe/) •
+  [**Website & Live Demo**](https://kadhiravaneg.github.io/nodewipe/) •
   [**Medium Deep Dive**](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk) •
-  [**Installation**](#-installation) •
-  [**Key Features**](#-key-features) •
-  [**Supported Ecosystems**](#-supported-ecosystems) •
-  [**Interactive TUI**](#-interactive-tui--dry-run-mode) •
-  [**System Doctor**](#-system-doctor-nodewipe-doctor) •
-  [**Desktop GUI**](#-desktop-gui) •
-  [**CLI Cheat Sheet**](#-cli-cheat-sheet)
+  [**Installation**](#installation) •
+  [**Key Features**](#key-features) •
+  [**Supported Ecosystems**](#supported-ecosystems) •
+  [**Interactive TUI**](#interactive-tui--dry-run-mode) •
+  [**System Doctor**](#system-doctor-nodewipe-doctor) •
+  [**Desktop GUI**](#desktop-gui) •
+  [**CLI Cheat Sheet**](#cli-cheat-sheet)
 
 </div>
 
@@ -51,6 +51,7 @@
 > [!NOTE]
 > **Read the Engineering Deep Dive:** [Reclaiming 80 GB of Invisible Dev Bloat: Building nodewipe in Rust](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk) — Learn about Rayon parallel directory traversal, physical block accounting with `st_blocks * 512`, and CoW reflink snapshot safety.
 
+<a id="key-features"></a>
 ## ⚡ Key Features
 
 * **🚀 Blazingly Fast**: Parallel directory traversal and physical filesystem block analysis (`st_blocks * 512`) powered by `rayon`. Scans hundreds of thousands of folders in seconds.
@@ -73,6 +74,7 @@
 
 ---
 
+<a id="installation"></a>
 ## 📦 Installation
 
 Choose your preferred installation method:
@@ -148,6 +150,7 @@ cargo build --release
 
 ---
 
+<a id="supported-ecosystems"></a>
 ## 🌐 Supported Ecosystems
 
 `nodewipe` uses strict **marker validation** to avoid false positives. A directory named `target`, `build`, or `dist` is only considered disposable if confirmed by sibling configuration files:
@@ -201,6 +204,7 @@ nodewipe types
 
 ---
 
+<a id="interactive-tui--dry-run-mode"></a>
 ## 💻 Interactive TUI & Dry-Run Mode
 
 Launching `nodewipe` with no arguments in a terminal opens the **Ratatui-powered interactive TUI**:
@@ -534,6 +538,7 @@ ecosystem = "Hardware Simulation"
 
 ---
 
+<a id="system-doctor-nodewipe-doctor"></a>
 ## 🩺 System Doctor (`nodewipe doctor`)
 
 Analyze where your storage is disappearing across all developer environments. `nodewipe doctor` scans recursively, computes aggregate totals by ecosystem, and surfaces the oldest untouched artifacts:
@@ -573,6 +578,7 @@ nodewipe doctor ~
 
 ---
 
+<a id="desktop-gui"></a>
 ## 🖥️ Desktop GUI
 
 `nodewipe` includes an optional native desktop application built with **Tauri v2** and Vanilla JS for near-zero memory footprint:
@@ -618,6 +624,7 @@ nodewipe stats
 
 ---
 
+<a id="cli-cheat-sheet"></a>
 ## 📖 CLI Cheat Sheet
 
 ```bash
