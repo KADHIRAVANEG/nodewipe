@@ -1,15 +1,23 @@
 [package]
-name = "nodewipe-cli"
+name = "nodewipe"
+description = "The surgical, blazing-fast dev-environment cleaner written in Rust"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/nodewipe"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
 
 [[bin]]
 name = "nodewipe"
 path = "src/main.rs"
 
 [dependencies]
-nodewipe-core = { path = "../core" }
+nodewipe-core = { path = "../core", version = "0.9.9" }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

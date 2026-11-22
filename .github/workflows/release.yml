@@ -45,7 +45,7 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Build CLI
-        run: cargo build --release --package nodewipe-cli --target ${{ matrix.target }}
+        run: cargo build --release --package nodewipe --target ${{ matrix.target }}
 
       - name: Rename binary (unix)
         if: runner.os != 'Windows'

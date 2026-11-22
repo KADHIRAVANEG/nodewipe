@@ -6,8 +6,14 @@ members = ["core", "cli", "gui/src-tauri"]
 version = "0.9.9"
 edition = "2024"
 license = "MIT"
+authors = ["KADHIRAVANEG <kadhiravanegk@gmail.com>"]
+repository = "https://github.com/KADHIRAVANEG/nodewipe"
+homepage = "https://kadhiravaneg.github.io/nodewipe/"
+keywords = ["cleanup", "cli", "node_modules", "disk-space", "developer-tools"]
+categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
+nodewipe-core = { path = "core", version = "0.9.9" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"

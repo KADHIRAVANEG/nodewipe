@@ -2534,7 +2534,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nodewipe-cli"
+name = "nodewipe"
 version = "0.9.9"
 dependencies = [
  "anyhow",

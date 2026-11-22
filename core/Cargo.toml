@@ -1,8 +1,16 @@
 [package]
 name = "nodewipe-core"
+description = "Core engine for nodewipe — High-speed parallel scanner and safe excision engine across 39+ dev ecosystems"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/nodewipe-core"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 serde.workspace = true

@@ -86,6 +86,6 @@ async function main() {
 
 main().catch((err) => {
   console.error(`nodewipe install failed: ${err.message}`);
-  console.error("Please build from source with 'cargo install nodewipe-cli' instead.");
+  console.error("Please build from source with 'cargo install nodewipe' instead.");
   process.exit(1);
 });

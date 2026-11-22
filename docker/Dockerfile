@@ -4,7 +4,7 @@ FROM rust:slim AS builder
 WORKDIR /src
 COPY . .
 
-RUN cargo build --release --package nodewipe-cli
+RUN cargo build --release --package nodewipe
 
 # Stage 2: runtime
 FROM debian:bookworm-slim
