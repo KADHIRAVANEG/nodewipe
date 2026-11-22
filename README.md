@@ -17,6 +17,7 @@
   [![crates.io](https://img.shields.io/crates/v/nodewipe?style=for-the-badge&color=e05d44&logo=rust&logoColor=white)](https://crates.io/crates/nodewipe)
   [![GitHub stars](https://img.shields.io/github/stars/KADHIRAVANEG/nodewipe?style=for-the-badge&color=eab308&logo=github)](https://github.com/KADHIRAVANEG/nodewipe/stargazers)
   [![Medium Story](https://img.shields.io/badge/Medium-Architecture_Deep_Dive-000000?style=for-the-badge&logo=medium&logoColor=white)](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk)
+  [![DEV.to](https://img.shields.io/badge/DEV.to-Architecture_Deep_Dive-0a0a0a?style=for-the-badge&logo=devdotto&logoColor=white)](https://dev.to/joker53/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-2icg)
   [![npm downloads](https://img.shields.io/npm/dt/@joker53/nodewipe?style=for-the-badge&color=22c55e&logo=npm)](https://www.npmjs.com/package/@joker53/nodewipe)
   [![Homebrew](https://img.shields.io/badge/Homebrew-v0.9.9-f59e0b?style=for-the-badge&logo=homebrew&logoColor=white)](https://github.com/KADHIRAVANEG/homebrew-nodewipe)
   [![Scoop](https://img.shields.io/badge/Scoop-v0.9.9-4a90e2?style=for-the-badge&logo=powershell&logoColor=white)](https://github.com/KADHIRAVANEG/scoop-nodewipe)
@@ -47,7 +48,7 @@
 ---
 
 > [!NOTE]
-> **Read the Engineering Deep Dive:** [Reclaiming 80 GB of Invisible Dev Bloat: Building nodewipe in Rust](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk) — Learn about Rayon parallel directory traversal, physical block accounting with `st_blocks * 512`, and CoW reflink snapshot safety.
+> **Read the Engineering Deep Dive:** [Dev.to](https://dev.to/joker53/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-2icg) | [Medium](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk) — *Reclaiming 80 GB of Invisible Dev Bloat: Building nodewipe in Rust* (Learn about Rayon parallel directory traversal, physical block accounting with `st_blocks * 512`, and CoW reflink snapshot safety).
 
 <a id="key-features"></a>
 ## Key Features
