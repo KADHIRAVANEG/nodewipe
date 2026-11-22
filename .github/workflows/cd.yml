@@ -1,0 +1,126 @@
+name: cd
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      force_publish:
+        description: 'Bypass version equality check and force publish gate'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  verify:
+    name: Verify & Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies for Tauri GUI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev build-essential
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rustfmt check
+        run: cargo fmt --all --check
+
+      - name: Cargo check
+        run: cargo check --workspace --all-targets
+
+      - name: Clippy check
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run test suite
+        run: cargo test --workspace
+
+  check-version:
+    name: Check Version Bump
+    needs: [verify]
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.version_step.outputs.should_publish }}
+      version: ${{ steps.version_step.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compare local Cargo version against crates.io
+        id: version_step
+        run: |
+          LOCAL_VER=$(grep -E '^[[:space:]]*version[[:space:]]*=' Cargo.toml | head -n1 | cut -d'"' -f2)
+          echo "Local workspace version: $LOCAL_VER"
+          echo "version=$LOCAL_VER" >> $GITHUB_OUTPUT
+
+          CRATES_VER=$(curl -s -H "User-Agent: nodewipe-ci (kadhiravanegk@gmail.com)" https://crates.io/api/v1/crates/nodewipe | jq -r '.crate.max_version // "none"')
+          echo "crates.io published version: $CRATES_VER"
+
+          if [ "$LOCAL_VER" != "$CRATES_VER" ] || [ "${{ inputs.force_publish }}" = "true" ]; then
+            echo "Version bump detected ($LOCAL_VER != $CRATES_VER). Enabling release publish gate."
+            echo "should_publish=true" >> $GITHUB_OUTPUT
+          else
+            echo "Version $LOCAL_VER already published on crates.io. Skipping publish gate."
+            echo "should_publish=false" >> $GITHUB_OUTPUT
+          fi
+
+  approval-gate-publish:
+    name: Platform Publish Gate (Approval Required)
+    needs: [check-version]
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://crates.io/crates/nodewipe
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish nodewipe-core to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || secrets.CRATES_IO_TOKEN }}
+        run: |
+          echo "Publishing nodewipe-core v${{ needs.check-version.outputs.version }} to crates.io..."
+          cargo publish --package nodewipe-core --token "$CARGO_REGISTRY_TOKEN" || echo "nodewipe-core already published"
+
+      - name: Wait for crates.io index propagation
+        run: |
+          echo "Waiting 30 seconds for nodewipe-core index to update..."
+          sleep 30
+
+      - name: Publish nodewipe to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || secrets.CRATES_IO_TOKEN }}
+        run: |
+          echo "Publishing nodewipe v${{ needs.check-version.outputs.version }} to crates.io..."
+          cargo publish --package nodewipe --token "$CARGO_REGISTRY_TOKEN"
+
+      - name: Tag release in Git and trigger matrix build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: "v${{ needs.check-version.outputs.version }}"
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Creating and pushing Git release tag $TAG..."
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          else
+            echo "Tag $TAG already exists on remote."
+          fi
