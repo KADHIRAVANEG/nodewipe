@@ -71,7 +71,7 @@
 * **Project Pinning Protection**: Mark active projects as pinned (`nodewipe pin add` or <kbd>p</kbd> in TUI). Pinned projects and all their artifacts are strictly locked and refused by the deletion engine.
 * **Zero-Risk Excision & CoW Archiving**: Moves to OS Trash by default. Supports instant Copy-on-Write (`reflink`) snapshotting on Btrfs/XFS/APFS with 0ms overhead, with automatic fallback to compressed `.tar.gz` archiving.
 * **Interactive TUI with Dry-Run Mode**: Full keyboard navigation, multi-select, and instant dry-run simulation (<kbd>P</kbd>) before touching a single byte.
-* **🩺 System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
+* **System Doctor**: `nodewipe doctor ~` analyzes disk-hog distribution across every toolchain and identifies abandoned build outputs.
 * **Monorepo & Workspace Aware**: Automatically groups nested packages and monorepo roots (`pnpm`, `Cargo`, `Turborepo`, `Nx`) with interactive expand/collapse.
 * **Lifetime Savings Dashboard**: Track every byte reclaimed over time (`nodewipe stats`) with a 30-day interactive history chart.
 * **Native Desktop GUI**: A lightweight, responsive Tauri desktop app wrapping the exact same high-speed Rust engine.
@@ -543,7 +543,7 @@ ecosystem = "Hardware Simulation"
 ---
 
 <a id="system-doctor-nodewipe-doctor"></a>
-## 🩺 System Doctor (`nodewipe doctor`)
+## System Doctor (`nodewipe doctor`)
 
 Analyze where your storage is disappearing across all developer environments. `nodewipe doctor` scans recursively, computes aggregate totals by ecosystem, and surfaces the oldest untouched artifacts:
 
@@ -596,7 +596,7 @@ nodewipe gui
 </div>
 
 * **Scan Tab**: Real-time path filtering, ecosystem filter chips, sortable columns, and collapsible monorepo tree view.
-* **🩺 Doctor Tab**: High-level ecosystem breakdown table and top disk hogs.
+* **Doctor Tab**: High-level ecosystem breakdown table and top disk hogs.
 * **Stats Tab**: Visual bar chart of historical savings over the last 30 days.
 
 ---

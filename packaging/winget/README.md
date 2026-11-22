@@ -14,7 +14,7 @@ On Windows, you can validate and submit directly using Microsoft's official `win
 winget install Microsoft.WingetCreate
 
 # Submit new version to microsoft/winget-pkgs
-wingetcreate submit https://github.com/KADHIRAVANEG/nodewipe/releases/download/v0.9.0/nodewipe-windows-x86_64.exe
+wingetcreate submit https://github.com/KADHIRAVANEG/nodewipe/releases/download/v0.9.9/nodewipe-windows-x86_64.exe
 ```
 
 ### Local Testing

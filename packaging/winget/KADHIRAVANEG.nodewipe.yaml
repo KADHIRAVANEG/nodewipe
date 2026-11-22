@@ -26,7 +26,7 @@ Installers:
   - Architecture: x64
     InstallerType: portable
     InstallerUrl: https://github.com/KADHIRAVANEG/nodewipe/releases/download/v0.9.9/nodewipe-windows-x86_64.exe
-    InstallerSha256: 523cbea6d3fbc1348787499a3e1d71fbc0419f0c3a5d157a81480e075096b904
+    InstallerSha256: bd83f882ac49972b7865235edaafc00fcc86d133a27e2b79d66a3dc0ae74ae75
     Commands:
       - nodewipe
 ManifestType: singleton
