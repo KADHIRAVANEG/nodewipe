@@ -17,6 +17,9 @@
   [![GitHub stars](https://img.shields.io/github/stars/KADHIRAVANEG/nodewipe?style=for-the-badge&color=eab308&logo=github)](https://github.com/KADHIRAVANEG/nodewipe/stargazers)
   [![Medium Story](https://img.shields.io/badge/Medium-Architecture_Deep_Dive-000000?style=for-the-badge&logo=medium&logoColor=white)](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk)
   [![npm downloads](https://img.shields.io/npm/dt/@joker53/nodewipe?style=for-the-badge&color=22c55e&logo=npm)](https://www.npmjs.com/package/@joker53/nodewipe)
+  [![Homebrew](https://img.shields.io/badge/Homebrew-v0.9.9-f59e0b?style=for-the-badge&logo=homebrew&logoColor=white)](https://github.com/KADHIRAVANEG/homebrew-nodewipe)
+  [![Scoop](https://img.shields.io/badge/Scoop-v0.9.9-4a90e2?style=for-the-badge&logo=powershell&logoColor=white)](https://github.com/KADHIRAVANEG/scoop-nodewipe)
+  [![Winget](https://img.shields.io/badge/Winget-v0.9.9-0078d4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/microsoft/winget-pkgs/pull/486270)
   [![AUR](https://img.shields.io/aur/version/nodewipe?style=for-the-badge&color=1793d1&logo=arch-linux&logoColor=white&label=AUR)](https://aur.archlinux.org/packages/nodewipe)
   [![npm](https://img.shields.io/npm/v/@joker53/nodewipe?style=for-the-badge&color=cb3837&logo=npm)](https://www.npmjs.com/package/@joker53/nodewipe)
   [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
@@ -36,17 +39,7 @@
     </a>
   </p>
 
-  <br><br>
 
-  [**Website & Live Demo**](https://kadhiravaneg.github.io/nodewipe/) •
-  [**Medium Deep Dive**](https://medium.com/@kadhiravanegk/reclaiming-80-gb-of-invisible-dev-bloat-building-nodewipe-in-rust-f0ab0f56024b?sharedUserId=kadhiravanegk) •
-  [**Installation**](#installation) •
-  [**Key Features**](#key-features) •
-  [**Supported Ecosystems**](#supported-ecosystems) •
-  [**Interactive TUI**](#interactive-tui--dry-run-mode) •
-  [**System Doctor**](#system-doctor-nodewipe-doctor) •
-  [**Desktop GUI**](#desktop-gui) •
-  [**CLI Cheat Sheet**](#cli-cheat-sheet)
 
 </div>
 
@@ -94,25 +87,31 @@ npm install -g @joker53/nodewipe
 ```
 
 ### 2. Homebrew (macOS & Linux)
-Install via the official Homebrew tap:
+Install via the official [Homebrew tap](https://github.com/KADHIRAVANEG/homebrew-nodewipe):
 ```bash
 brew install kadhiravaneg/nodewipe/nodewipe
+# or:
+brew tap kadhiravaneg/nodewipe && brew install nodewipe
 ```
 
 ### 3. Arch Linux (AUR)
-Maintained in the official Arch User Repository:
+Maintained in the official [Arch User Repository](https://aur.archlinux.org/packages/nodewipe):
 ```bash
 yay -S nodewipe
 # or: paru -S nodewipe
 ```
 
 ### 4. Windows (Winget & Scoop)
-Install via Microsoft Winget:
+Install via [Microsoft Winget](https://github.com/microsoft/winget-pkgs/pull/486270):
 ```powershell
 winget install nodewipe
 ```
-Or via Scoop:
+Or via the official [Scoop bucket](https://github.com/KADHIRAVANEG/scoop-nodewipe):
 ```powershell
+scoop bucket add nodewipe https://github.com/KADHIRAVANEG/scoop-nodewipe
+scoop install nodewipe
+
+# Or install directly from the manifest URL:
 scoop install https://raw.githubusercontent.com/KADHIRAVANEG/nodewipe/main/packaging/scoop/nodewipe.json
 ```
 
