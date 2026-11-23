@@ -700,7 +700,7 @@ pub fn dir_size(path: &Path) -> u64 {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::MetadataExt;
-                e.metadata().map(|m| m.blocks() * 512).unwrap_or(0)
+                e.metadata().map(|m| m.blocks().saturating_mul(512)).unwrap_or(0)
             }
             #[cfg(not(unix))]
             {
@@ -726,5 +726,26 @@ pub fn detect_package_manager(node_modules_path: &Path) -> PackageManager {
         PackageManager::Npm
     } else {
         PackageManager::Unknown
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_dir_size_calculation_and_saturating_arithmetic() {
+        let tmp = TempDir::new().unwrap();
+        let test_file = tmp.path().join("file.txt");
+        std::fs::write(&test_file, b"hello world").unwrap();
+
+        let size = dir_size(tmp.path());
+        assert!(size > 0);
+
+        // Verify that saturating_mul on large block numbers saturates without overflowing or panicking
+        let huge_blocks: u64 = u64::MAX / 100;
+        let saturated = huge_blocks.saturating_mul(512);
+        assert_eq!(saturated, u64::MAX);
     }
 }
