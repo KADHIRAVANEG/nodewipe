@@ -3217,9 +3217,7 @@ mod tests {
     fn test_cmd_preset_cli_lifecycle() {
         let tmp = tempfile::tempdir().unwrap();
         let config_file = tmp.path().join("config.toml");
-        unsafe {
-            std::env::set_var("NODEWIPE_CONFIG_FILE", &config_file);
-        }
+        nodewipe_core::set_config_path_override(Some(config_file));
 
         let cli = Cli::parse_from(["nodewipe"]);
         let cfg = nodewipe_core::Config::default();
@@ -3262,9 +3260,7 @@ mod tests {
         .unwrap();
         assert_eq!(code_rm, ExitCode::SUCCESS);
 
-        unsafe {
-            std::env::remove_var("NODEWIPE_CONFIG_FILE");
-        }
+        nodewipe_core::set_config_path_override(None);
     }
 
     #[test]

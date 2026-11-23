@@ -182,14 +182,14 @@ pub fn validate_custom_rule(rule: &CustomRule) -> Result<()> {
             }
         }
         let parts: Vec<&str> = r.split_whitespace().collect();
-        if let Some(prog) = parts.first() {
-            if !is_allowed_rebuild_program(prog) {
-                bail!(
-                    "rule '{}': recipe program '{}' is not in the allowed rebuild program list",
-                    rule.name,
-                    prog
-                );
-            }
+        if let Some(prog) = parts.first()
+            && !is_allowed_rebuild_program(prog)
+        {
+            bail!(
+                "rule '{}': recipe program '{}' is not in the allowed rebuild program list",
+                rule.name,
+                prog
+            );
         }
         for arg in &parts[1..] {
             if FORBIDDEN_RECIPE_ARGS.contains(arg) {

@@ -30,7 +30,7 @@ pub use catalog::{
 };
 pub use config::{
     Config, Preset, config_path, get_preset, init_default_config, list_presets, load_config,
-    remove_preset, save_config, save_preset,
+    remove_preset, save_config, save_preset, set_config_path_override,
 };
 pub use custom_rules::{
     CustomRule, generate_default_rules_template, global_rules_file, load_active_rules,

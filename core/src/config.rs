@@ -1,6 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::RwLock;
+
+static CONFIG_PATH_OVERRIDE: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// Explicit override for the configuration file path (primarily for testing and integration).
+pub fn set_config_path_override(path: Option<PathBuf>) {
+    if let Ok(mut lock) = CONFIG_PATH_OVERRIDE.write() {
+        *lock = path;
+    }
+}
 
 /// A saved scan workflow / preset that stores reusable scan parameters.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -46,6 +56,11 @@ pub struct Config {
 }
 
 pub fn config_path() -> Option<PathBuf> {
+    if let Ok(lock) = CONFIG_PATH_OVERRIDE.read()
+        && let Some(p) = lock.as_ref()
+    {
+        return Some(p.clone());
+    }
     std::env::var("NODEWIPE_CONFIG_FILE")
         .ok()
         .filter(|v| !v.trim().is_empty())
