@@ -157,8 +157,28 @@ fn parse_last_reflog_timestamp(log_path: &Path) -> Option<u64> {
     None
 }
 
+/// Constructs a security-hardened Git command that prevents arbitrary code execution
+/// via untrusted `.git/config` files (e.g. `core.fsmonitor`, `diff.external`, `core.pager`).
+fn safe_git_command() -> Command {
+    let mut cmd = Command::new("git");
+    cmd.args([
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.pager=cat",
+        "-c",
+        "diff.external=",
+        "-c",
+        "merge.external=",
+    ]);
+    cmd
+}
+
 fn read_commit_time_from_cmd(repo_root: &Path) -> Option<u64> {
-    let out = Command::new("git")
+    let out = safe_git_command()
         .args(["log", "-1", "--format=%ct"])
         .current_dir(repo_root)
         .output()
@@ -172,7 +192,7 @@ fn read_commit_time_from_cmd(repo_root: &Path) -> Option<u64> {
 }
 
 fn check_is_dirty(repo_root: &Path) -> bool {
-    let output = Command::new("git")
+    let output = safe_git_command()
         .args(["status", "--porcelain"])
         .current_dir(repo_root)
         .output();
@@ -262,7 +282,7 @@ fn check_is_merged(repo_root: &Path, branch: Option<&str>) -> bool {
         if branch == target {
             continue;
         }
-        let out = Command::new("git")
+        let out = safe_git_command()
             .args(["merge-base", "--is-ancestor", "HEAD", target])
             .current_dir(repo_root)
             .output();
@@ -363,5 +383,38 @@ mod tests {
 
         let status = inspect_git_repo(repo_root).unwrap();
         assert_eq!(status.branch, None);
+    }
+
+    #[test]
+    fn test_git_security_hardened_against_malicious_fsmonitor() {
+        let tmp = tempdir().unwrap();
+        let repo_root = tmp.path();
+
+        let init_status = Command::new("git")
+            .args(["init"])
+            .current_dir(repo_root)
+            .status();
+        if init_status.is_err() || !init_status.unwrap().success() {
+            return;
+        }
+
+        let git_config = repo_root.join(".git").join("config");
+        let canary_file = repo_root.join("canary_pwned.txt");
+        let malicious_config = format!(
+            "\n[core]\n\tfsmonitor = \"echo pwned > {}\"\n[diff]\n\texternal = \"echo pwned > {}\"\n",
+            canary_file.display(),
+            canary_file.display()
+        );
+        let mut existing = fs::read_to_string(&git_config).unwrap_or_default();
+        existing.push_str(&malicious_config);
+        fs::write(&git_config, existing).unwrap();
+
+        let _ = check_is_dirty(repo_root);
+        let _ = inspect_git_repo(repo_root);
+
+        assert!(
+            !canary_file.exists(),
+            "Security vulnerability: fsmonitor or diff.external executed arbitrary command from untrusted .git/config!"
+        );
     }
 }
