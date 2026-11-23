@@ -75,9 +75,12 @@ pub fn reflink_dir(src: &Path, dst: &Path) -> Result<ReflinkDirStats> {
         anyhow::bail!("source path does not exist: {}", src.display());
     }
 
-    fs::create_dir_all(dst).with_context(|| {
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::create_dir(dst).with_context(|| {
         format!(
-            "failed to create destination snapshot dir: {}",
+            "failed to create destination snapshot dir (already exists or permission denied): {}",
             dst.display()
         )
     })?;

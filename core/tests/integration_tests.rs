@@ -380,6 +380,32 @@ fn test_archive_and_restore_cycle() {
     assert_eq!(fs::read(nm.join("hello.txt")).unwrap(), b"content");
 }
 
+#[test]
+fn test_archive_collision_resistance_no_overwrite() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let project = root.join("my_app_collision");
+    let nm = project.join("node_modules");
+
+    fs::create_dir_all(&nm).unwrap();
+    fs::write(nm.join("file1.txt"), b"first").unwrap();
+    let res1 = delete(&nm, DeleteMode::Archive, 5).unwrap();
+    let archive1 = res1.archive_path.unwrap();
+    assert!(archive1.exists());
+
+    // Recreate same directory and delete again with archive mode
+    fs::create_dir_all(&nm).unwrap();
+    fs::write(nm.join("file2.txt"), b"second").unwrap();
+    let res2 = delete(&nm, DeleteMode::Archive, 6).unwrap();
+    let archive2 = res2.archive_path.unwrap();
+    assert!(archive2.exists());
+
+    // Must be distinct files!
+    assert_ne!(archive1, archive2);
+    assert!(archive1.exists());
+    assert!(archive2.exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn test_archive_preserves_symlinks_without_dereference() {

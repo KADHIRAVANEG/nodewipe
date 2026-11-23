@@ -80,13 +80,27 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
             let use_reflink = crate::reflink::supports_reflink(parent);
 
             if use_reflink {
-                let snapshot = snapshot_path_for(path);
-                if let Err(e) = crate::reflink::reflink_dir(path, &snapshot) {
-                    let _ = std::fs::remove_dir_all(&snapshot);
-                    return Err(e).with_context(|| {
-                        format!("failed to create reflink snapshot of {}", path.display())
-                    });
+                let mut last_err = None;
+                let mut final_snapshot = None;
+                for _ in 0..10 {
+                    let snapshot = snapshot_path_for(path);
+                    match crate::reflink::reflink_dir(path, &snapshot) {
+                        Ok(_) => {
+                            final_snapshot = Some(snapshot);
+                            break;
+                        }
+                        Err(e) => {
+                            let _ = std::fs::remove_dir_all(&snapshot);
+                            last_err = Some(e);
+                        }
+                    }
                 }
+                let snapshot = final_snapshot.ok_or_else(|| {
+                    last_err.unwrap_or_else(|| {
+                        anyhow::anyhow!("failed to create reflink snapshot for {}", path.display())
+                    })
+                })?;
+
                 if let Some(artifact_name) = path.file_name() {
                     let _ = std::fs::write(
                         snapshot.join(".nodewipe_snapshot_meta"),
@@ -98,11 +112,27 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
                 })?;
                 Some(snapshot)
             } else {
-                let archive = archive_path_for(path);
-                if let Err(e) = create_archive(path, &archive) {
-                    let _ = std::fs::remove_file(&archive);
-                    return Err(e).with_context(|| format!("failed to archive {}", path.display()));
+                let mut last_err = None;
+                let mut final_archive = None;
+                for _ in 0..10 {
+                    let archive = archive_path_for(path);
+                    match create_archive(path, &archive) {
+                        Ok(()) => {
+                            final_archive = Some(archive);
+                            break;
+                        }
+                        Err(e) => {
+                            let _ = std::fs::remove_file(&archive);
+                            last_err = Some(e);
+                        }
+                    }
                 }
+                let archive = final_archive.ok_or_else(|| {
+                    last_err.unwrap_or_else(|| {
+                        anyhow::anyhow!("failed to archive {}", path.display())
+                    })
+                })?;
+
                 std::fs::remove_dir_all(path).with_context(|| {
                     format!("failed to remove {} after archiving", path.display())
                 })?;
@@ -161,17 +191,17 @@ fn snapshot_path_for(artifact_path: &Path) -> PathBuf {
         return initial;
     }
 
-    let now = std::time::SystemTime::now()
+    let now_nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let candidate = parent.join(format!("{base_name}-{now}.snapshot"));
+    let candidate = parent.join(format!("{base_name}-{now_nanos}.snapshot"));
     if !candidate.exists() {
         return candidate;
     }
 
     for i in 1..1000 {
-        let candidate = parent.join(format!("{base_name}-{now}-{i}.snapshot"));
+        let candidate = parent.join(format!("{base_name}-{now_nanos}-{i}.snapshot"));
         if !candidate.exists() {
             return candidate;
         }
@@ -199,17 +229,17 @@ fn archive_path_for(artifact_path: &Path) -> PathBuf {
     }
 
     // Avoid silent overwriting if a backup already exists: generate a timestamped or indexed filename
-    let now = std::time::SystemTime::now()
+    let now_nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let candidate = parent.join(format!("{base_name}-{now}.tar.gz"));
+    let candidate = parent.join(format!("{base_name}-{now_nanos}.tar.gz"));
     if !candidate.exists() {
         return candidate;
     }
 
     for i in 1..1000 {
-        let candidate = parent.join(format!("{base_name}-{now}-{i}.tar.gz"));
+        let candidate = parent.join(format!("{base_name}-{now_nanos}-{i}.tar.gz"));
         if !candidate.exists() {
             return candidate;
         }
@@ -219,9 +249,17 @@ fn archive_path_for(artifact_path: &Path) -> PathBuf {
 }
 
 fn create_archive(src_dir: &Path, dest_tar_gz: &Path) -> Result<()> {
-    // Open with create_new or check to protect existing archives
-    let file = File::create(dest_tar_gz)
-        .with_context(|| format!("failed to create archive file {}", dest_tar_gz.display()))?;
+    // Open with create_new to protect against TOCTOU race condition (FIND-05)
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dest_tar_gz)
+        .with_context(|| {
+            format!(
+                "failed to create archive file (already exists or permission denied): {}",
+                dest_tar_gz.display()
+            )
+        })?;
     let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
     let mut builder = tar::Builder::new(encoder);
 
