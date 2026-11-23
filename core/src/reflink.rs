@@ -35,6 +35,39 @@ pub fn supports_reflink(dir: &Path) -> bool {
     supported
 }
 
+/// Validates whether a relative symlink target stays strictly inside `artifact_root`.
+/// Prevents directory traversal attacks and symlink escapes (CVE-CLASS-04).
+pub fn is_safe_symlink_target(artifact_root: &Path, link_dir: &Path, target: &Path) -> bool {
+    if target.is_absolute() {
+        return false;
+    }
+    let Ok(rel_dir) = link_dir.strip_prefix(artifact_root) else {
+        return false;
+    };
+    let dir_depth = rel_dir
+        .components()
+        .filter(|c| matches!(c, std::path::Component::Normal(_)))
+        .count();
+
+    let mut current_depth = dir_depth as isize;
+    for comp in target.components() {
+        match comp {
+            std::path::Component::ParentDir => {
+                current_depth -= 1;
+                if current_depth < 0 {
+                    return false;
+                }
+            }
+            std::path::Component::Normal(_) => {
+                current_depth += 1;
+            }
+            std::path::Component::CurDir => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
 /// Recursively creates a Copy-on-Write snapshot of `src` at `dst`.
 /// Files are cloned using instant reflink where supported, falling back to copy if needed.
 pub fn reflink_dir(src: &Path, dst: &Path) -> Result<ReflinkDirStats> {
@@ -50,11 +83,16 @@ pub fn reflink_dir(src: &Path, dst: &Path) -> Result<ReflinkDirStats> {
     })?;
 
     let mut stats = ReflinkDirStats::default();
-    reflink_dir_recursive(src, dst, &mut stats)?;
+    reflink_dir_recursive(src, src, dst, &mut stats)?;
     Ok(stats)
 }
 
-fn reflink_dir_recursive(src: &Path, dst: &Path, stats: &mut ReflinkDirStats) -> Result<()> {
+fn reflink_dir_recursive(
+    root_src: &Path,
+    src: &Path,
+    dst: &Path,
+    stats: &mut ReflinkDirStats,
+) -> Result<()> {
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
@@ -64,11 +102,21 @@ fn reflink_dir_recursive(src: &Path, dst: &Path, stats: &mut ReflinkDirStats) ->
         if file_type.is_dir() {
             fs::create_dir_all(&child_dst)?;
             stats.dirs_created += 1;
-            reflink_dir_recursive(&child_src, &child_dst, stats)?;
+            reflink_dir_recursive(root_src, &child_src, &child_dst, stats)?;
         } else if file_type.is_symlink() {
             let target = fs::read_link(&child_src).with_context(|| {
                 format!("failed to read symlink target of {}", child_src.display())
             })?;
+
+            if !is_safe_symlink_target(root_src, src, &target) {
+                anyhow::bail!(
+                    "refusing to snapshot: symlink {} targets {} which escapes artifact root {}",
+                    child_src.display(),
+                    target.display(),
+                    root_src.display()
+                );
+            }
+
             #[cfg(unix)]
             {
                 std::os::unix::fs::symlink(&target, &child_dst).with_context(|| {
@@ -120,4 +168,67 @@ fn reflink_dir_recursive(src: &Path, dst: &Path, stats: &mut ReflinkDirStats) ->
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_is_safe_symlink_target() {
+        let root = Path::new("/workspace/project/node_modules");
+
+        // Safe: sibling file in subfolder
+        assert!(is_safe_symlink_target(
+            root,
+            &root.join(".bin"),
+            Path::new("../pkg/cli.js")
+        ));
+
+        // Safe: direct child pointing to another child
+        assert!(is_safe_symlink_target(
+            root,
+            root,
+            Path::new("pkg/index.js")
+        ));
+
+        // Unsafe: absolute path
+        assert!(!is_safe_symlink_target(
+            root,
+            &root.join(".bin"),
+            Path::new("/etc/passwd")
+        ));
+
+        // Unsafe: traversal escaping node_modules
+        assert!(!is_safe_symlink_target(
+            root,
+            root,
+            Path::new("../../../etc/shadow")
+        ));
+        assert!(!is_safe_symlink_target(
+            root,
+            &root.join(".bin"),
+            Path::new("../../secret.env")
+        ));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_reflink_rejects_escaping_symlink() {
+        let tmp = tempdir().unwrap();
+        let artifact = tmp.path().join("node_modules");
+        let bin_dir = artifact.join(".bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        // Create a symlink pointing outside artifact
+        let evil_link = bin_dir.join("evil");
+        std::os::unix::fs::symlink(Path::new("../../../../etc/passwd"), &evil_link).unwrap();
+
+        let snapshot = tmp.path().join("backup.snapshot");
+        let res = reflink_dir(&artifact, &snapshot);
+        assert!(res.is_err());
+        let err_msg = res.unwrap_err().to_string();
+        assert!(err_msg.contains("escapes artifact root"));
+    }
 }
