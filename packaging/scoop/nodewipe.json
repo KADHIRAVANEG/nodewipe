@@ -1,11 +1,11 @@
 {
-    "version": "0.9.9",
+    "version": "1.0.0",
     "description": "Find and reclaim disk space from stray dev artifacts across 39+ ecosystems",
     "homepage": "https://github.com/KADHIRAVANEG/nodewipe",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/KADHIRAVANEG/nodewipe/releases/download/v0.9.9/nodewipe-windows-x86_64.exe#/nodewipe.exe",
+            "url": "https://github.com/KADHIRAVANEG/nodewipe/releases/download/v1.0.0/nodewipe-windows-x86_64.exe#/nodewipe.exe",
             "hash": "bd83f882ac49972b7865235edaafc00fcc86d133a27e2b79d66a3dc0ae74ae75"
         }
     },
