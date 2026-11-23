@@ -19,6 +19,28 @@ fn default_custom_ecosystem() -> String {
     "Custom".to_string()
 }
 
+/// Standard allowed build tool programs that can be safely invoked via custom rule recipes.
+pub const ALLOWED_REBUILD_PROGRAMS: &[&str] = &[
+    "cargo", "npm", "pnpm", "yarn", "bun", "npx", "pip", "pip3", "poetry", "uv", "pipenv",
+    "mvn", "mvnw", "gradle", "gradlew", "go", "zig", "mix", "meson", "cmake", "swift",
+    "pod", "composer", "dotnet", "mkdocs", "make", "ninja", "turbo", "pytest", "mypy", "ruff",
+];
+
+/// Forbidden argument flags that enable inline or interactive code execution.
+pub const FORBIDDEN_RECIPE_ARGS: &[&str] = &[
+    "-c", "-e", "--eval", "--execute", "-r", "--interactive", "-i",
+];
+
+/// Checks whether a program name is in the allowed rebuild program list.
+pub fn is_allowed_rebuild_program(prog: &str) -> bool {
+    let prog_name = Path::new(prog)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(prog);
+    let clean = prog_name.strip_suffix(".exe").unwrap_or(prog_name);
+    ALLOWED_REBUILD_PROGRAMS.contains(&clean)
+}
+
 /// A user- or team-defined custom artifact detection rule.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CustomRule {
@@ -161,19 +183,20 @@ pub fn validate_custom_rule(rule: &CustomRule) -> Result<()> {
         }
         let parts: Vec<&str> = r.split_whitespace().collect();
         if let Some(prog) = parts.first() {
-            let forbidden = [
-                "rm", "sudo", "su", "sh", "bash", "zsh", "dash", "ksh", "dd", "mkfs", "chmod",
-                "chown", "curl", "wget",
-            ];
-            let prog_name = Path::new(prog)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or(prog);
-            if forbidden.contains(&prog_name) {
+            if !is_allowed_rebuild_program(prog) {
                 bail!(
-                    "rule '{}': recipe cannot invoke forbidden command '{}'",
+                    "rule '{}': recipe program '{}' is not in the allowed rebuild program list",
                     rule.name,
                     prog
+                );
+            }
+        }
+        for arg in &parts[1..] {
+            if FORBIDDEN_RECIPE_ARGS.contains(arg) {
+                bail!(
+                    "rule '{}': recipe argument '{}' enables arbitrary code execution and is forbidden",
+                    rule.name,
+                    arg
                 );
             }
         }
@@ -465,6 +488,43 @@ mod tests {
             ecosystem: "Custom".into(),
         };
         assert!(validate_custom_rule(&recipe_forbidden_cmd).is_err());
+
+        // Test recipe interpreter code injection (CVE-CLASS-02)
+        let recipe_python_eval = CustomRule {
+            name: "Evil Python Eval".into(),
+            dir_name: "test".into(),
+            parent_marker: None,
+            self_marker: None,
+            risk: "low".into(),
+            recipe: Some("python3 -c exec(open('/etc/passwd').read())".into()),
+            description: None,
+            ecosystem: "Custom".into(),
+        };
+        assert!(validate_custom_rule(&recipe_python_eval).is_err());
+
+        let recipe_node_eval = CustomRule {
+            name: "Evil Node Eval".into(),
+            dir_name: "test".into(),
+            parent_marker: None,
+            self_marker: None,
+            risk: "low".into(),
+            recipe: Some("node -e require('fs').readFileSync('/etc/passwd')".into()),
+            description: None,
+            ecosystem: "Custom".into(),
+        };
+        assert!(validate_custom_rule(&recipe_node_eval).is_err());
+
+        let recipe_forbidden_flag = CustomRule {
+            name: "Evil Flag".into(),
+            dir_name: "test".into(),
+            parent_marker: None,
+            self_marker: None,
+            risk: "low".into(),
+            recipe: Some("cargo build -c foo".into()),
+            description: None,
+            ecosystem: "Custom".into(),
+        };
+        assert!(validate_custom_rule(&recipe_forbidden_flag).is_err());
     }
 
     #[test]
