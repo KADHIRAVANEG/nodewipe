@@ -35,10 +35,13 @@ pub fn resolve_git_dir(repo_root: &Path) -> Option<PathBuf> {
         for line in content.lines() {
             if let Some(rest) = line.trim().strip_prefix("gitdir:") {
                 let target = PathBuf::from(rest.trim());
-                if target.is_absolute() {
-                    return Some(target);
+                let resolved = if target.is_absolute() {
+                    target
                 } else {
-                    return Some(repo_root.join(target));
+                    repo_root.join(target)
+                };
+                if resolved.is_dir() && resolved.join("HEAD").exists() {
+                    return Some(resolved);
                 }
             }
         }
@@ -46,6 +49,25 @@ pub fn resolve_git_dir(repo_root: &Path) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+/// Sanitizes a branch name extracted from .git/HEAD to prevent path traversal attacks.
+/// Rejects empty names, null bytes, absolute paths, or paths containing parent directory components.
+pub fn sanitize_branch_name(branch: &str) -> Option<String> {
+    let trimmed = branch.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return None;
+    }
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return None;
+    }
+    for component in path.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return None;
+        }
+    }
+    Some(trimmed.to_string())
 }
 
 /// Inspects git status for a specific repository root.
@@ -56,13 +78,17 @@ pub fn inspect_git_repo(repo_root: &Path) -> Option<GitStatus> {
     let head_trimmed = head_content.trim();
 
     let branch = if let Some(ref_path) = head_trimmed.strip_prefix("ref: refs/heads/") {
-        Some(ref_path.trim().to_string())
+        sanitize_branch_name(ref_path)
     } else if let Some(ref_path) = head_trimmed.strip_prefix("ref: ") {
-        Some(ref_path.trim().to_string())
+        sanitize_branch_name(ref_path)
     } else if !head_trimmed.is_empty() {
         // Detached HEAD (commit hash)
         let short_hash = &head_trimmed[..7.min(head_trimmed.len())];
-        Some(format!("detached ({short_hash})"))
+        if short_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            Some(format!("detached ({short_hash})"))
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -84,8 +110,10 @@ pub fn inspect_git_repo(repo_root: &Path) -> Option<GitStatus> {
 
 fn read_last_commit_time(git_dir: &Path, branch: Option<&str>) -> Option<u64> {
     // 1. Try reading the branch's reflog
-    if let Some(b) = branch {
-        let branch_log = git_dir.join("logs").join("refs").join("heads").join(b);
+    if let Some(b) = branch
+        && let Some(safe_b) = sanitize_branch_name(b)
+    {
+        let branch_log = git_dir.join("logs").join("refs").join("heads").join(&safe_b);
         if let Some(ts) = parse_last_reflog_timestamp(&branch_log) {
             return Some(ts);
         }
@@ -98,8 +126,10 @@ fn read_last_commit_time(git_dir: &Path, branch: Option<&str>) -> Option<u64> {
     }
 
     // 3. Fallback to mtime of branch ref file or HEAD
-    if let Some(b) = branch {
-        let ref_file = git_dir.join("refs").join("heads").join(b);
+    if let Some(b) = branch
+        && let Some(safe_b) = sanitize_branch_name(b)
+    {
+        let ref_file = git_dir.join("refs").join("heads").join(&safe_b);
         if let Ok(meta) = fs::metadata(&ref_file)
             && let Ok(mtime) = meta.modified()
             && let Ok(dur) = mtime.duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -275,5 +305,63 @@ pub fn annotate_git_status(entries: &mut [Entry]) {
                 entries[idx].git_status = Some(status.clone());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_sanitize_branch_name() {
+        assert_eq!(sanitize_branch_name("main"), Some("main".to_string()));
+        assert_eq!(
+            sanitize_branch_name("feature/my-cool-branch"),
+            Some("feature/my-cool-branch".to_string())
+        );
+        assert_eq!(
+            sanitize_branch_name("release/1.0.0"),
+            Some("release/1.0.0".to_string())
+        );
+
+        // Path traversal attempts must be rejected
+        assert_eq!(sanitize_branch_name("../../../../etc/shadow"), None);
+        assert_eq!(sanitize_branch_name("/etc/passwd"), None);
+        assert_eq!(sanitize_branch_name("feature/../../escape"), None);
+        assert_eq!(sanitize_branch_name("branch\0with_null"), None);
+        assert_eq!(sanitize_branch_name("   "), None);
+        assert_eq!(sanitize_branch_name(""), None);
+    }
+
+    #[test]
+    fn test_resolve_git_dir_traversal_protection() {
+        let tmp = tempdir().unwrap();
+        let repo_root = tmp.path();
+
+        // Malicious .git file pointing to a non-git file
+        let git_file = repo_root.join(".git");
+        fs::write(&git_file, "gitdir: /etc/shadow\n").unwrap();
+
+        let resolved = resolve_git_dir(repo_root);
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn test_inspect_git_repo_with_malicious_head() {
+        let tmp = tempdir().unwrap();
+        let repo_root = tmp.path();
+        let git_dir = repo_root.join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+
+        // Malicious HEAD attempting path traversal
+        fs::write(
+            git_dir.join("HEAD"),
+            "ref: refs/heads/../../../../etc/shadow\n",
+        )
+        .unwrap();
+
+        let status = inspect_git_repo(repo_root).unwrap();
+        assert_eq!(status.branch, None);
     }
 }
