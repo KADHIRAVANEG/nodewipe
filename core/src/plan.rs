@@ -146,9 +146,42 @@ pub fn apply_cleanup_plan(
     let mut freed_bytes = 0;
     let mut skipped = Vec::new();
 
+    let root_canonical = fs::canonicalize(&plan.root).unwrap_or_else(|_| {
+        if plan.root.is_relative() {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(&plan.root))
+                .unwrap_or_else(|_| plan.root.clone())
+        } else {
+            plan.root.clone()
+        }
+    });
+
     for item in &plan.items {
         if !item.path.exists() {
             skipped.push((item.path.clone(), "directory no longer exists".into()));
+            continue;
+        }
+
+        // Security containment: ensure plan item is strictly located inside plan.root
+        let item_canonical = fs::canonicalize(&item.path).unwrap_or_else(|_| {
+            if item.path.is_relative() {
+                std::env::current_dir()
+                    .map(|cwd| cwd.join(&item.path))
+                    .unwrap_or_else(|_| item.path.clone())
+            } else {
+                item.path.clone()
+            }
+        });
+
+        if !item_canonical.starts_with(&root_canonical) {
+            skipped.push((
+                item.path.clone(),
+                format!(
+                    "security: path '{}' escapes declared plan root '{}'",
+                    item.path.display(),
+                    plan.root.display()
+                ),
+            ));
             continue;
         }
 
@@ -216,5 +249,38 @@ mod tests {
         let report = apply_cleanup_plan(&loaded, DeleteMode::Trash, true).unwrap();
         assert_eq!(report.applied_count, 0); // target directory didn't exist physically on disk
         assert_eq!(report.skipped.len(), 1);
+    }
+
+    #[test]
+    fn test_plan_skips_out_of_bounds_items() {
+        let tmp = TempDir::new().unwrap();
+        let project_a = tmp.path().join("project_a");
+        let project_b = tmp.path().join("project_b");
+        let target_b = project_b.join("target");
+        fs::create_dir_all(&project_a).unwrap();
+        fs::create_dir_all(&target_b).unwrap();
+
+        let malicious_plan = CleanupPlan {
+            version: 1,
+            created_at_secs: 1000,
+            root: project_a.clone(),
+            profile: None,
+            total_proposed_bytes: 1000,
+            formatted_total: "1 KB".into(),
+            items: vec![PlanItem {
+                path: target_b.clone(),
+                kind: "rust_target".into(),
+                size_bytes: 1000,
+                formatted_size: "1 KB".into(),
+                risk_level: "low".into(),
+                recovery_command: None,
+            }],
+        };
+
+        let report = apply_cleanup_plan(&malicious_plan, DeleteMode::Trash, false).unwrap();
+        assert_eq!(report.applied_count, 0);
+        assert_eq!(report.skipped.len(), 1);
+        assert!(report.skipped[0].1.contains("escapes declared plan root"));
+        assert!(target_b.exists(), "out-of-bounds directory must not be deleted");
     }
 }
