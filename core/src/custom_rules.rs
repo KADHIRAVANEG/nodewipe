@@ -21,14 +21,20 @@ fn default_custom_ecosystem() -> String {
 
 /// Standard allowed build tool programs that can be safely invoked via custom rule recipes.
 pub const ALLOWED_REBUILD_PROGRAMS: &[&str] = &[
-    "cargo", "npm", "pnpm", "yarn", "bun", "npx", "pip", "pip3", "poetry", "uv", "pipenv",
-    "mvn", "mvnw", "gradle", "gradlew", "go", "zig", "mix", "meson", "cmake", "swift",
-    "pod", "composer", "dotnet", "mkdocs", "make", "ninja", "turbo", "pytest", "mypy", "ruff",
+    "cargo", "npm", "pnpm", "yarn", "bun", "npx", "pip", "pip3", "poetry", "uv", "pipenv", "mvn",
+    "mvnw", "gradle", "gradlew", "go", "zig", "mix", "meson", "cmake", "swift", "pod", "composer",
+    "dotnet", "mkdocs", "make", "ninja", "turbo", "pytest", "mypy", "ruff",
 ];
 
 /// Forbidden argument flags that enable inline or interactive code execution.
 pub const FORBIDDEN_RECIPE_ARGS: &[&str] = &[
-    "-c", "-e", "--eval", "--execute", "-r", "--interactive", "-i",
+    "-c",
+    "-e",
+    "--eval",
+    "--execute",
+    "-r",
+    "--interactive",
+    "-i",
 ];
 
 /// Checks whether a program name is in the allowed rebuild program list.

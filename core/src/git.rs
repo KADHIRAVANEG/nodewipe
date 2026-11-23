@@ -113,7 +113,11 @@ fn read_last_commit_time(git_dir: &Path, branch: Option<&str>) -> Option<u64> {
     if let Some(b) = branch
         && let Some(safe_b) = sanitize_branch_name(b)
     {
-        let branch_log = git_dir.join("logs").join("refs").join("heads").join(&safe_b);
+        let branch_log = git_dir
+            .join("logs")
+            .join("refs")
+            .join("heads")
+            .join(&safe_b);
         if let Some(ts) = parse_last_reflog_timestamp(&branch_log) {
             return Some(ts);
         }

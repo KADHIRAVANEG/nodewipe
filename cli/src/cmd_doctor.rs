@@ -338,8 +338,7 @@ pub fn send_desktop_notification(title: &str, body: &str) -> bool {
              $objNotify.BalloonTipText = '{}'; \
              $objNotify.Visible = $True; \
              $objNotify.ShowBalloonTip(10000);",
-            safe_title,
-            safe_body
+            safe_title, safe_body
         );
         let status = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", &script])
@@ -593,6 +592,8 @@ mod tests {
     fn test_systemd_service_content_quoting() {
         let exe = Path::new("/opt/Developer Tools/bin/nodewipe");
         let content = build_systemd_service_content(exe, "20GB");
-        assert!(content.contains("ExecStart=\"/opt/Developer Tools/bin/nodewipe\" doctor --notify --threshold 20GB"));
+        assert!(content.contains(
+            "ExecStart=\"/opt/Developer Tools/bin/nodewipe\" doctor --notify --threshold 20GB"
+        ));
     }
 }

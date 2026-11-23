@@ -716,7 +716,10 @@ fn test_restore_refuses_root_destination() {
     let root_archive = std::path::Path::new("/fake-node_modules-backup.tar.gz");
     if root_archive.exists() {
         let err = restore(root_archive).unwrap_err();
-        assert!(err.to_string().contains("refusing to restore into filesystem root directory"));
+        assert!(
+            err.to_string()
+                .contains("refusing to restore into filesystem root directory")
+        );
     }
 }
 
@@ -764,16 +767,31 @@ fn test_delete_refuses_root_or_non_artifact() {
     // Root directory check
     let res_root = delete(std::path::Path::new("/"), DeleteMode::Permanent, 0);
     assert!(res_root.is_err());
-    assert!(res_root.unwrap_err().to_string().contains("refusing to delete filesystem root"));
+    assert!(
+        res_root
+            .unwrap_err()
+            .to_string()
+            .contains("refusing to delete filesystem root")
+    );
 
     let res_root_dot = delete(std::path::Path::new("/."), DeleteMode::Permanent, 0);
     assert!(res_root_dot.is_err());
-    assert!(res_root_dot.unwrap_err().to_string().contains("refusing to delete filesystem root"));
+    assert!(
+        res_root_dot
+            .unwrap_err()
+            .to_string()
+            .contains("refusing to delete filesystem root")
+    );
 
     if let Some(home) = dirs::home_dir() {
         let res_home = delete(&home, DeleteMode::Permanent, 0);
         assert!(res_home.is_err());
-        assert!(res_home.unwrap_err().to_string().contains("refusing to delete user home directory"));
+        assert!(
+            res_home
+                .unwrap_err()
+                .to_string()
+                .contains("refusing to delete user home directory")
+        );
     }
 }
 

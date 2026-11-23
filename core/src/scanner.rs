@@ -700,7 +700,9 @@ pub fn dir_size(path: &Path) -> u64 {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::MetadataExt;
-                e.metadata().map(|m| m.blocks().saturating_mul(512)).unwrap_or(0)
+                e.metadata()
+                    .map(|m| m.blocks().saturating_mul(512))
+                    .unwrap_or(0)
             }
             #[cfg(not(unix))]
             {

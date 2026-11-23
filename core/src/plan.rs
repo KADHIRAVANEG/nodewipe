@@ -281,6 +281,9 @@ mod tests {
         assert_eq!(report.applied_count, 0);
         assert_eq!(report.skipped.len(), 1);
         assert!(report.skipped[0].1.contains("escapes declared plan root"));
-        assert!(target_b.exists(), "out-of-bounds directory must not be deleted");
+        assert!(
+            target_b.exists(),
+            "out-of-bounds directory must not be deleted"
+        );
     }
 }

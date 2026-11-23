@@ -141,9 +141,8 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
                     }
                 }
                 let archive = final_archive.ok_or_else(|| {
-                    last_err.unwrap_or_else(|| {
-                        anyhow::anyhow!("failed to archive {}", path.display())
-                    })
+                    last_err
+                        .unwrap_or_else(|| anyhow::anyhow!("failed to archive {}", path.display()))
                 })?;
 
                 std::fs::remove_dir_all(path).with_context(|| {
