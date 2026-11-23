@@ -6,7 +6,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/KADHIRAVANEG/nodewipe/releases/download/v1.0.0/nodewipe-windows-x86_64.exe#/nodewipe.exe",
-            "hash": "bd83f882ac49972b7865235edaafc00fcc86d133a27e2b79d66a3dc0ae74ae75"
+            "hash": "9c0e44df0cfb614cef86ff56f376e9be9841c9402da7307c3e4e2f819c6c77d0"
         }
     },
     "bin": "nodewipe.exe",

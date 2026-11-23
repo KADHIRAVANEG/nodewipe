@@ -7,20 +7,20 @@ class Nodewipe < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/KADHIRAVANEG/nodewipe/releases/download/v#{version}/nodewipe-macos-aarch64"
-      sha256 "428a70d109c449c1a9e3c4b6f4499f2039846ac9da8786a03a79cbf8f9c287e7"
+      sha256 "1889b0863a531bc2553123c083721ac16dae08bd01acf7382a020b61efb97c1a"
     else
       url "https://github.com/KADHIRAVANEG/nodewipe/releases/download/v#{version}/nodewipe-macos-x86_64"
-      sha256 "98569f66749a2de6afcb1983ece5a2bc9c3d5b4e36a44fc75ee17d6a639e6bab"
+      sha256 "6310f0c4cd4b0892c30d6378cfaeb4ac16baef0ecbd5cbcfd2539cc118088fed"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/KADHIRAVANEG/nodewipe/releases/download/v#{version}/nodewipe-linux-aarch64"
-      sha256 "bb9ee6319e8adea6f6f8a786c093290f7901764ab2a5c88bce208cae25a3d37d"
+      sha256 "c5a314ea8f6edb12b7fff5f603a5c6b8fa13911f1d32aa46b9e19c91a40b8f64"
     else
       url "https://github.com/KADHIRAVANEG/nodewipe/releases/download/v#{version}/nodewipe-linux-x86_64"
-      sha256 "22e7e97ed58d031b67e5e07985082d58356173849cd61bc06a4ff1222dc8d29a"
+      sha256 "8b7830e08039409621e70ddb5ce6a72704519a6fcdff89b3b201c3c4fb4b41f9"
     end
   end
 
