@@ -126,6 +126,51 @@ fn save_update_timestamp() -> Result<()> {
     Ok(())
 }
 
+/// Verifies that a downloaded binary has a valid executable header format.
+fn verify_downloaded_binary(bin_path: &Path) -> Result<(), self_update::errors::Error> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(bin_path).map_err(|e| {
+        self_update::errors::Error::verification_rejected(format!(
+            "failed to open binary for verification: {e}"
+        ))
+    })?;
+    let mut magic = [0u8; 4];
+    let bytes_read = file.read(&mut magic).map_err(|e| {
+        self_update::errors::Error::verification_rejected(format!(
+            "failed to read binary header: {e}"
+        ))
+    })?;
+    if bytes_read < 4 {
+        return Err(self_update::errors::Error::verification_rejected(
+            "downloaded binary is truncated (less than 4 bytes)",
+        ));
+    }
+
+    // Verify executable magic numbers:
+    // Linux ELF: 0x7f 'E' 'L' 'F'
+    // Windows PE: 'M' 'Z'
+    // macOS Mach-O (32-bit, 64-bit, FAT, little/big endian)
+    let is_elf = &magic == b"\x7fELF";
+    let is_pe = &magic[0..2] == b"MZ";
+    let is_macho = matches!(
+        magic,
+        [0xfe, 0xed, 0xfa, 0xce]
+            | [0xfe, 0xed, 0xfa, 0xcf]
+            | [0xce, 0xfa, 0xed, 0xfe]
+            | [0xcf, 0xfa, 0xed, 0xfe]
+            | [0xca, 0xfe, 0xba, 0xbe]
+            | [0xbe, 0xba, 0xfe, 0xca]
+    );
+
+    if !is_elf && !is_pe && !is_macho {
+        return Err(self_update::errors::Error::verification_rejected(
+            "downloaded asset is not a valid executable binary format",
+        ));
+    }
+
+    Ok(())
+}
+
 /// Explicit command invoked via `nodewipe update [--check] [--yes] [--force]`.
 pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
     println!("Checking for updates...");
@@ -144,6 +189,8 @@ pub fn run_update(check: bool, yes: bool, force: bool) -> Result<ExitCode> {
         .bin_install_path(&target_path)
         .current_version(current_version)
         .no_confirm(true)
+        .verify_release_digest(true)
+        .verify_binary(verify_downloaded_binary)
         .check_install_path_writable(true);
 
     let builder = config_builder.build()?;
@@ -280,6 +327,8 @@ pub fn check_and_prompt_update() -> Result<()> {
         .bin_install_path(&target_path)
         .current_version(current_version)
         .no_confirm(true)
+        .verify_release_digest(true)
+        .verify_binary(verify_downloaded_binary)
         .check_install_path_writable(true)
         .build()?;
 
@@ -398,5 +447,35 @@ mod tests {
         }
         let fake_path = PathBuf::from("/nonexistent_path_definitely_not_in_env_path_12345");
         assert!(!is_in_path(&fake_path));
+    }
+
+    #[test]
+    fn test_verify_downloaded_binary_format() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        // Valid ELF
+        let elf_path = temp.path().join("fake_elf");
+        fs::write(&elf_path, b"\x7fELFsome_binary_payload").unwrap();
+        assert!(verify_downloaded_binary(&elf_path).is_ok());
+
+        // Valid PE
+        let pe_path = temp.path().join("fake_pe.exe");
+        fs::write(&pe_path, b"MZ\x90\x00some_windows_payload").unwrap();
+        assert!(verify_downloaded_binary(&pe_path).is_ok());
+
+        // Valid Mach-O
+        let macho_path = temp.path().join("fake_macho");
+        fs::write(&macho_path, [0xcf, 0xfa, 0xed, 0xfe, 0x01, 0x02]).unwrap();
+        assert!(verify_downloaded_binary(&macho_path).is_ok());
+
+        // Invalid: shell script or HTML
+        let script_path = temp.path().join("evil.sh");
+        fs::write(&script_path, b"#!/bin/sh\nrm -rf /").unwrap();
+        assert!(verify_downloaded_binary(&script_path).is_err());
+
+        // Invalid: empty or truncated
+        let empty_path = temp.path().join("empty");
+        fs::write(&empty_path, b"").unwrap();
+        assert!(verify_downloaded_binary(&empty_path).is_err());
     }
 }
