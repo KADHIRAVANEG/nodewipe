@@ -38,12 +38,25 @@ pub fn delete(path: &Path, mode: DeleteMode, size_bytes: u64) -> Result<DeleteRe
     let meta = std::fs::symlink_metadata(path)
         .with_context(|| format!("path does not exist: {}", path.display()))?;
 
-    // Safety guard: Never delete filesystem roots or user home directory
-    if path.parent().is_none() {
+    // Safety guard: Canonicalize (or resolve relative components) to guard against root/home deletion
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| {
+        if path.is_relative() {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(path))
+                .unwrap_or_else(|_| path.to_path_buf())
+        } else {
+            path.to_path_buf()
+        }
+    });
+
+    if canonical.parent().is_none() || canonical.components().count() <= 1 {
         anyhow::bail!("refusing to delete filesystem root: {}", path.display());
     }
-    if dirs::home_dir().as_deref() == Some(path) {
-        anyhow::bail!("refusing to delete user home directory: {}", path.display());
+    if let Some(home) = dirs::home_dir() {
+        let home_canonical = std::fs::canonicalize(&home).unwrap_or(home);
+        if canonical == home_canonical {
+            anyhow::bail!("refusing to delete user home directory: {}", path.display());
+        }
     }
 
     // Safety guard: Never delete pinned projects or artifacts
