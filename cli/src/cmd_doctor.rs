@@ -10,7 +10,7 @@
 /// - `--uninstall-service`: Removes the background scheduler.
 use anyhow::{Context, Result};
 use nodewipe_core::{ArtifactKind, Gitignore, ScanOptions, doctor::build_report, scan};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[allow(clippy::too_many_arguments)]
@@ -364,22 +364,26 @@ fn install_background_service(threshold: &str) -> Result<()> {
     }
 }
 
+pub fn build_systemd_service_content(exe_path: &Path, threshold: &str) -> String {
+    format!(
+        "[Unit]\n\
+         Description=nodewipe periodic doctor disk space check\n\
+         Documentation=https://github.com/KADHIRAVANEG/nodewipe\n\n\
+         [Service]\n\
+         Type=oneshot\n\
+         ExecStart=\"{}\" doctor --notify --threshold {}\n",
+        exe_path.display(),
+        threshold
+    )
+}
+
 fn install_linux_systemd_service(threshold: &str) -> Result<()> {
     let home = dirs::home_dir().context("could not determine user home directory")?;
     let systemd_user_dir = home.join(".config").join("systemd").join("user");
     std::fs::create_dir_all(&systemd_user_dir)?;
 
     let exe_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("nodewipe"));
-    let service_content = format!(
-        "[Unit]\n\
-         Description=nodewipe periodic doctor disk space check\n\
-         Documentation=https://github.com/KADHIRAVANEG/nodewipe\n\n\
-         [Service]\n\
-         Type=oneshot\n\
-         ExecStart={} doctor --notify --threshold {}\n",
-        exe_path.display(),
-        threshold
-    );
+    let service_content = build_systemd_service_content(&exe_path, threshold);
 
     let timer_content = "\
 [Unit]\n\
@@ -583,5 +587,12 @@ mod tests {
             escape_applescript_string(r#"path\with\"quotes""#),
             r#"path\\with\\\"quotes\""#
         );
+    }
+
+    #[test]
+    fn test_systemd_service_content_quoting() {
+        let exe = Path::new("/opt/Developer Tools/bin/nodewipe");
+        let content = build_systemd_service_content(exe, "20GB");
+        assert!(content.contains("ExecStart=\"/opt/Developer Tools/bin/nodewipe\" doctor --notify --threshold 20GB"));
     }
 }
