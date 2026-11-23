@@ -711,6 +711,15 @@ fn test_restore_refuses_overwrite_on_broken_symlink() {
     assert!(nm.exists());
 }
 
+#[test]
+fn test_restore_refuses_root_destination() {
+    let root_archive = std::path::Path::new("/fake-node_modules-backup.tar.gz");
+    if root_archive.exists() {
+        let err = restore(root_archive).unwrap_err();
+        assert!(err.to_string().contains("refusing to restore into filesystem root directory"));
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn test_symlink_delete_does_not_wipe_target() {

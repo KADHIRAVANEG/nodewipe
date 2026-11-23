@@ -364,6 +364,31 @@ pub fn restore(archive_path: &Path) -> Result<PathBuf> {
         )
     })?;
 
+    // Safety guard: refuse to restore directly into filesystem roots or system directories
+    let dest_canonical = std::fs::canonicalize(dest_dir).unwrap_or_else(|_| dest_dir.to_path_buf());
+    if dest_canonical.parent().is_none() || dest_canonical.components().count() <= 1 {
+        anyhow::bail!(
+            "refusing to restore into filesystem root directory: {}",
+            dest_dir.display()
+        );
+    }
+    #[cfg(unix)]
+    {
+        let system_dirs = [
+            Path::new("/bin"),
+            Path::new("/sbin"),
+            Path::new("/usr"),
+            Path::new("/etc"),
+            Path::new("/var"),
+        ];
+        if system_dirs.iter().any(|s| dest_canonical == *s) {
+            anyhow::bail!(
+                "refusing to restore into system directory: {}",
+                dest_dir.display()
+            );
+        }
+    }
+
     if archive_path.is_dir() {
         return restore_snapshot(archive_path, dest_dir);
     }
