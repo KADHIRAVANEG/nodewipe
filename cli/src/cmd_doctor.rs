@@ -264,7 +264,34 @@ pub fn parse_size_threshold(s: &str) -> Result<u64> {
     Ok((num * multiplier as f64) as u64)
 }
 
+/// Strips control characters (such as newlines, carriage returns, null bytes)
+/// from notification text to prevent statement or script injection.
+pub fn sanitize_notification_text(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).collect()
+}
+
+/// Safely escapes a string for inclusion in AppleScript double quotes.
+#[allow(dead_code)]
+pub fn escape_applescript_string(text: &str) -> String {
+    sanitize_notification_text(text)
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+}
+
+/// Builds a sanitized AppleScript notification script string.
+#[allow(dead_code)]
+pub fn build_macos_notification_script(title: &str, body: &str) -> String {
+    format!(
+        "display notification \"{}\" with title \"{}\"",
+        escape_applescript_string(body),
+        escape_applescript_string(title)
+    )
+}
+
 pub fn send_desktop_notification(title: &str, body: &str) -> bool {
+    let clean_title = sanitize_notification_text(title);
+    let clean_body = sanitize_notification_text(body);
+
     #[cfg(target_os = "linux")]
     {
         let status = std::process::Command::new("notify-send")
@@ -275,8 +302,8 @@ pub fn send_desktop_notification(title: &str, body: &str) -> bool {
                 "normal",
                 "-i",
                 "dialog-information",
-                title,
-                body,
+                &clean_title,
+                &clean_body,
             ])
             .status();
         if let Ok(s) = status
@@ -288,11 +315,7 @@ pub fn send_desktop_notification(title: &str, body: &str) -> bool {
 
     #[cfg(target_os = "macos")]
     {
-        let script = format!(
-            "display notification \"{}\" with title \"{}\"",
-            body.replace('"', "\\\""),
-            title.replace('"', "\\\"")
-        );
+        let script = build_macos_notification_script(&clean_title, &clean_body);
         let status = std::process::Command::new("osascript")
             .args(["-e", &script])
             .status();
@@ -305,6 +328,8 @@ pub fn send_desktop_notification(title: &str, body: &str) -> bool {
 
     #[cfg(target_os = "windows")]
     {
+        let safe_title = clean_title.replace('\'', "''");
+        let safe_body = clean_body.replace('\'', "''");
         let script = format!(
             "[void] [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms'); \
              $objNotify = New-Object System.Windows.Forms.NotifyIcon; \
@@ -313,8 +338,8 @@ pub fn send_desktop_notification(title: &str, body: &str) -> bool {
              $objNotify.BalloonTipText = '{}'; \
              $objNotify.Visible = $True; \
              $objNotify.ShowBalloonTip(10000);",
-            title.replace('\'', "''"),
-            body.replace('\'', "''")
+            safe_title,
+            safe_body
         );
         let status = std::process::Command::new("powershell")
             .args(["-NoProfile", "-Command", &script])
@@ -327,7 +352,7 @@ pub fn send_desktop_notification(title: &str, body: &str) -> bool {
     }
 
     // Fallback: print to stderr if notification binary wasn't available
-    eprintln!("[Notification] {}: {}", title, body);
+    eprintln!("[Notification] {}: {}", clean_title, clean_body);
     true
 }
 
@@ -536,5 +561,27 @@ mod tests {
         // Short strings
         assert_eq!(truncate_path("short", 10), "short");
         assert_eq!(truncate_path("abcde", 3), "abc");
+    }
+
+    #[test]
+    fn test_applescript_notification_escaping() {
+        let malicious_body = "hello\nset v to do shell script \"id\"\r\nsecond statement";
+        let script = build_macos_notification_script("nodewipe", malicious_body);
+        assert!(!script.contains('\n'));
+        assert!(!script.contains('\r'));
+        assert!(!script.contains('\0'));
+        assert!(script.contains("display notification \"helloset v to do shell script \\\"id\\\"second statement\" with title \"nodewipe\""));
+    }
+
+    #[test]
+    fn test_notification_sanitization() {
+        assert_eq!(
+            sanitize_notification_text("test\nwith\r\nnewlines\tand\0nulls"),
+            "testwithnewlinesandnulls"
+        );
+        assert_eq!(
+            escape_applescript_string(r#"path\with\"quotes""#),
+            r#"path\\with\\\"quotes\""#
+        );
     }
 }
