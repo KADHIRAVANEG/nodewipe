@@ -1,3 +1,5 @@
+pub mod treemap;
+
 use crate::cli_def::SortKey;
 use crate::sort_entries_by_key;
 use anyhow::Result;
@@ -146,6 +148,13 @@ fn format_age(last_modified: Option<SystemTime>) -> String {
     }
 }
 
+/// View mode for the Results stage: Tabular List vs Proportional Treemap Heatmap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TuiViewMode {
+    List,
+    Treemap,
+}
+
 /// A row in the Results list — either a workspace group header or a single artifact entry.
 #[derive(Clone)]
 enum ResultRow {
@@ -208,6 +217,9 @@ struct App {
     search_active: bool,
     rules_last_check: Instant,
     rules_mtimes: HashMap<PathBuf, Option<SystemTime>>,
+    pub view_mode: TuiViewMode,
+    pub treemap_cursor: usize,
+    pub treemap_zoom_stack: Vec<treemap::TreemapZoomState>,
 }
 
 pub fn fuzzy_match(pattern: &str, text: &str) -> bool {
@@ -343,6 +355,9 @@ impl App {
             search_active: false,
             rules_last_check: Instant::now(),
             rules_mtimes,
+            view_mode: TuiViewMode::List,
+            treemap_cursor: 0,
+            treemap_zoom_stack: Vec::new(),
         }
     }
 
@@ -655,6 +670,9 @@ impl App {
     /// Add the current entry's path to ~/.nodewipeignore.
     /// Returns an error message string if it fails.
     fn ignore_current_entry(&mut self) -> Result<()> {
+        if self.view_mode == TuiViewMode::Treemap {
+            self.sync_cursor_from_treemap();
+        }
         let entry_path = match self.rows.get(self.cursor) {
             Some(ResultRow::Entry { entry_index }) => {
                 self.entries.get(*entry_index).map(|e| e.path.clone())
@@ -776,6 +794,37 @@ impl App {
     }
 
     fn toggle_selected(&mut self) {
+        if self.view_mode == TuiViewMode::Treemap {
+            if let Some(tile) = self.active_treemap_tile() {
+                if let Some(entry_index) = tile.entry_index {
+                    if let Some(entry) = self.entries.get(entry_index)
+                        && nodewipe_core::is_path_pinned_with_list(
+                            &entry.path,
+                            &self.pinned_projects,
+                        )
+                    {
+                        self.status = format!(
+                            "{} Cannot select pinned path: {} (press 'p' to unpin)",
+                            nodewipe_core::icons::PIN,
+                            entry.path.display()
+                        );
+                        return;
+                    }
+                    if self.selected.contains(&entry_index) {
+                        self.selected.remove(&entry_index);
+                        self.status = format!("Deselected {}", tile.label);
+                    } else {
+                        self.selected.insert(entry_index);
+                        self.status = format!("Selected {}", tile.label);
+                    }
+                } else {
+                    self.status =
+                        "Cannot select aggregated tile (press Enter to drill down)".to_string();
+                }
+            }
+            return;
+        }
+
         // Only toggle if cursor is on an entry row.
         if let Some(ResultRow::Entry { entry_index }) = self.rows.get(self.cursor).cloned() {
             if let Some(entry) = self.entries.get(entry_index)
@@ -798,6 +847,36 @@ impl App {
 
     /// Select all entries or deselect all if everything is already selected.
     fn toggle_select_all(&mut self) {
+        if self.view_mode == TuiViewMode::Treemap {
+            let (_, items) = self.current_treemap_items();
+            let all_entry_indices: Vec<usize> = items
+                .iter()
+                .filter_map(|it| it.entry_index)
+                .filter(|&idx| {
+                    if let Some(entry) = self.entries.get(idx) {
+                        !nodewipe_core::is_path_pinned_with_list(&entry.path, &self.pinned_projects)
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+            if all_entry_indices.iter().all(|i| self.selected.contains(i)) {
+                for i in &all_entry_indices {
+                    self.selected.remove(i);
+                }
+                self.status = "Deselected all in treemap view".to_string();
+            } else {
+                for i in &all_entry_indices {
+                    self.selected.insert(*i);
+                }
+                self.status = format!(
+                    "Selected {} entries in treemap view",
+                    all_entry_indices.len()
+                );
+            }
+            return;
+        }
+
         let all_entry_indices: Vec<usize> = self
             .rows
             .iter()
@@ -820,6 +899,163 @@ impl App {
             // Select all visible entries that are not pinned.
             self.selected.extend(all_entry_indices.iter());
             self.status = format!("Selected {} unpinned entries", all_entry_indices.len());
+        }
+    }
+
+    pub fn toggle_view_mode(&mut self) {
+        self.view_mode = match self.view_mode {
+            TuiViewMode::List => {
+                self.sync_treemap_from_cursor();
+                self.status =
+                    "Switched to Visual Treemap Heatmap (m/Tab: list, Enter: zoom, Esc: back)"
+                        .to_string();
+                TuiViewMode::Treemap
+            }
+            TuiViewMode::Treemap => {
+                self.sync_cursor_from_treemap();
+                self.status = "Switched to Tabular List View (m: treemap)".to_string();
+                TuiViewMode::List
+            }
+        };
+    }
+
+    pub fn current_treemap_items(&self) -> (String, Vec<treemap::TreemapItem>) {
+        if let Some(top) = self.treemap_zoom_stack.last() {
+            (format!("Zoom: {}", top.title), top.items.clone())
+        } else {
+            let mut list = Vec::new();
+            for (i, e) in self.entries.iter().enumerate() {
+                if self.age_filter.matches(e.last_modified)
+                    && entry_matches_search(e, &self.search_query)
+                {
+                    if self.min_bytes > 0 && e.size_bytes < self.min_bytes {
+                        continue;
+                    }
+                    let label = if let Some(rule) = &e.custom_rule {
+                        rule.name.clone()
+                    } else {
+                        let parent_name = e
+                            .path
+                            .parent()
+                            .and_then(|p| p.file_name())
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        if parent_name.is_empty() {
+                            e.kind.label().to_string()
+                        } else {
+                            format!("{}/{}", parent_name, e.kind.label())
+                        }
+                    };
+                    list.push(treemap::TreemapItem::new(
+                        label,
+                        e.size_bytes,
+                        Some(e.kind),
+                        Some(i),
+                        e.path.clone(),
+                    ));
+                }
+            }
+            (self.root.display().to_string(), list)
+        }
+    }
+
+    pub fn active_treemap_tile(&self) -> Option<treemap::TreemapTile> {
+        let (_, items) = self.current_treemap_items();
+        let dummy = treemap::TreemapRect::new(0, 0, 100, 40);
+        let tiles = treemap::TreemapEngine::layout(dummy, &items);
+        tiles.get(self.treemap_cursor).cloned()
+    }
+
+    pub fn sync_treemap_from_cursor(&mut self) {
+        if let Some(ResultRow::Entry { entry_index }) = self.rows.get(self.cursor) {
+            let (_, items) = self.current_treemap_items();
+            let dummy = treemap::TreemapRect::new(0, 0, 100, 40);
+            let tiles = treemap::TreemapEngine::layout(dummy, &items);
+            if let Some(pos) = tiles
+                .iter()
+                .position(|t| t.entry_index == Some(*entry_index))
+            {
+                self.treemap_cursor = pos;
+            }
+        }
+    }
+
+    pub fn sync_cursor_from_treemap(&mut self) {
+        if let Some(tile) = self.active_treemap_tile()
+            && let Some(entry_idx) = tile.entry_index
+            && let Some(row_idx) = self.rows.iter().position(|r| match r {
+                ResultRow::Entry { entry_index } => *entry_index == entry_idx,
+                _ => false,
+            })
+        {
+            self.cursor = row_idx;
+        }
+    }
+
+    pub fn treemap_navigate(&mut self, dir: treemap::Direction2D) {
+        let (_, items) = self.current_treemap_items();
+        if items.is_empty() {
+            return;
+        }
+        let dummy = treemap::TreemapRect::new(0, 0, 100, 40);
+        let tiles = treemap::TreemapEngine::layout(dummy, &items);
+        if tiles.is_empty() {
+            return;
+        }
+        self.treemap_cursor = treemap::TreemapEngine::navigate(self.treemap_cursor, &tiles, dir);
+        self.sync_cursor_from_treemap();
+    }
+
+    pub fn treemap_zoom_in(&mut self) {
+        let (_, items) = self.current_treemap_items();
+        let dummy = treemap::TreemapRect::new(0, 0, 100, 40);
+        let tiles = treemap::TreemapEngine::layout(dummy, &items);
+        if let Some(tile) = tiles.get(self.treemap_cursor).cloned() {
+            if tile.is_aggregated {
+                let tail_items: Vec<treemap::TreemapItem> = items.into_iter().skip(40).collect();
+                if !tail_items.is_empty() {
+                    self.treemap_zoom_stack.push(treemap::TreemapZoomState {
+                        title: tile.label.clone(),
+                        path: tile.path.clone(),
+                        parent_entry_index: tile.entry_index,
+                        items: tail_items,
+                        cursor: self.treemap_cursor,
+                    });
+                    self.treemap_cursor = 0;
+                    self.status = format!("Zoomed into {}", tile.label);
+                }
+            } else if tile.path.is_dir() {
+                let children = treemap::inspect_dir_for_treemap(&tile.path);
+                if !children.is_empty() {
+                    self.treemap_zoom_stack.push(treemap::TreemapZoomState {
+                        title: tile.label.clone(),
+                        path: tile.path.clone(),
+                        parent_entry_index: tile.entry_index,
+                        items: children,
+                        cursor: self.treemap_cursor,
+                    });
+                    self.treemap_cursor = 0;
+                    self.status = format!("Zoomed into child hierarchy of {}", tile.label);
+                } else {
+                    self.status = format!("{} contains no further subdirectories", tile.label);
+                }
+            } else {
+                self.status = format!("{} is a file, cannot drill down", tile.label);
+            }
+        }
+    }
+
+    pub fn treemap_zoom_out(&mut self) {
+        if let Some(prev) = self.treemap_zoom_stack.pop() {
+            self.treemap_cursor = prev.cursor;
+            self.status = if self.treemap_zoom_stack.is_empty() {
+                "Zoomed out to workspace root".to_string()
+            } else {
+                format!("Zoomed out to {}", prev.title)
+            };
+            self.sync_cursor_from_treemap();
+        } else {
+            self.toggle_view_mode();
         }
     }
 
@@ -856,6 +1092,12 @@ impl App {
 
     fn selected_indices(&self) -> Vec<usize> {
         if self.selected.is_empty() {
+            if self.view_mode == TuiViewMode::Treemap
+                && let Some(tile) = self.active_treemap_tile()
+                && let Some(entry_idx) = tile.entry_index
+            {
+                return vec![entry_idx];
+            }
             // Fall back to cursor entry if cursor is on an Entry row.
             if let Some(ResultRow::Entry { entry_index }) = self.rows.get(self.cursor) {
                 return vec![*entry_index];
@@ -1114,6 +1356,21 @@ impl App {
 
     /// Copy current entry path to clipboard. Returns error string on failure.
     fn copy_path_to_clipboard(&mut self) {
+        if self.view_mode == TuiViewMode::Treemap {
+            self.sync_cursor_from_treemap();
+            if let Some(tile) = self.active_treemap_tile() {
+                match cli_clipboard::set_contents(tile.path.to_string_lossy().to_string()) {
+                    Ok(()) => {
+                        self.status = format!("✓ Copied to clipboard: {}", tile.path.display());
+                    }
+                    Err(e) => {
+                        self.status = format!("Clipboard error: {e}");
+                    }
+                }
+                return;
+            }
+        }
+
         let path_str = match self.rows.get(self.cursor) {
             Some(ResultRow::Entry { entry_index }) => self
                 .entries
@@ -1140,6 +1397,23 @@ impl App {
 
     /// Open current entry's parent directory in the system file manager.
     fn open_in_file_manager(&mut self) {
+        if self.view_mode == TuiViewMode::Treemap {
+            self.sync_cursor_from_treemap();
+            if let Some(tile) = self.active_treemap_tile() {
+                let dir = if tile.is_dir {
+                    tile.path
+                } else {
+                    tile.path
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or(tile.path)
+                };
+                open_path(&dir);
+                self.status = format!("Opened: {}", dir.display());
+                return;
+            }
+        }
+
         let dir = match self.rows.get(self.cursor) {
             Some(ResultRow::Entry { entry_index }) => self
                 .entries
@@ -1159,6 +1433,9 @@ impl App {
 
     /// Inspect and explain the currently highlighted artifact or group with recovery recipes and staleness.
     fn explain_current_entry(&mut self) {
+        if self.view_mode == TuiViewMode::Treemap {
+            self.sync_cursor_from_treemap();
+        }
         let explanation = match self.rows.get(self.cursor) {
             Some(ResultRow::Entry { entry_index }) => self
                 .entries
@@ -1263,6 +1540,9 @@ impl App {
 
     /// Drill down and show top subdirectories and sizes of current entry in a modal.
     fn tree_current_entry(&mut self) {
+        if self.view_mode == TuiViewMode::Treemap {
+            self.sync_cursor_from_treemap();
+        }
         let path = match self.rows.get(self.cursor) {
             Some(ResultRow::Entry { entry_index }) => {
                 self.entries.get(*entry_index).map(|e| e.path.clone())
@@ -1297,6 +1577,9 @@ impl App {
 
     /// Toggle pin status of the selected project or directory.
     fn toggle_pin_current_entry(&mut self) {
+        if self.view_mode == TuiViewMode::Treemap {
+            self.sync_cursor_from_treemap();
+        }
         let target = match self.rows.get(self.cursor) {
             Some(ResultRow::Group { root, .. }) => Some(root.clone()),
             Some(ResultRow::Entry { entry_index }) => self.entries.get(*entry_index).map(|e| {
@@ -1537,7 +1820,103 @@ fn event_loop(
                         continue;
                     }
 
-                    // ── Main key dispatch ──────────────────────────────────────────
+                    // ── Treemap view mode key dispatch ────────────────────────────
+                    if app.view_mode == TuiViewMode::Treemap {
+                        match key.code {
+                            KeyCode::Char('q') => break,
+                            KeyCode::Esc | KeyCode::Backspace => {
+                                if !app.search_query.is_empty() {
+                                    app.search_query.clear();
+                                    app.status = "Filter cleared".into();
+                                } else if !app.treemap_zoom_stack.is_empty() {
+                                    app.treemap_zoom_out();
+                                } else {
+                                    app.toggle_view_mode();
+                                }
+                            }
+                            KeyCode::Enter => {
+                                app.treemap_zoom_in();
+                            }
+                            KeyCode::Char('m') | KeyCode::Tab => {
+                                app.toggle_view_mode();
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                app.treemap_navigate(treemap::Direction2D::Up);
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                app.treemap_navigate(treemap::Direction2D::Down);
+                            }
+                            KeyCode::Left | KeyCode::Char('h') => {
+                                app.treemap_navigate(treemap::Direction2D::Left);
+                            }
+                            KeyCode::Right | KeyCode::Char('l') => {
+                                app.treemap_navigate(treemap::Direction2D::Right);
+                            }
+                            KeyCode::Char(' ') => {
+                                app.toggle_selected();
+                            }
+                            KeyCode::Char('A') => {
+                                app.toggle_select_all();
+                            }
+                            KeyCode::Char('/') => {
+                                app.search_active = true;
+                                app.status =
+                                    "Search mode: type to filter, Enter to lock, Esc to clear/exit"
+                                        .into();
+                            }
+                            KeyCode::Char('d') => {
+                                let idx = app.selected_indices();
+                                app.request_delete(idx, DeleteMode::Trash);
+                            }
+                            KeyCode::Char('a') => {
+                                let idx = app.selected_indices();
+                                app.request_delete(idx, DeleteMode::Archive);
+                            }
+                            KeyCode::Char('x') => {
+                                let idx = app.selected_indices();
+                                app.request_delete(idx, DeleteMode::Permanent);
+                            }
+                            KeyCode::Char('p') => {
+                                app.toggle_pin_current_entry();
+                            }
+                            KeyCode::Char('e') => {
+                                app.explain_current_entry();
+                            }
+                            KeyCode::Char('v') => {
+                                app.tree_current_entry();
+                            }
+                            KeyCode::Char('i') => {
+                                if let Err(e) = app.ignore_current_entry() {
+                                    app.status = format!("Ignore failed: {e}");
+                                }
+                            }
+                            KeyCode::Char('y') => {
+                                app.copy_path_to_clipboard();
+                            }
+                            KeyCode::Char('o') => {
+                                app.open_in_file_manager();
+                            }
+                            KeyCode::Char('f') => {
+                                app.cycle_age_filter();
+                            }
+                            KeyCode::Char('P') => {
+                                app.dry_run = !app.dry_run;
+                                app.status = if app.dry_run {
+                                    "Dry-run preview mode ENABLED (no files will be deleted)"
+                                        .to_string()
+                                } else {
+                                    "Dry-run preview mode DISABLED".to_string()
+                                };
+                            }
+                            KeyCode::Char('r') => {
+                                app.start_scan();
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
+                    // ── Main key dispatch (List Mode) ──────────────────────────────
                     match key.code {
                         KeyCode::Char('q') => break,
                         KeyCode::Esc => {
@@ -1549,9 +1928,12 @@ fn event_loop(
                                 break;
                             }
                         }
+                        KeyCode::Char('m') => app.toggle_view_mode(),
                         KeyCode::Char('/') => {
                             app.search_active = true;
-                            app.status = "Search mode: type to filter, Enter to lock, Esc to clear/exit".into();
+                            app.status =
+                                "Search mode: type to filter, Enter to lock, Esc to clear/exit"
+                                    .into();
                         }
 
                         // ── Cursor movement ────────────────────────────────────────
@@ -1569,7 +1951,13 @@ fn event_loop(
 
                         // ── Grouped view ──────────────────────────────────────────
                         KeyCode::Char('g') => app.toggle_grouped_view(),
-                        KeyCode::Tab => app.toggle_group_collapse(),
+                        KeyCode::Tab => {
+                            if app.grouped_view {
+                                app.toggle_group_collapse();
+                            } else {
+                                app.toggle_view_mode();
+                            }
+                        }
 
                         // ── Delete operations ──────────────────────────────────────
                         KeyCode::Char('d') => {
@@ -2040,6 +2428,209 @@ pub fn pad_to_width(s: &str, target_width: usize, left_align: bool) -> String {
     }
 }
 
+/// Truncate a string to an exact terminal visual width without breaking graphemes.
+pub fn truncate_str(s: &str, max_width: usize) -> String {
+    if s.width() <= max_width {
+        return s.to_string();
+    }
+    let mut acc = String::new();
+    let mut w = 0;
+    for ch in s.chars() {
+        let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w + cw > max_width {
+            break;
+        }
+        acc.push(ch);
+        w += cw;
+    }
+    acc
+}
+
+fn draw_treemap(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let (title_path, items) = app.current_treemap_items();
+    let total_size: u64 = items.iter().map(|it| it.size_bytes).sum();
+    let zoom_indicator = if !app.treemap_zoom_stack.is_empty() {
+        format!(" [zoom lvl {}]", app.treemap_zoom_stack.len())
+    } else {
+        String::new()
+    };
+
+    let title = format!(
+        " nodewipe — Treemap Heatmap: {}{zoom_indicator} [{count} items · {size}] ",
+        title_path,
+        count = items.len(),
+        size = human_size(total_size)
+    );
+
+    let main_block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner_area = main_block.inner(area);
+    f.render_widget(main_block, area);
+
+    if items.is_empty() || inner_area.width < 4 || inner_area.height < 2 {
+        let empty_msg = Paragraph::new("No artifacts found to display in treemap")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center);
+        f.render_widget(empty_msg, inner_area);
+        return;
+    }
+
+    let tiles =
+        treemap::TreemapEngine::layout(treemap::TreemapRect::from_ratatui(inner_area), &items);
+    if tiles.is_empty() {
+        return;
+    }
+
+    let cursor = app.treemap_cursor.min(tiles.len().saturating_sub(1));
+
+    for (i, tile) in tiles.iter().enumerate() {
+        let is_focused = i == cursor;
+        let is_selected = tile
+            .entry_index
+            .map(|idx| app.selected.contains(&idx))
+            .unwrap_or(false);
+
+        let base_color = match tile.kind {
+            Some(ArtifactKind::NodeModules)
+            | Some(ArtifactKind::NextCache)
+            | Some(ArtifactKind::TurboCache)
+            | Some(ArtifactKind::GenericDist)
+            | Some(ArtifactKind::AstroCache)
+            | Some(ArtifactKind::SvelteKitCache)
+            | Some(ArtifactKind::NuxtCache)
+            | Some(ArtifactKind::DocusaurusCache)
+            | Some(ArtifactKind::ViteCache)
+            | Some(ArtifactKind::PnpmIgnored)
+            | Some(ArtifactKind::YarnCache) => Color::Green,
+            Some(ArtifactKind::RustTarget) => Color::LightRed,
+            Some(ArtifactKind::PythonVenv)
+            | Some(ArtifactKind::PythonPycache)
+            | Some(ArtifactKind::PythonPytestCache)
+            | Some(ArtifactKind::PythonMypyCache)
+            | Some(ArtifactKind::PythonRuffCache) => Color::Yellow,
+            Some(ArtifactKind::JavaMavenTarget)
+            | Some(ArtifactKind::JavaGradleBuild)
+            | Some(ArtifactKind::GradleCache)
+            | Some(ArtifactKind::AndroidBuildCache) => Color::Magenta,
+            Some(ArtifactKind::GoModCache) | Some(ArtifactKind::GoBuildCache) => Color::Cyan,
+            Some(ArtifactKind::DotnetBin) | Some(ArtifactKind::DotnetObj) => Color::LightMagenta,
+            Some(ArtifactKind::PhpVendor) => Color::Rgb(136, 146, 191),
+            Some(ArtifactKind::HuggingFaceCache)
+            | Some(ArtifactKind::OllamaModels)
+            | Some(ArtifactKind::TorchCache)
+            | Some(ArtifactKind::TritonCache) => Color::LightYellow,
+            Some(ArtifactKind::XcodeDerivedData)
+            | Some(ArtifactKind::SwiftPmBuild)
+            | Some(ArtifactKind::CocoaPods) => Color::LightBlue,
+            Some(ArtifactKind::CmakeBuild)
+            | Some(ArtifactKind::ZigCache)
+            | Some(ArtifactKind::MesonBuild) => Color::LightCyan,
+            _ => Color::White,
+        };
+
+        let tile_rect = tile.rect.to_ratatui();
+        if tile_rect.width == 0 || tile_rect.height == 0 {
+            continue;
+        }
+
+        let border_color = if is_focused {
+            Color::Yellow
+        } else if is_selected {
+            Color::Green
+        } else {
+            base_color
+        };
+
+        let bg_color = if is_focused {
+            Color::Rgb(40, 42, 54)
+        } else {
+            Color::Reset
+        };
+
+        let style = if is_focused {
+            Style::default()
+                .fg(Color::White)
+                .bg(bg_color)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White).bg(bg_color)
+        };
+
+        if tile_rect.width >= 4 && tile_rect.height >= 2 {
+            let select_marker = if is_selected { "[✓] " } else { "" };
+            let focus_marker = if is_focused { "▶ " } else { "" };
+            let title_text = format!("{}{}{}", focus_marker, select_marker, tile.label);
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(Span::styled(
+                    truncate_str(&title_text, tile_rect.width.saturating_sub(2) as usize),
+                    Style::default()
+                        .fg(border_color)
+                        .add_modifier(if is_focused {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
+                ))
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(bg_color));
+
+            let inner = block.inner(tile_rect);
+            f.render_widget(block, tile_rect);
+
+            if inner.height >= 1 && inner.width >= 2 {
+                let mut lines = Vec::new();
+                let size_text =
+                    format!("{} ({:.1}%)", human_size(tile.size_bytes), tile.percentage);
+                lines.push(Line::from(Span::styled(
+                    truncate_str(&size_text, inner.width as usize),
+                    Style::default().fg(if is_focused {
+                        Color::Yellow
+                    } else {
+                        Color::Gray
+                    }),
+                )));
+
+                if inner.height >= 2 && inner.width >= 8 {
+                    let bar_w = (inner.width as usize).saturating_sub(2).min(10);
+                    let filled = ((tile.percentage / 100.0) * (bar_w as f64)).round() as usize;
+                    let filled = filled.min(bar_w);
+                    let empty = bar_w.saturating_sub(filled);
+                    let bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
+                    lines.push(Line::from(Span::styled(
+                        bar,
+                        Style::default().fg(base_color),
+                    )));
+                }
+
+                if inner.height >= 3 && inner.width >= 12 {
+                    let sec = truncate_str(&tile.secondary_label, inner.width as usize);
+                    lines.push(Line::from(Span::styled(
+                        sec,
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+
+                f.render_widget(Paragraph::new(lines).style(style), inner);
+            }
+        } else {
+            let text = if is_focused {
+                format!("▶{}", tile.label)
+            } else {
+                tile.label.clone()
+            };
+            let p = Paragraph::new(Span::styled(
+                truncate_str(&text, tile_rect.width as usize),
+                Style::default().fg(border_color).bg(bg_color),
+            ));
+            f.render_widget(p, tile_rect);
+        }
+    }
+}
+
 fn draw_results(f: &mut ratatui::Frame, app: &App) {
     let show_search = app.search_active || !app.search_query.is_empty();
     let chunks = if show_search {
@@ -2175,16 +2766,20 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         })
         .collect();
 
-    let group_indicator = if app.grouped_view { " [grouped]" } else { "" };
-    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
-        " nodewipe — {}{group_indicator} ",
-        app.root.display()
-    )));
-    let mut list_state = ListState::default();
-    if !app.rows.is_empty() {
-        list_state.select(Some(app.cursor));
+    if app.view_mode == TuiViewMode::Treemap {
+        draw_treemap(f, app, chunks[0]);
+    } else {
+        let group_indicator = if app.grouped_view { " [grouped]" } else { "" };
+        let list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!(
+            " nodewipe — {}{group_indicator} ",
+            app.root.display()
+        )));
+        let mut list_state = ListState::default();
+        if !app.rows.is_empty() {
+            list_state.select(Some(app.cursor));
+        }
+        f.render_stateful_widget(list, chunks[0], &mut list_state);
     }
-    f.render_stateful_widget(list, chunks[0], &mut list_state);
 
     if show_search {
         let (title, border_color) = if app.search_active {
@@ -2202,7 +2797,9 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         let search_text = format!("> {}{}", app.search_query, cursor_char);
         let search_bar = Paragraph::new(Line::from(Span::styled(
             search_text,
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         )))
         .block(
             Block::default()
@@ -2242,8 +2839,18 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     } else {
         String::new()
     };
+    let view_indicator = match app.view_mode {
+        TuiViewMode::List => {
+            if app.grouped_view {
+                " · view: list [grouped]"
+            } else {
+                " · view: list"
+            }
+        }
+        TuiViewMode::Treemap => " · view: treemap heatmap",
+    };
     let info = Paragraph::new(vec![Line::from(format!(
-        "{} found ({} visible) · {} total · {} selected ({} items){}{} · sort: {}{}",
+        "{} found ({} visible) · {} total · {} selected ({} items){}{}{}{} · sort: {}{}",
         app.entries.len(),
         visible_count,
         human_size(total),
@@ -2251,17 +2858,28 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         sel_count,
         search_indicator,
         filter_indicator,
-        sort_label,
+        view_indicator,
         min_indicator,
+        sort_label,
+        "",
     ))])
     .block(Block::default().borders(Borders::ALL).title(" Summary "));
     f.render_widget(info, summary_chunk);
 
     let dry_run_indicator = if app.dry_run { " [DRY-RUN ON]" } else { "" };
-    let help1 = "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select";
-    let help2 = "d trash · a archive · x permanent · p pin/unpin · e explain · v tree · i ignore · y copy · o open";
-    let help3 =
-        "b rebuild · g group · Tab collapse · f age · S sort · / search · P dry-run · R restore · q quit";
+    let (help1, help2, help3) = if app.view_mode == TuiViewMode::Treemap {
+        (
+            "↑/↓/←/→ (hjkl) move tiles · space select · A select-all · Enter zoom in · Esc zoom out",
+            "d trash · a archive · x permanent · p pin/unpin · e explain · v tree · i ignore · y copy",
+            "m/Tab view mode · / search · P dry-run · R restore · q quit",
+        )
+    } else {
+        (
+            "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select",
+            "d trash · a archive · x permanent · p pin/unpin · e explain · v tree · i ignore · y copy · o open",
+            "m treemap · b rebuild · g group · Tab collapse · f age · S sort · / search · P dry-run · R restore · q quit",
+        )
+    };
 
     let help = if app.pending_action.is_some() {
         format!(
@@ -2720,5 +3338,176 @@ ecosystem = "custom"
             app.entries[0].custom_rule.as_ref().unwrap().name,
             "My Build Cache"
         );
+    }
+
+    #[test]
+    fn test_treemap_view_mode_toggle_and_sync() {
+        let mut app = App::new(
+            PathBuf::from("/test"),
+            None,
+            None,
+            false,
+            false,
+            true,
+            0,
+            SortKey::Size,
+        );
+
+        app.entries = vec![
+            Entry {
+                path: PathBuf::from("/test/proj1/node_modules"),
+                kind: ArtifactKind::NodeModules,
+                size_bytes: 50_000_000,
+                last_modified: Some(SystemTime::now()),
+                package_manager: None,
+                workspace_root: None,
+                git_status: None,
+                custom_rule: None,
+            },
+            Entry {
+                path: PathBuf::from("/test/proj2/target"),
+                kind: ArtifactKind::RustTarget,
+                size_bytes: 100_000_000,
+                last_modified: Some(SystemTime::now()),
+                package_manager: None,
+                workspace_root: None,
+                git_status: None,
+                custom_rule: None,
+            },
+        ];
+        app.rebuild_rows();
+
+        assert_eq!(app.view_mode, TuiViewMode::List);
+        app.cursor = 1;
+
+        // Toggle to Treemap
+        app.toggle_view_mode();
+        assert_eq!(app.view_mode, TuiViewMode::Treemap);
+
+        // Tile layout has largest item (target, 100MB) as tile 0, and node_modules (50MB) as tile 1
+        let active_tile = app.active_treemap_tile().expect("Tile should exist");
+        assert_eq!(active_tile.entry_index, Some(1));
+
+        // Toggle back to List
+        app.toggle_view_mode();
+        assert_eq!(app.view_mode, TuiViewMode::List);
+        assert_eq!(app.cursor, 1);
+    }
+
+    #[test]
+    fn test_treemap_selection_sync() {
+        let mut app = App::new(
+            PathBuf::from("/test"),
+            None,
+            None,
+            false,
+            false,
+            true,
+            0,
+            SortKey::Size,
+        );
+
+        app.entries = vec![
+            Entry {
+                path: PathBuf::from("/test/node_modules"),
+                kind: ArtifactKind::NodeModules,
+                size_bytes: 20_000_000,
+                last_modified: Some(SystemTime::now()),
+                package_manager: None,
+                workspace_root: None,
+                git_status: None,
+                custom_rule: None,
+            },
+            Entry {
+                path: PathBuf::from("/test/target"),
+                kind: ArtifactKind::RustTarget,
+                size_bytes: 40_000_000,
+                last_modified: Some(SystemTime::now()),
+                package_manager: None,
+                workspace_root: None,
+                git_status: None,
+                custom_rule: None,
+            },
+        ];
+        app.rebuild_rows();
+
+        app.toggle_view_mode();
+        assert_eq!(app.view_mode, TuiViewMode::Treemap);
+        assert!(app.selected.is_empty());
+
+        // Toggle selection on active tile
+        app.toggle_selected();
+        assert_eq!(app.selected.len(), 1);
+
+        // Select all in Treemap view
+        app.toggle_select_all();
+        assert_eq!(app.selected.len(), 2);
+
+        // Deselect all
+        app.toggle_select_all();
+        assert!(app.selected.is_empty());
+    }
+
+    #[test]
+    fn test_treemap_drilldown_zoom_in_and_out() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+
+        let sub_dir = root.join("node_modules");
+        let pkg1 = sub_dir.join("lodash");
+        let pkg2 = sub_dir.join("react");
+        std::fs::create_dir_all(&pkg1).unwrap();
+        std::fs::create_dir_all(&pkg2).unwrap();
+        std::fs::write(pkg1.join("index.js"), "console.log(1)").unwrap();
+        std::fs::write(pkg2.join("react.js"), "console.log(2)").unwrap();
+
+        let mut app = App::new(
+            root.clone(),
+            None,
+            None,
+            false,
+            false,
+            true,
+            0,
+            SortKey::Size,
+        );
+
+        app.entries = vec![Entry {
+            path: sub_dir.clone(),
+            kind: ArtifactKind::NodeModules,
+            size_bytes: 10_000,
+            last_modified: Some(SystemTime::now()),
+            package_manager: None,
+            workspace_root: None,
+            git_status: None,
+            custom_rule: None,
+        }];
+        app.rebuild_rows();
+
+        app.toggle_view_mode();
+        assert_eq!(app.view_mode, TuiViewMode::Treemap);
+        assert_eq!(app.treemap_zoom_stack.len(), 0);
+
+        // Zoom into node_modules
+        app.treemap_zoom_in();
+        assert_eq!(app.treemap_zoom_stack.len(), 1);
+        let (title, items) = app.current_treemap_items();
+        assert!(title.contains("node_modules"));
+        assert_eq!(items.len(), 2);
+
+        // Zoom out
+        app.treemap_zoom_out();
+        assert_eq!(app.treemap_zoom_stack.len(), 0);
+
+        // Zoom out again returns to list mode
+        app.treemap_zoom_out();
+        assert_eq!(app.view_mode, TuiViewMode::List);
+    }
+
+    #[test]
+    fn test_truncate_str_unicode_handling() {
+        assert_eq!(truncate_str("hello world", 5), "hello");
+        assert_eq!(truncate_str("abc", 10), "abc");
+        assert_eq!(truncate_str("日本語テスト", 6), "日本語");
     }
 }
