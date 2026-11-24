@@ -665,6 +665,10 @@ pub enum SortKey {
     Age,
     /// Sort alphabetically by Git branch name.
     Git,
+    /// Sort alphabetically by artifact ecosystem/kind label.
+    Ecosystem,
+    /// Sort alphabetically by path.
+    Path,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]

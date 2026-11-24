@@ -17,7 +17,8 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::io::{Write, stdout};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -203,6 +204,58 @@ struct App {
     min_bytes: u64,
     sort_key: SortKey,
     pinned_projects: Vec<nodewipe_core::PinnedProject>,
+    search_query: String,
+    search_active: bool,
+    rules_last_check: Instant,
+    rules_mtimes: HashMap<PathBuf, Option<SystemTime>>,
+}
+
+pub fn fuzzy_match(pattern: &str, text: &str) -> bool {
+    let p = pattern.trim().to_lowercase();
+    if p.is_empty() {
+        return true;
+    }
+    let t = text.to_lowercase();
+    if t.contains(&p) {
+        return true;
+    }
+    let mut p_chars = p.chars();
+    let mut current = p_chars.next();
+    for c in t.chars() {
+        if let Some(target) = current {
+            if c == target {
+                current = p_chars.next();
+            }
+        } else {
+            return true;
+        }
+    }
+    current.is_none()
+}
+
+pub fn entry_matches_search(e: &Entry, query: &str) -> bool {
+    if query.trim().is_empty() {
+        return true;
+    }
+    let path_str = e.path.to_string_lossy();
+    if fuzzy_match(query, &path_str) {
+        return true;
+    }
+    if fuzzy_match(query, e.kind.label()) {
+        return true;
+    }
+    if let Some(git) = &e.git_status
+        && let Some(branch) = &git.branch
+        && fuzzy_match(query, branch)
+    {
+        return true;
+    }
+    if let Some(rule) = &e.custom_rule
+        && fuzzy_match(query, &rule.name)
+    {
+        return true;
+    }
+    false
 }
 
 impl App {
@@ -237,6 +290,22 @@ impl App {
         let min_bytes = min_mb * 1024 * 1024;
         let pinned_projects = nodewipe_core::load_pinned_projects();
 
+        let mut rules_mtimes = HashMap::new();
+        let candidate_rules = [
+            root.join(".nodewipe.toml"),
+            root.join(".nodewipe-rules.toml"),
+            root.join("nodewipe.toml"),
+            dirs::config_dir()
+                .map(|d| d.join("nodewipe").join("rules.toml"))
+                .unwrap_or_default(),
+        ];
+        for path in &candidate_rules {
+            if !path.as_os_str().is_empty() {
+                let mtime = fs::metadata(path).and_then(|m| m.modified()).ok();
+                rules_mtimes.insert(path.clone(), mtime);
+            }
+        }
+
         App {
             root,
             stage: Stage::Splash,
@@ -270,6 +339,10 @@ impl App {
             min_bytes,
             sort_key,
             pinned_projects,
+            search_query: String::new(),
+            search_active: false,
+            rules_last_check: Instant::now(),
+            rules_mtimes,
         }
     }
 
@@ -281,7 +354,9 @@ impl App {
         self.sort_key = match self.sort_key {
             SortKey::Size => SortKey::Age,
             SortKey::Age => SortKey::Git,
-            SortKey::Git => SortKey::Size,
+            SortKey::Git => SortKey::Ecosystem,
+            SortKey::Ecosystem => SortKey::Path,
+            SortKey::Path => SortKey::Size,
         };
         self.sort_entries();
         self.rebuild_rows();
@@ -289,6 +364,8 @@ impl App {
             SortKey::Size => "size",
             SortKey::Age => "age",
             SortKey::Git => "git branch",
+            SortKey::Ecosystem => "ecosystem",
+            SortKey::Path => "path",
         };
         self.status = format!("Sorted by: {sort_label}");
     }
@@ -368,14 +445,17 @@ impl App {
         self.spinner_tick = self.spinner_tick.wrapping_add(1);
     }
 
-    /// Rebuilds the rows list based on current grouped_view, collapsed_groups, and age_filter state.
+    /// Rebuilds the rows list based on current grouped_view, collapsed_groups, age_filter, and search_query state.
     fn rebuild_rows(&mut self) {
         self.rows.clear();
 
         if !self.grouped_view {
             // Flat view: one row per matching entry.
             for (i, e) in self.entries.iter().enumerate() {
-                if e.size_bytes >= self.min_bytes && self.age_filter.matches(e.last_modified) {
+                if e.size_bytes >= self.min_bytes
+                    && self.age_filter.matches(e.last_modified)
+                    && entry_matches_search(e, &self.search_query)
+                {
                     self.rows.push(ResultRow::Entry { entry_index: i });
                 }
             }
@@ -387,11 +467,15 @@ impl App {
             return;
         }
 
-        // Grouped view: only group entries that match the age filter and min size.
+        // Grouped view: only group entries that match the age filter, min size, and search query.
         let matching_entries: Vec<Entry> = self
             .entries
             .iter()
-            .filter(|e| e.size_bytes >= self.min_bytes && self.age_filter.matches(e.last_modified))
+            .filter(|e| {
+                e.size_bytes >= self.min_bytes
+                    && self.age_filter.matches(e.last_modified)
+                    && entry_matches_search(e, &self.search_query)
+            })
             .cloned()
             .collect();
 
@@ -431,6 +515,49 @@ impl App {
             self.cursor = 0;
         } else if self.cursor >= self.rows.len() {
             self.cursor = self.rows.len() - 1;
+        }
+    }
+
+    /// Checks if project or global custom rules files have changed on disk and hot-reloads them.
+    fn check_rules_hot_reload(&mut self) {
+        if self.rules_last_check.elapsed() < Duration::from_millis(1500) {
+            return;
+        }
+        self.rules_last_check = Instant::now();
+
+        let candidates = [
+            self.root.join(".nodewipe.toml"),
+            self.root.join(".nodewipe-rules.toml"),
+            self.root.join("nodewipe.toml"),
+            dirs::config_dir()
+                .map(|d| d.join("nodewipe").join("rules.toml"))
+                .unwrap_or_default(),
+        ];
+
+        let mut changed = false;
+        for path in &candidates {
+            if path.as_os_str().is_empty() {
+                continue;
+            }
+            let current_mtime = fs::metadata(path).and_then(|m| m.modified()).ok();
+            let prev_mtime = self.rules_mtimes.get(path).copied().flatten();
+            if current_mtime != prev_mtime {
+                self.rules_mtimes.insert(path.clone(), current_mtime);
+                changed = true;
+            }
+        }
+
+        if changed {
+            let active_rules = nodewipe_core::custom_rules::load_active_rules(&self.root);
+            for entry in &mut self.entries {
+                if let Some(rule) = active_rules.iter().find(|r| r.matches_path(&entry.path)) {
+                    entry.custom_rule = Some(rule.clone());
+                } else if entry.custom_rule.is_some() {
+                    entry.custom_rule = None;
+                }
+            }
+            self.rebuild_rows();
+            self.status = format!("Custom rules hot-reloaded ({} active)", active_rules.len());
         }
     }
 
@@ -1297,6 +1424,8 @@ fn event_loop(
             continue;
         }
 
+        app.check_rules_hot_reload();
+
         terminal.draw(|f| {
             page_size = (f.area().height as usize).saturating_sub(6).max(1);
             draw(f, app);
@@ -1372,9 +1501,58 @@ fn event_loop(
                         continue;
                     }
 
+                    // ── Active inline search mode dispatch ─────────────────────────
+                    if app.search_active {
+                        match key.code {
+                            KeyCode::Esc => {
+                                if app.search_query.is_empty() {
+                                    app.search_active = false;
+                                } else {
+                                    app.search_query.clear();
+                                    app.rebuild_rows();
+                                    app.status = "Filter cleared".into();
+                                }
+                            }
+                            KeyCode::Enter => {
+                                app.search_active = false;
+                                app.status = if app.search_query.is_empty() {
+                                    "Search closed".into()
+                                } else {
+                                    format!(
+                                        "Filter locked: \"{}\" (press / to edit, Esc to clear)",
+                                        app.search_query
+                                    )
+                                };
+                            }
+                            KeyCode::Backspace => {
+                                app.search_query.pop();
+                                app.rebuild_rows();
+                            }
+                            KeyCode::Char(c) => {
+                                app.search_query.push(c);
+                                app.rebuild_rows();
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
                     // ── Main key dispatch ──────────────────────────────────────────
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Char('q') => break,
+                        KeyCode::Esc => {
+                            if !app.search_query.is_empty() {
+                                app.search_query.clear();
+                                app.rebuild_rows();
+                                app.status = "Filter cleared".into();
+                            } else {
+                                break;
+                            }
+                        }
+                        KeyCode::Char('/') => {
+                            app.search_active = true;
+                            app.status = "Search mode: type to filter, Enter to lock, Esc to clear/exit".into();
+                        }
 
                         // ── Cursor movement ────────────────────────────────────────
                         KeyCode::Down | KeyCode::Char('j') => app.move_cursor(1),
@@ -1863,14 +2041,27 @@ pub fn pad_to_width(s: &str, target_width: usize, left_align: bool) -> String {
 }
 
 fn draw_results(f: &mut ratatui::Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(3),
-            Constraint::Length(3),
-            Constraint::Length(2),
-        ])
-        .split(f.area());
+    let show_search = app.search_active || !app.search_query.is_empty();
+    let chunks = if show_search {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(3),
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Length(2),
+            ])
+            .split(f.area())
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(3),
+                Constraint::Length(3),
+                Constraint::Length(2),
+            ])
+            .split(f.area())
+    };
 
     let items: Vec<ListItem> = app
         .rows
@@ -1995,6 +2186,36 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     }
     f.render_stateful_widget(list, chunks[0], &mut list_state);
 
+    if show_search {
+        let (title, border_color) = if app.search_active {
+            (
+                " Search (Type to filter, Enter: lock, Esc: clear/exit) ",
+                Color::Yellow,
+            )
+        } else {
+            (
+                " Active Search Filter (Press / to edit, Esc to clear) ",
+                Color::Cyan,
+            )
+        };
+        let cursor_char = if app.search_active { "_" } else { "" };
+        let search_text = format!("> {}{}", app.search_query, cursor_char);
+        let search_bar = Paragraph::new(Line::from(Span::styled(
+            search_text,
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        )))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(Style::default().fg(border_color)),
+        );
+        f.render_widget(search_bar, chunks[1]);
+    }
+
+    let summary_chunk = if show_search { chunks[2] } else { chunks[1] };
+    let help_chunk = if show_search { chunks[3] } else { chunks[2] };
+
     let total: u64 = app.entries.iter().map(|e| e.size_bytes).sum();
     let sel_count = app.selected.len();
     let sel_size = app.total_selected_size();
@@ -2004,10 +2225,17 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
     } else {
         String::new()
     };
+    let search_indicator = if !app.search_query.is_empty() {
+        format!(" · search: \"{}\"", app.search_query)
+    } else {
+        String::new()
+    };
     let sort_label = match app.sort_key {
         SortKey::Size => "size",
         SortKey::Age => "age",
         SortKey::Git => "git branch",
+        SortKey::Ecosystem => "ecosystem",
+        SortKey::Path => "path",
     };
     let min_indicator = if app.min_bytes > 0 {
         format!(" · min: {}", human_size(app.min_bytes))
@@ -2015,24 +2243,25 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         String::new()
     };
     let info = Paragraph::new(vec![Line::from(format!(
-        "{} found ({} visible) · {} total · {} selected ({} items){} · sort: {}{}",
+        "{} found ({} visible) · {} total · {} selected ({} items){}{} · sort: {}{}",
         app.entries.len(),
         visible_count,
         human_size(total),
         human_size(sel_size),
         sel_count,
+        search_indicator,
         filter_indicator,
         sort_label,
         min_indicator,
     ))])
     .block(Block::default().borders(Borders::ALL).title(" Summary "));
-    f.render_widget(info, chunks[1]);
+    f.render_widget(info, summary_chunk);
 
     let dry_run_indicator = if app.dry_run { " [DRY-RUN ON]" } else { "" };
     let help1 = "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select";
     let help2 = "d trash · a archive · x permanent · p pin/unpin · e explain · v tree · i ignore · y copy · o open";
     let help3 =
-        "b rebuild · g group · Tab collapse · f age · S sort · P dry-run · R restore · q quit";
+        "b rebuild · g group · Tab collapse · f age · S sort · / search · P dry-run · R restore · q quit";
 
     let help = if app.pending_action.is_some() {
         format!(
@@ -2045,7 +2274,7 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
             app.status, dry_run_indicator
         )
     };
-    f.render_widget(Paragraph::new(help), chunks[2]);
+    f.render_widget(Paragraph::new(help), help_chunk);
 
     if let Some((title, body_lines, is_warning)) = &app.modal_text {
         draw_modal(f, title, body_lines, *is_warning);
@@ -2275,5 +2504,221 @@ fn open_path(path: &std::path::Path) {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nodewipe_core::{ArtifactKind, Entry};
+    use std::path::PathBuf;
+    use std::time::SystemTime;
+
+    #[test]
+    fn test_fuzzy_match_exact_and_subsequence() {
+        assert!(fuzzy_match("", "any_string"));
+        assert!(fuzzy_match("   ", "any_string"));
+        assert!(fuzzy_match("node", "/home/user/project/node_modules"));
+        assert!(fuzzy_match("NODE", "/home/user/project/node_modules"));
+        assert!(fuzzy_match("nm", "node_modules"));
+        assert!(fuzzy_match("tgt", "/app/target/debug"));
+        assert!(fuzzy_match("pyc", "__pycache__"));
+        assert!(!fuzzy_match("xyz123", "node_modules"));
+        assert!(!fuzzy_match("tarx", "target"));
+    }
+
+    #[test]
+    fn test_entry_matches_search_all_fields() {
+        let mut e = Entry {
+            path: PathBuf::from("/home/user/workspace/web-app/node_modules"),
+            kind: ArtifactKind::NodeModules,
+            size_bytes: 500_000_000,
+            last_modified: Some(SystemTime::now()),
+            package_manager: None,
+            workspace_root: None,
+            git_status: Some(nodewipe_core::GitStatus {
+                branch: Some("feature-billing".into()),
+                is_dirty: false,
+                is_merged: true,
+                last_commit_time: None,
+            }),
+            custom_rule: None,
+        };
+
+        // Match by path
+        assert!(entry_matches_search(&e, "web-app"));
+        // Match by kind
+        assert!(entry_matches_search(&e, "node"));
+        // Match by git branch
+        assert!(entry_matches_search(&e, "billing"));
+        // Mismatch
+        assert!(!entry_matches_search(&e, "python"));
+
+        // Match by custom rule
+        e.custom_rule = Some(nodewipe_core::custom_rules::CustomRule {
+            name: "heavy-ml-weights".into(),
+            dir_name: "checkpoints".into(),
+            self_marker: None,
+            parent_marker: None,
+            risk: "low".into(),
+            recipe: None,
+            description: Some("PyTorch checkpoints".into()),
+            ecosystem: "ai".into(),
+        });
+        assert!(entry_matches_search(&e, "heavy-ml"));
+    }
+
+    #[test]
+    fn test_tui_search_filtering_and_rebuild_rows() {
+        let mut app = App::new(
+            PathBuf::from("/test"),
+            None,
+            None,
+            false,
+            false,
+            true,
+            0,
+            SortKey::Size,
+        );
+
+        app.entries = vec![
+            Entry {
+                path: PathBuf::from("/projects/api/target"),
+                kind: ArtifactKind::RustTarget,
+                size_bytes: 2_000_000_000,
+                last_modified: Some(SystemTime::now()),
+                package_manager: None,
+                workspace_root: None,
+                git_status: None,
+                custom_rule: None,
+            },
+            Entry {
+                path: PathBuf::from("/projects/frontend/node_modules"),
+                kind: ArtifactKind::NodeModules,
+                size_bytes: 800_000_000,
+                last_modified: Some(SystemTime::now()),
+                package_manager: None,
+                workspace_root: None,
+                git_status: None,
+                custom_rule: None,
+            },
+            Entry {
+                path: PathBuf::from("/projects/ml/venv"),
+                kind: ArtifactKind::PythonVenv,
+                size_bytes: 400_000_000,
+                last_modified: Some(SystemTime::now()),
+                package_manager: None,
+                workspace_root: None,
+                git_status: None,
+                custom_rule: None,
+            },
+        ];
+
+        // Initially all 3 rows present
+        app.rebuild_rows();
+        assert_eq!(app.rows.len(), 3);
+        assert_eq!(app.visible_entry_count(), 3);
+
+        // Filter by "target"
+        app.search_query = "target".into();
+        app.rebuild_rows();
+        assert_eq!(app.rows.len(), 1);
+        assert_eq!(app.visible_entry_count(), 1);
+
+        // Filter by "frontend"
+        app.search_query = "frontend".into();
+        app.rebuild_rows();
+        assert_eq!(app.rows.len(), 1);
+        assert_eq!(app.visible_entry_count(), 1);
+
+        // Filter by non-existent
+        app.search_query = "nonexistent".into();
+        app.rebuild_rows();
+        assert_eq!(app.rows.len(), 0);
+        assert_eq!(app.cursor, 0);
+
+        // Clear query
+        app.search_query.clear();
+        app.rebuild_rows();
+        assert_eq!(app.rows.len(), 3);
+    }
+
+    #[test]
+    fn test_tui_cycle_sort_all_dimensions() {
+        let mut app = App::new(
+            PathBuf::from("/test"),
+            None,
+            None,
+            false,
+            false,
+            true,
+            0,
+            SortKey::Size,
+        );
+
+        assert_eq!(app.sort_key, SortKey::Size);
+        app.cycle_sort();
+        assert_eq!(app.sort_key, SortKey::Age);
+        app.cycle_sort();
+        assert_eq!(app.sort_key, SortKey::Git);
+        app.cycle_sort();
+        assert_eq!(app.sort_key, SortKey::Ecosystem);
+        app.cycle_sort();
+        assert_eq!(app.sort_key, SortKey::Path);
+        app.cycle_sort();
+        assert_eq!(app.sort_key, SortKey::Size);
+    }
+
+    #[test]
+    fn test_custom_rules_hot_reload() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let mut app = App::new(
+            root.clone(),
+            None,
+            None,
+            false,
+            false,
+            true,
+            0,
+            SortKey::Size,
+        );
+
+        let target_dir = root.join("my_build_cache");
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        app.entries = vec![Entry {
+            path: target_dir.clone(),
+            kind: ArtifactKind::NodeModules,
+            size_bytes: 1024,
+            last_modified: Some(SystemTime::now()),
+            package_manager: None,
+            workspace_root: None,
+            git_status: None,
+            custom_rule: None,
+        }];
+
+        // Initially no custom rule on entry
+        assert!(app.entries[0].custom_rule.is_none());
+
+        // Create rule file
+        let rule_file = root.join("nodewipe.toml");
+        let rule_content = r#"
+[[rules]]
+name = "My Build Cache"
+dir_name = "my_build_cache"
+ecosystem = "custom"
+"#;
+        std::fs::write(&rule_file, rule_content).unwrap();
+
+        // Advance rules_last_check so check_rules_hot_reload executes
+        app.rules_last_check = Instant::now() - Duration::from_secs(5);
+        app.check_rules_hot_reload();
+
+        assert!(app.entries[0].custom_rule.is_some());
+        assert_eq!(
+            app.entries[0].custom_rule.as_ref().unwrap().name,
+            "My Build Cache"
+        );
     }
 }

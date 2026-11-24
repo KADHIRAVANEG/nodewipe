@@ -823,6 +823,8 @@ fn cmd_preset(
                     SortKey::Size => "size".into(),
                     SortKey::Age => "age".into(),
                     SortKey::Git => "git".into(),
+                    SortKey::Ecosystem => "ecosystem".into(),
+                    SortKey::Path => "path".into(),
                 }),
                 description,
             };
@@ -2316,6 +2318,8 @@ pub fn parse_sort_key(s: Option<&str>) -> Option<SortKey> {
         "size" => Some(SortKey::Size),
         "age" => Some(SortKey::Age),
         "git" => Some(SortKey::Git),
+        "eco" | "ecosystem" | "kind" => Some(SortKey::Ecosystem),
+        "path" => Some(SortKey::Path),
         _ => None,
     }
 }
@@ -2347,6 +2351,17 @@ pub fn sort_entries_by_key(entries: &mut [Entry], sort: SortKey) {
                     .unwrap_or("");
                 ga.cmp(gb)
             });
+        }
+        SortKey::Ecosystem => {
+            entries.sort_by(|a, b| {
+                a.kind
+                    .label()
+                    .cmp(b.kind.label())
+                    .then_with(|| b.size_bytes.cmp(&a.size_bytes))
+            });
+        }
+        SortKey::Path => {
+            entries.sort_by(|a, b| a.path.cmp(&b.path));
         }
     }
 }
@@ -3101,6 +3116,10 @@ mod tests {
         assert_eq!(parse_sort_key(Some("SIZE")), Some(SortKey::Size));
         assert_eq!(parse_sort_key(Some("age")), Some(SortKey::Age));
         assert_eq!(parse_sort_key(Some("git")), Some(SortKey::Git));
+        assert_eq!(parse_sort_key(Some("eco")), Some(SortKey::Ecosystem));
+        assert_eq!(parse_sort_key(Some("ecosystem")), Some(SortKey::Ecosystem));
+        assert_eq!(parse_sort_key(Some("path")), Some(SortKey::Path));
+        assert_eq!(parse_sort_key(Some("PATH")), Some(SortKey::Path));
         assert_eq!(parse_sort_key(Some("invalid")), None);
         assert_eq!(parse_sort_key(None), None);
 
