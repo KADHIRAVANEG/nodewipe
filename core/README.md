@@ -12,7 +12,7 @@ The core scanning, block calculation, and excision engine powering [nodewipe](ht
 Add to your `Cargo.toml`:
 ```toml
 [dependencies]
-nodewipe-core = "0.9.9"
+nodewipe-core = "1.0.0"
 ```
 
 For full documentation, visit [github.com/KADHIRAVANEG/nodewipe](https://github.com/KADHIRAVANEG/nodewipe).
