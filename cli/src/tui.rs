@@ -58,6 +58,8 @@ enum Stage {
     Restore,
     /// Shows ignored path patterns from .nodewipeignore
     Ignored,
+    /// Inspects Docker, Podman, and Colima build caches & volumes.
+    Containers,
     /// Active background deletion with progress bar.
     Deleting,
 }
@@ -220,6 +222,9 @@ struct App {
     pub view_mode: TuiViewMode,
     pub treemap_cursor: usize,
     pub treemap_zoom_stack: Vec<treemap::TreemapZoomState>,
+    container_reports: Vec<nodewipe_core::ContainerScanReport>,
+    container_cursor: usize,
+    container_status: String,
 }
 
 pub fn fuzzy_match(pattern: &str, text: &str) -> bool {
@@ -358,6 +363,9 @@ impl App {
             view_mode: TuiViewMode::List,
             treemap_cursor: 0,
             treemap_zoom_stack: Vec::new(),
+            container_reports: Vec::new(),
+            container_cursor: 0,
+            container_status: String::new(),
         }
     }
 
@@ -752,6 +760,62 @@ impl App {
         }
         self.status = format!("Removed ignore pattern: {pattern}");
         Ok(())
+    }
+
+    fn refresh_container_reports(&mut self) {
+        let opts = nodewipe_core::ContainerScanOptions::default();
+        self.container_reports = nodewipe_core::scan_container_caches(&opts);
+        self.container_cursor = 0;
+        let online = self
+            .container_reports
+            .iter()
+            .filter(|r| r.available)
+            .count();
+        self.container_status = format!(
+            "Found {} socket(s) ({} online)",
+            self.container_reports.len(),
+            online
+        );
+    }
+
+    fn move_container_cursor(&mut self, delta: i32) {
+        if self.container_reports.is_empty() {
+            return;
+        }
+        let len = self.container_reports.len() as i32;
+        self.container_cursor = (self.container_cursor as i32 + delta).clamp(0, len - 1) as usize;
+    }
+
+    fn prune_active_container_provider(&mut self) {
+        let Some(rep) = self.container_reports.get(self.container_cursor).cloned() else {
+            self.container_status = "No container runtime selected".to_string();
+            return;
+        };
+        if !rep.available {
+            self.container_status = format!(
+                "{} is offline: {}",
+                rep.provider.label(),
+                rep.status_message
+            );
+            return;
+        }
+        let opts = nodewipe_core::ContainerScanOptions {
+            custom_sockets: vec![(rep.provider, rep.endpoint.clone())],
+            ..Default::default()
+        };
+        let prune_res = nodewipe_core::prune_container_caches(&opts, self.dry_run);
+        if let Some(p) = prune_res.first() {
+            self.container_status = format!(
+                "{}: {} ({} items, {})",
+                p.provider.label(),
+                p.message,
+                p.pruned_items,
+                p.formatted_reclaimed
+            );
+        }
+        if !self.dry_run {
+            self.container_reports = nodewipe_core::scan_container_caches(&opts);
+        }
     }
 
     fn move_cursor(&mut self, delta: i32) {
@@ -1760,6 +1824,11 @@ fn event_loop(
                         app.stage = Stage::Ignored;
                         continue;
                     }
+                    if key.code == KeyCode::Char('C') && app.pending_action.is_none() {
+                        app.refresh_container_reports();
+                        app.stage = Stage::Containers;
+                        continue;
+                    }
 
                     // ── Handle pending confirmation modal ──────────────────────────
                     if let Some((pending, mode)) = app.pending_action.clone() {
@@ -2137,6 +2206,24 @@ fn event_loop(
                     }
                     _ => {}
                 },
+                Stage::Containers => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        app.stage = Stage::Results;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => app.move_container_cursor(1),
+                    KeyCode::Up | KeyCode::Char('k') => app.move_container_cursor(-1),
+                    KeyCode::Char('r') => app.refresh_container_reports(),
+                    KeyCode::Char('d') => app.prune_active_container_provider(),
+                    KeyCode::Char('P') => {
+                        app.dry_run = !app.dry_run;
+                        app.container_status = if app.dry_run {
+                            "Dry-run preview mode ENABLED".to_string()
+                        } else {
+                            "Dry-run preview mode DISABLED".to_string()
+                        };
+                    }
+                    _ => {}
+                },
             }
         }
     }
@@ -2207,6 +2294,7 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
         Stage::Results => draw_results(f, app),
         Stage::Restore => draw_restore(f, app),
         Stage::Ignored => draw_ignored(f, app),
+        Stage::Containers => draw_containers(f, app),
         Stage::Deleting => draw_deleting(f, app),
     }
 }
@@ -2873,13 +2961,13 @@ fn draw_results(f: &mut ratatui::Frame, app: &App) {
         (
             "↑/↓/←/→ (hjkl) move tiles · space select · A select-all · Enter zoom in · Esc zoom out",
             "d trash · a archive · x permanent · p pin/unpin · e explain · v tree · i ignore · y copy",
-            "m/Tab view mode · / search · P dry-run · R restore · q quit",
+            "m/Tab view mode · / search · C containers · P dry-run · R restore · q quit",
         )
     } else {
         (
             "↑/↓/PgUp/PgDn/Home/End move · space select · A select-all · Enter group-select",
             "d trash · a archive · x permanent · p pin/unpin · e explain · v tree · i ignore · y copy · o open",
-            "m treemap · b rebuild · g group · Tab collapse · f age · S sort · / search · P dry-run · R restore · q quit",
+            "m treemap · b rebuild · g group · Tab collapse · f age · S sort · / search · C containers · P dry-run · R restore · q quit",
         )
     };
 
@@ -2995,6 +3083,77 @@ fn draw_ignored(f: &mut ratatui::Frame, app: &App) {
         Paragraph::new(
             "↑/↓ move · d remove pattern (re-scan to apply) · q/esc back to results\n[local] = from ./nodewipeignore  (global = from ~/.nodewipeignore)",
         ),
+        chunks[1],
+    );
+}
+
+fn draw_containers(f: &mut ratatui::Frame, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(2)])
+        .split(f.area());
+
+    let items: Vec<ListItem> = if app.container_reports.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            "  No container daemon sockets discovered (Docker, Podman, Colima).",
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        app.container_reports
+            .iter()
+            .enumerate()
+            .map(|(i, rep)| {
+                let cursor_marker = if i == app.container_cursor {
+                    "> "
+                } else {
+                    "  "
+                };
+                let state = if rep.available {
+                    format!(
+                        "ONLINE · {} running · {} reclaimable ({} items)",
+                        rep.running_containers_count,
+                        rep.formatted_reclaimable,
+                        rep.artifacts.iter().filter(|a| a.reclaimable).count()
+                    )
+                } else {
+                    format!("OFFLINE ({})", rep.status_message)
+                };
+                let style = if i == app.container_cursor {
+                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                } else if rep.available {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                ListItem::new(Line::from(Span::styled(
+                    format!(
+                        "{cursor_marker}[{}] {} — {}",
+                        rep.provider.label(),
+                        rep.endpoint,
+                        state
+                    ),
+                    style,
+                )))
+            })
+            .collect()
+    };
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Containers — Docker / Podman / Colima Caches "),
+    );
+    let mut list_state = ListState::default();
+    if !app.container_reports.is_empty() {
+        list_state.select(Some(app.container_cursor));
+    }
+    f.render_stateful_widget(list, chunks[0], &mut list_state);
+    let dry_tag = if app.dry_run { " [DRY-RUN ON]" } else { "" };
+    f.render_widget(
+        Paragraph::new(format!(
+            "{}{}  |  ↑/↓ move · d prune dangling caches · r rescan · P dry-run · Esc/q back",
+            app.container_status, dry_tag
+        )),
         chunks[1],
     );
 }

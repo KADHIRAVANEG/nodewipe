@@ -1,6 +1,7 @@
 pub mod backup;
 pub mod catalog;
 pub mod config;
+pub mod containers;
 pub mod custom_rules;
 pub mod dedupe;
 pub mod deleter;
@@ -31,6 +32,11 @@ pub use catalog::{
 pub use config::{
     Config, Preset, config_path, get_preset, init_default_config, list_presets, load_config,
     remove_preset, save_config, save_preset, set_config_path_override,
+};
+pub use containers::{
+    ContainerArtifact, ContainerCacheKind, ContainerCleaner, ContainerProviderKind,
+    ContainerPruneReport, ContainerScanOptions, ContainerScanReport, DockerEngineAdapter,
+    PodmanAdapter, discover_container_adapters, prune_container_caches, scan_container_caches,
 };
 pub use custom_rules::{
     CustomRule, generate_default_rules_template, global_rules_file, load_active_rules,

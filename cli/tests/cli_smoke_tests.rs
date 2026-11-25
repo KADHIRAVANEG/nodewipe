@@ -319,3 +319,53 @@ fn test_cli_workspace_analysis_and_cache_pruning() {
     assert!(!stale_item.exists(), "stale cache item must be deleted");
     assert!(fresh_item.exists(), "fresh cache item must be kept");
 }
+
+#[test]
+fn test_cli_containers_scan_and_prune_offline_graceful() {
+    let tmp = TempDir::new().unwrap();
+    let bogus_sock = tmp.path().join("missing.sock");
+
+    let scan_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "containers",
+            "scan",
+            "--socket",
+            bogus_sock.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .expect("nodewipe containers scan --json");
+
+    assert!(scan_out.status.success());
+    let json: serde_json::Value =
+        serde_json::from_slice(&scan_out.stdout).expect("valid containers scan json");
+    let arr = json.as_array().expect("reports array");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["available"], false);
+
+    // Prune without --yes and without --dry-run must refuse safely
+    let refused = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "containers",
+            "prune",
+            "--socket",
+            bogus_sock.to_str().unwrap(),
+        ])
+        .output()
+        .expect("nodewipe containers prune without --yes");
+    assert!(!refused.status.success());
+
+    // Prune with --dry-run succeeds cleanly even when offline
+    let dry = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "containers",
+            "prune",
+            "--dry-run",
+            "--socket",
+            bogus_sock.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .expect("nodewipe containers prune --dry-run");
+    assert!(dry.status.success());
+}

@@ -487,6 +487,59 @@ pub enum Command {
         #[arg(value_name = "PATH")]
         path: Option<PathBuf>,
     },
+
+    /// Inspect and safely prune Docker, Podman, and Colima build caches, dangling layers, and anonymous volumes.
+    Containers {
+        #[command(subcommand)]
+        action: Option<ContainersAction>,
+
+        /// Filter to a specific container provider (`docker`, `podman`, `colima`).
+        #[arg(long, global = false, value_enum)]
+        provider: Option<ContainerProviderArg>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum ContainersAction {
+    /// Scan discovered Docker, Podman, and Colima sockets for reclaimable caches (default).
+    Scan {
+        /// Include unused tagged images and stopped containers.
+        #[arg(long)]
+        all: bool,
+
+        /// Explicit Unix socket path to inspect.
+        #[arg(long, value_name = "SOCKET")]
+        socket: Option<String>,
+    },
+    /// Safely prune dangling BuildKit caches, untagged image layers, and anonymous volumes.
+    Prune {
+        /// Preview eligible container caches without mutating daemon state.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Include unused tagged images and stopped containers.
+        #[arg(long)]
+        all: bool,
+
+        /// Allow pruning unattached named persistent volumes.
+        #[arg(long)]
+        force_all: bool,
+
+        /// Skip confirmation prompt for non-interactive pruning.
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Explicit Unix socket path to prune.
+        #[arg(long, value_name = "SOCKET")]
+        socket: Option<String>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ContainerProviderArg {
+    Docker,
+    Podman,
+    Colima,
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

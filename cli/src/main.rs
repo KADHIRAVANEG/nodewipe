@@ -9,8 +9,9 @@ use anyhow::{Context, Result};
 use clap::Parser;
 pub use cli_def::BANNER;
 use cli_def::{
-    BackupsAction, Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PinCommand,
-    PlanAction, PresetArg, PresetCommand, ProfileArg, RulesAction, ScanFormat, SortKey,
+    BackupsAction, Cli, Command, ConfigAction, ContainerProviderArg, ContainersAction,
+    DeleteModeArg, IgnoreCommand, PinCommand, PlanAction, PresetArg, PresetCommand, ProfileArg,
+    RulesAction, ScanFormat, SortKey,
 };
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
@@ -396,6 +397,168 @@ fn run(cli: Cli) -> Result<ExitCode> {
         ),
         Some(Command::Rules { action, path }) => {
             cmd_rules(action, path, cli.rules.as_deref(), &root, cli.json)
+        }
+        Some(Command::Containers { action, provider }) => {
+            cmd_containers(action, provider, cli.json)
+        }
+    }
+}
+
+fn cmd_containers(
+    action: Option<ContainersAction>,
+    provider: Option<ContainerProviderArg>,
+    json: bool,
+) -> Result<ExitCode> {
+    let provider_filter = provider.map(|p| match p {
+        ContainerProviderArg::Docker => nodewipe_core::ContainerProviderKind::Docker,
+        ContainerProviderArg::Podman => nodewipe_core::ContainerProviderKind::Podman,
+        ContainerProviderArg::Colima => nodewipe_core::ContainerProviderKind::Colima,
+    });
+
+    let build_custom_sockets =
+        |sock_opt: Option<String>| -> Vec<(nodewipe_core::ContainerProviderKind, String)> {
+            if let Some(s) = sock_opt {
+                let prov = provider_filter.unwrap_or_else(|| {
+                    if s.contains("podman") {
+                        nodewipe_core::ContainerProviderKind::Podman
+                    } else if s.contains("colima") {
+                        nodewipe_core::ContainerProviderKind::Colima
+                    } else {
+                        nodewipe_core::ContainerProviderKind::Docker
+                    }
+                });
+                vec![(prov, s)]
+            } else {
+                Vec::new()
+            }
+        };
+
+    let act = action.unwrap_or(ContainersAction::Scan {
+        all: false,
+        socket: None,
+    });
+
+    match act {
+        ContainersAction::Scan { all, socket } => {
+            let opts = nodewipe_core::ContainerScanOptions {
+                include_all: all,
+                force_all: false,
+                provider_filter,
+                custom_sockets: build_custom_sockets(socket),
+            };
+            let reports = nodewipe_core::scan_container_caches(&opts);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&reports)?);
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            println!(
+                "\n {} Container & BuildKit Cache Audit\n",
+                nodewipe_core::icons::PACKAGE
+            );
+            if reports.is_empty() {
+                println!(" No container daemon sockets detected on this host.\n");
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            for rep in &reports {
+                let status = if rep.available {
+                    format!(
+                        "ONLINE ({} running containers, {} reclaimable)",
+                        rep.running_containers_count, rep.formatted_reclaimable
+                    )
+                } else {
+                    format!("OFFLINE ({})", rep.status_message)
+                };
+                println!(
+                    " [{:<6}] {} — {}",
+                    rep.provider.label(),
+                    rep.endpoint,
+                    status
+                );
+                if rep.available && !rep.artifacts.is_empty() {
+                    println!(
+                        " ────────────────────────────────────────────────────────────────────────"
+                    );
+                    for art in &rep.artifacts {
+                        let tag = if art.in_use {
+                            "IN USE"
+                        } else if art.reclaimable {
+                            "RECLAIMABLE"
+                        } else {
+                            "PROTECTED"
+                        };
+                        println!(
+                            "  • {:<16} {:>9}  [{:<11}]  {}  ({})",
+                            art.kind.label(),
+                            art.formatted_size,
+                            tag,
+                            art.short_id,
+                            art.description
+                        );
+                    }
+                    println!();
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        ContainersAction::Prune {
+            dry_run,
+            all,
+            force_all,
+            yes,
+            socket,
+        } => {
+            if !dry_run && !yes {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({ "error": "Refusing to prune container caches without --yes (or pass --dry-run to preview)" })
+                    );
+                } else {
+                    eprintln!(
+                        "refusing to prune container caches without --yes (pass --dry-run to preview)"
+                    );
+                }
+                return Ok(ExitCode::FAILURE);
+            }
+
+            let opts = nodewipe_core::ContainerScanOptions {
+                include_all: all,
+                force_all,
+                provider_filter,
+                custom_sockets: build_custom_sockets(socket),
+            };
+            let reports = nodewipe_core::prune_container_caches(&opts, dry_run);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&reports)?);
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            let mode_tag = if dry_run { " [DRY-RUN]" } else { "" };
+            println!(
+                "\n {} Container Cache Prune{}\n",
+                nodewipe_core::icons::PACKAGE,
+                mode_tag
+            );
+            if reports.is_empty() {
+                println!(" No reachable container runtimes found to prune.\n");
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            for rep in &reports {
+                println!(
+                    " [{:<6}] {} — {} ({} pruned, {} protected, {})",
+                    rep.provider.label(),
+                    rep.endpoint,
+                    rep.message,
+                    rep.pruned_items,
+                    rep.skipped_protected_items,
+                    rep.formatted_reclaimed
+                );
+            }
+            println!();
+            Ok(ExitCode::SUCCESS)
         }
     }
 }
