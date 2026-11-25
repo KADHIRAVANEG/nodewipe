@@ -1,6 +1,7 @@
 mod cli_def;
 mod cmd_doctor;
 mod cmd_stats;
+mod report;
 mod tui;
 mod update;
 
@@ -9,7 +10,7 @@ use clap::Parser;
 pub use cli_def::BANNER;
 use cli_def::{
     BackupsAction, Cli, Command, ConfigAction, DeleteModeArg, IgnoreCommand, PinCommand,
-    PlanAction, PresetArg, PresetCommand, ProfileArg, RulesAction, SortKey,
+    PlanAction, PresetArg, PresetCommand, ProfileArg, RulesAction, ScanFormat, SortKey,
 };
 use nodewipe_core::history::{format_date, now_unix};
 use nodewipe_core::{
@@ -128,6 +129,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     profile,
                     None,
                     None,
+                    None,
                     !cli.serial,
                     !cli.no_git,
                 )
@@ -159,6 +161,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             stale_days,
             preset,
             export,
+            format,
             save_snapshot,
         }) => {
             let scan_root = sub_path.unwrap_or(root);
@@ -184,7 +187,42 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 preset,
                 profile,
                 export,
+                format,
                 save_snapshot,
+                !cli.serial,
+                !cli.no_git,
+            )
+        }
+        Some(Command::Report {
+            path: sub_path,
+            output,
+            open,
+            min_mb,
+            older_than,
+            stale_days,
+            preset,
+        }) => {
+            let report_root = sub_path.unwrap_or(root);
+            let report_ignore = if cli.no_ignore_file {
+                nodewipe_core::Gitignore::empty()
+            } else {
+                load_ignore_patterns(&report_root)
+            };
+            let effective_min_mb = min_mb.or(config.default_min_mb).unwrap_or(0);
+            let effective_sort =
+                parse_sort_key(config.default_sort.as_deref()).unwrap_or(SortKey::Size);
+            cmd_report(
+                &report_root,
+                output,
+                open,
+                effective_min_mb,
+                exclude_kinds,
+                report_ignore,
+                older_than,
+                effective_sort,
+                stale_days,
+                preset,
+                profile,
                 !cli.serial,
                 !cli.no_git,
             )
@@ -959,6 +997,7 @@ fn run_saved_preset(name: &str, cli: &Cli, config: &nodewipe_core::Config) -> Re
         None,
         None,
         profile,
+        None,
         None,
         None,
         !cli.serial,
@@ -2367,11 +2406,9 @@ pub fn sort_entries_by_key(entries: &mut [Entry], sort: SortKey) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn cmd_scan(
+fn execute_scan_pipeline(
     root: &Path,
-    json: bool,
     min_mb: u64,
-    grouped: bool,
     mut exclude_kinds: Vec<ArtifactKind>,
     ignore_patterns: nodewipe_core::Gitignore,
     older_than: Option<String>,
@@ -2379,11 +2416,10 @@ fn cmd_scan(
     stale_days: Option<u64>,
     preset: Option<PresetArg>,
     profile: Option<nodewipe_core::ProfileKind>,
-    export: Option<PathBuf>,
     save_snapshot: Option<Option<PathBuf>>,
     parallel: bool,
     inspect_git: bool,
-) -> Result<ExitCode> {
+) -> Result<(Vec<Entry>, Vec<nodewipe_core::StaleProject>)> {
     if let Some(prof) = profile {
         for kind in ArtifactKind::ALL {
             if !prof.includes_kind(*kind) && !exclude_kinds.contains(kind) {
@@ -2506,143 +2542,255 @@ fn cmd_scan(
         Vec::new()
     };
 
-    if grouped {
-        let groups = group_by_workspace(entries.clone());
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&groups.into_values().collect::<Vec<_>>())?
-            );
-        } else {
-            for group in groups.values() {
-                println!(
-                    "\n{} ({})",
-                    group.root.display(),
-                    human_size(group.total_size_bytes)
-                );
-                for e in &group.entries {
+    Ok((entries, stale))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_scan(
+    root: &Path,
+    json: bool,
+    min_mb: u64,
+    grouped: bool,
+    exclude_kinds: Vec<ArtifactKind>,
+    ignore_patterns: nodewipe_core::Gitignore,
+    older_than: Option<String>,
+    sort: SortKey,
+    stale_days: Option<u64>,
+    preset: Option<PresetArg>,
+    profile: Option<nodewipe_core::ProfileKind>,
+    export: Option<PathBuf>,
+    format: Option<ScanFormat>,
+    save_snapshot: Option<Option<PathBuf>>,
+    parallel: bool,
+    inspect_git: bool,
+) -> Result<ExitCode> {
+    let (entries, stale) = execute_scan_pipeline(
+        root,
+        min_mb,
+        exclude_kinds,
+        ignore_patterns,
+        older_than,
+        sort,
+        stale_days,
+        preset,
+        profile,
+        save_snapshot,
+        parallel,
+        inspect_git,
+    )?;
+
+    let effective_format = format.unwrap_or(if json {
+        ScanFormat::Json
+    } else {
+        ScanFormat::Table
+    });
+
+    match effective_format {
+        ScanFormat::Html => {
+            let html = report::generate_html_report(root, &entries, &stale)?;
+            println!("{html}");
+        }
+        ScanFormat::Csv => {
+            print!("{}", format_csv_results(&entries));
+        }
+        ScanFormat::Json | ScanFormat::Table => {
+            let emit_json = effective_format == ScanFormat::Json;
+            if grouped {
+                let groups = group_by_workspace(entries.clone());
+                if emit_json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&groups.into_values().collect::<Vec<_>>())?
+                    );
+                } else {
+                    for group in groups.values() {
+                        println!(
+                            "\n{} ({})",
+                            group.root.display(),
+                            human_size(group.total_size_bytes)
+                        );
+                        for e in &group.entries {
+                            let git_info = match &e.git_status {
+                                Some(git) => {
+                                    let branch = git.branch.as_deref().unwrap_or("?");
+                                    let dirty = if git.is_dirty { "*" } else { "" };
+                                    let merged = if git.is_merged { " [merged]" } else { "" };
+                                    format!(
+                                        "({} {branch}{dirty}{merged}) ",
+                                        nodewipe_core::icons::GIT_BRANCH
+                                    )
+                                }
+                                None => String::new(),
+                            };
+                            println!(
+                                "  {}  {}  {}{}",
+                                human_size(e.size_bytes),
+                                kind_display(e),
+                                git_info,
+                                e.path.display()
+                            );
+                        }
+                    }
+                }
+            } else if emit_json {
+                let out = serde_json::json!({
+                    "entries": entries,
+                    "stale_projects": stale,
+                });
+                println!("{}", serde_json::to_string_pretty(&out)?);
+            } else {
+                let total: u64 = entries.iter().map(|e| e.size_bytes).sum();
+                let now = SystemTime::now();
+                for e in &entries {
+                    let age_str = match e.last_modified {
+                        Some(mtime) => {
+                            let days = now
+                                .duration_since(mtime)
+                                .map(|d| d.as_secs() / 86400)
+                                .unwrap_or(0);
+                            format!("{:>4}d", days)
+                        }
+                        None => "   ?d".to_string(),
+                    };
+                    let is_pinned = nodewipe_core::is_path_pinned(&e.path);
+                    let pin_tag = if is_pinned {
+                        format!(" {} [PINNED]", nodewipe_core::icons::PIN)
+                    } else {
+                        String::new()
+                    };
                     let git_info = match &e.git_status {
                         Some(git) => {
                             let branch = git.branch.as_deref().unwrap_or("?");
                             let dirty = if git.is_dirty { "*" } else { "" };
                             let merged = if git.is_merged { " [merged]" } else { "" };
                             format!(
-                                "({} {branch}{dirty}{merged}) ",
+                                "({} {branch}{dirty}{merged})",
                                 nodewipe_core::icons::GIT_BRANCH
                             )
                         }
                         None => String::new(),
                     };
-                    println!(
-                        "  {}  {}  {}{}",
-                        human_size(e.size_bytes),
-                        kind_display(e),
-                        git_info,
-                        e.path.display()
-                    );
-                }
-            }
-        }
-    } else if json {
-        let out = serde_json::json!({
-            "entries": entries,
-            "stale_projects": stale,
-        });
-        println!("{}", serde_json::to_string_pretty(&out)?);
-    } else {
-        let total: u64 = entries.iter().map(|e| e.size_bytes).sum();
-        let now = SystemTime::now();
-        for e in &entries {
-            let age_str = match e.last_modified {
-                Some(mtime) => {
-                    let days = now
-                        .duration_since(mtime)
-                        .map(|d| d.as_secs() / 86400)
-                        .unwrap_or(0);
-                    format!("{:>4}d", days)
-                }
-                None => "   ?d".to_string(),
-            };
-            let is_pinned = nodewipe_core::is_path_pinned(&e.path);
-            let pin_tag = if is_pinned {
-                format!(" {} [PINNED]", nodewipe_core::icons::PIN)
-            } else {
-                String::new()
-            };
-            let git_info = match &e.git_status {
-                Some(git) => {
-                    let branch = git.branch.as_deref().unwrap_or("?");
-                    let dirty = if git.is_dirty { "*" } else { "" };
-                    let merged = if git.is_merged { " [merged]" } else { "" };
-                    format!(
-                        "({} {branch}{dirty}{merged})",
-                        nodewipe_core::icons::GIT_BRANCH
-                    )
-                }
-                None => String::new(),
-            };
-            if git_info.is_empty() {
-                println!(
-                    "{}  {}  {}{pin_tag}  {}",
-                    human_size(e.size_bytes),
-                    age_str,
-                    kind_display(e),
-                    e.path.display()
-                );
-            } else {
-                println!(
-                    "{}  {}  {}  {:<22}{pin_tag}  {}",
-                    human_size(e.size_bytes),
-                    age_str,
-                    kind_display(e),
-                    git_info,
-                    e.path.display()
-                );
-            }
-        }
-        println!(
-            "\n{} artifacts found, {} reclaimable",
-            entries.len(),
-            human_size(total)
-        );
-
-        if !stale.is_empty() {
-            println!(
-                "\n {} likely-abandoned project{} (source untouched for {}+ days):\n",
-                stale.len(),
-                if stale.len() == 1 { "" } else { "s" },
-                stale_days.unwrap_or(90),
-            );
-            for s in &stale {
-                let git_info = match &s.git_branch {
-                    Some(b) => {
-                        let dirty = if s.is_dirty { "*" } else { "" };
-                        let merged = if s.is_merged { " [merged]" } else { "" };
-                        format!("({b}{dirty}{merged}) ")
+                    if git_info.is_empty() {
+                        println!(
+                            "{}  {}  {}{pin_tag}  {}",
+                            human_size(e.size_bytes),
+                            age_str,
+                            kind_display(e),
+                            e.path.display()
+                        );
+                    } else {
+                        println!(
+                            "{}  {}  {}  {:<22}{pin_tag}  {}",
+                            human_size(e.size_bytes),
+                            age_str,
+                            kind_display(e),
+                            git_info,
+                            e.path.display()
+                        );
                     }
-                    None => String::new(),
-                };
+                }
                 println!(
-                    "   {} days   {}   {}{}",
-                    s.stale_days,
-                    human_size(s.reclaimable_bytes),
-                    git_info,
-                    s.root.display(),
+                    "\n{} artifacts found, {} reclaimable",
+                    entries.len(),
+                    human_size(total)
                 );
+
+                if !stale.is_empty() {
+                    println!(
+                        "\n {} likely-abandoned project{} (source untouched for {}+ days):\n",
+                        stale.len(),
+                        if stale.len() == 1 { "" } else { "s" },
+                        stale_days.unwrap_or(90),
+                    );
+                    for s in &stale {
+                        let git_info = match &s.git_branch {
+                            Some(b) => {
+                                let dirty = if s.is_dirty { "*" } else { "" };
+                                let merged = if s.is_merged { " [merged]" } else { "" };
+                                format!("({b}{dirty}{merged}) ")
+                            }
+                            None => String::new(),
+                        };
+                        println!(
+                            "   {} days   {}   {}{}",
+                            s.stale_days,
+                            human_size(s.reclaimable_bytes),
+                            git_info,
+                            s.root.display(),
+                        );
+                    }
+                    println!();
+                }
             }
-            println!();
         }
     }
 
     if let Some(export_path) = export {
-        export_scan_results(&export_path, &entries, &stale)?;
-        if !json {
+        export_scan_results(&export_path, root, &entries, &stale)?;
+        if effective_format == ScanFormat::Table {
             eprintln!(
                 "Exported {} results to {}",
                 entries.len(),
                 export_path.display()
             );
         }
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_report(
+    root: &Path,
+    output: Option<PathBuf>,
+    open: bool,
+    min_mb: u64,
+    exclude_kinds: Vec<ArtifactKind>,
+    ignore_patterns: nodewipe_core::Gitignore,
+    older_than: Option<String>,
+    sort: SortKey,
+    stale_days: Option<u64>,
+    preset: Option<PresetArg>,
+    profile: Option<nodewipe_core::ProfileKind>,
+    parallel: bool,
+    inspect_git: bool,
+) -> Result<ExitCode> {
+    let (entries, stale) = execute_scan_pipeline(
+        root,
+        min_mb,
+        exclude_kinds,
+        ignore_patterns,
+        older_than,
+        sort,
+        stale_days,
+        preset,
+        profile,
+        None,
+        parallel,
+        inspect_git,
+    )?;
+
+    let html = report::generate_html_report(root, &entries, &stale)?;
+
+    let target_file = match output {
+        Some(path) => Some(path),
+        None if open => Some(std::env::temp_dir().join("nodewipe-audit-report.html")),
+        None => None,
+    };
+
+    if let Some(dest) = target_file {
+        std::fs::write(&dest, &html)
+            .with_context(|| format!("writing HTML report to {}", dest.display()))?;
+        eprintln!(
+            "Wrote HTML storage audit report ({} entries) to {}",
+            entries.len(),
+            dest.display()
+        );
+        if open {
+            tui::open_browser(&dest.to_string_lossy());
+        }
+    } else {
+        println!("{html}");
     }
 
     Ok(ExitCode::SUCCESS)
@@ -2665,48 +2813,58 @@ fn escape_csv_field(s: &str) -> String {
     sanitized.replace('"', "\"\"")
 }
 
+fn format_csv_results(entries: &[Entry]) -> String {
+    let mut wtr = String::from(
+        "path,kind,size_bytes,package_manager,last_modified_unix,git_branch,git_dirty,git_merged\n",
+    );
+    for e in entries {
+        let pm = e
+            .package_manager
+            .map(|p| format!("{p:?}"))
+            .unwrap_or_default();
+        let mtime = e
+            .last_modified
+            .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_default();
+        let (branch, dirty, merged) = match &e.git_status {
+            Some(g) => (
+                g.branch.as_deref().unwrap_or(""),
+                if g.is_dirty { "true" } else { "false" },
+                if g.is_merged { "true" } else { "false" },
+            ),
+            None => ("", "", ""),
+        };
+        wtr.push_str(&format!(
+            "\"{}\",\"{}\",{},\"{}\",{},\"{}\",{},{}\n",
+            escape_csv_field(&e.path.to_string_lossy()),
+            escape_csv_field(e.kind.slug()),
+            e.size_bytes,
+            escape_csv_field(&pm),
+            mtime,
+            escape_csv_field(branch),
+            dirty,
+            merged,
+        ));
+    }
+    wtr
+}
+
 fn export_scan_results(
     path: &Path,
+    root: &Path,
     entries: &[Entry],
     stale: &[nodewipe_core::StaleProject],
 ) -> Result<()> {
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
     if ext.eq_ignore_ascii_case("csv") {
-        let mut wtr = String::from(
-            "path,kind,size_bytes,package_manager,last_modified_unix,git_branch,git_dirty,git_merged\n",
-        );
-        for e in entries {
-            let pm = e
-                .package_manager
-                .map(|p| format!("{p:?}"))
-                .unwrap_or_default();
-            let mtime = e
-                .last_modified
-                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs().to_string())
-                .unwrap_or_default();
-            let (branch, dirty, merged) = match &e.git_status {
-                Some(g) => (
-                    g.branch.as_deref().unwrap_or(""),
-                    if g.is_dirty { "true" } else { "false" },
-                    if g.is_merged { "true" } else { "false" },
-                ),
-                None => ("", "", ""),
-            };
-            wtr.push_str(&format!(
-                "\"{}\",\"{}\",{},\"{}\",{},\"{}\",{},{}\n",
-                escape_csv_field(&e.path.to_string_lossy()),
-                escape_csv_field(e.kind.slug()),
-                e.size_bytes,
-                escape_csv_field(&pm),
-                mtime,
-                escape_csv_field(branch),
-                dirty,
-                merged,
-            ));
-        }
-        std::fs::write(path, wtr)
+        let csv = format_csv_results(entries);
+        std::fs::write(path, csv)
             .with_context(|| format!("writing CSV export to {}", path.display()))?;
+    } else if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+        let html = report::generate_html_report(root, entries, stale)?;
+        std::fs::write(path, html)
+            .with_context(|| format!("writing HTML export to {}", path.display()))?;
     } else {
         let out = serde_json::json!({
             "entries": entries,

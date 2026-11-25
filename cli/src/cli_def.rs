@@ -136,13 +136,51 @@ pub enum Command {
         #[arg(long, value_enum)]
         preset: Option<PresetArg>,
 
-        /// Export scan results to a file (JSON or CSV based on extension or content).
+        /// Export scan results to a file (JSON, CSV, or HTML based on extension).
         #[arg(long, value_name = "FILE")]
         export: Option<PathBuf>,
+
+        /// Output format for stdout (`table`, `json`, `csv`, or `html`).
+        #[arg(long, value_enum)]
+        format: Option<ScanFormat>,
 
         /// Save scan results as a baseline snapshot for future diff comparisons.
         #[arg(long, value_name = "FILE")]
         save_snapshot: Option<Option<PathBuf>>,
+    },
+
+    /// Generate a standalone, offline interactive HTML5 storage audit report.
+    ///
+    /// Scans the target directory and produces a self-contained HTML report with
+    /// an ecosystem breakdown donut chart, staleness timeline, and searchable table.
+    Report {
+        /// Directory to scan and report on (defaults to current directory).
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Output HTML file path (writes to stdout when omitted unless --open is set).
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
+
+        /// Open the generated HTML report in the system default web browser.
+        #[arg(long)]
+        open: bool,
+
+        /// Only include artifacts at least this many megabytes in size.
+        #[arg(long, value_name = "MB")]
+        min_mb: Option<u64>,
+
+        /// Only include artifacts whose last modification is older than this (e.g. `30d`).
+        #[arg(long, value_name = "AGE")]
+        older_than: Option<String>,
+
+        /// Flag projects as stale when source files haven't been touched in this many days.
+        #[arg(long, value_name = "DAYS")]
+        stale_days: Option<u64>,
+
+        /// Preset to filter artifacts by development ecosystem.
+        #[arg(long, value_enum)]
+        preset: Option<PresetArg>,
     },
 
     /// Delete one or more artifact directories.
@@ -654,6 +692,18 @@ pub enum DeleteModeArg {
     Archive,
     /// Delete immediately with no backup. Cannot be undone.
     Permanent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ScanFormat {
+    /// Human-readable terminal table (default).
+    Table,
+    /// Machine-readable JSON output.
+    Json,
+    /// RFC 4180 CSV spreadsheet output.
+    Csv,
+    /// Standalone interactive HTML5 audit report.
+    Html,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

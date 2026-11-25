@@ -3092,7 +3092,7 @@ fn human_size(bytes: u64) -> String {
     format!("{size:.2} {}", UNITS[unit])
 }
 
-fn open_browser(url: &str) {
+pub fn open_browser(url: &str) {
     #[cfg(target_os = "windows")]
     {
         let _ = std::process::Command::new("cmd")

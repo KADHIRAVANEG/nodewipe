@@ -135,3 +135,95 @@ fn test_cli_dedupe_accurate_diagnostics() {
         assert!(stdout.contains("pass `--allow-hardlinks`"));
     }
 }
+
+#[test]
+fn test_cli_scan_format_html_and_report_subcommand() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    let proj = root.join("webapp");
+    let nm = proj.join("node_modules");
+    std::fs::create_dir_all(&nm).unwrap();
+    std::fs::write(proj.join("package.json"), r#"{"name":"webapp"}"#).unwrap();
+    std::fs::write(nm.join("bundle.js"), "console.log('bundle');").unwrap();
+
+    // 1. nodewipe scan --format html <root>
+    let scan_html = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "scan",
+            "--format",
+            "html",
+            "--no-git",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("nodewipe scan --format html");
+
+    assert!(
+        scan_html.status.success(),
+        "scan --format html failed: {}",
+        String::from_utf8_lossy(&scan_html.stderr)
+    );
+    let html_stdout = String::from_utf8_lossy(&scan_html.stdout);
+    assert!(html_stdout.starts_with("<!DOCTYPE html>"));
+    assert!(html_stdout.contains("nodewipe Storage Audit Report"));
+    assert!(html_stdout.contains("webapp"));
+    assert!(html_stdout.contains("donut-svg"));
+    assert!(html_stdout.contains("age-svg"));
+
+    // 2. nodewipe report <root> --output <file>
+    let out_file = root.join("audit-report.html");
+    let report_cmd = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "report",
+            root.to_str().unwrap(),
+            "--output",
+            out_file.to_str().unwrap(),
+            "--no-git",
+        ])
+        .output()
+        .expect("nodewipe report --output");
+
+    assert!(
+        report_cmd.status.success(),
+        "nodewipe report failed: {}",
+        String::from_utf8_lossy(&report_cmd.stderr)
+    );
+    assert!(out_file.exists(), "audit-report.html should exist");
+    let file_html = std::fs::read_to_string(&out_file).unwrap();
+    assert!(file_html.starts_with("<!DOCTYPE html>"));
+    assert!(file_html.contains("node_modules"));
+
+    // 3. nodewipe scan --export <out2.html>
+    let export_file = root.join("exported.html");
+    let export_cmd = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "scan",
+            root.to_str().unwrap(),
+            "--export",
+            export_file.to_str().unwrap(),
+            "--no-git",
+        ])
+        .output()
+        .expect("nodewipe scan --export exported.html");
+    assert!(export_cmd.status.success());
+    let exported_html = std::fs::read_to_string(&export_file).unwrap();
+    assert!(exported_html.starts_with("<!DOCTYPE html>"));
+    assert!(exported_html.contains("webapp"));
+
+    // 4. nodewipe scan --format csv
+    let scan_csv = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "scan",
+            "--format",
+            "csv",
+            "--no-git",
+            root.to_str().unwrap(),
+        ])
+        .output()
+        .expect("nodewipe scan --format csv");
+    assert!(scan_csv.status.success());
+    let csv_out = String::from_utf8_lossy(&scan_csv.stdout);
+    assert!(csv_out.starts_with("path,kind,size_bytes,"));
+    assert!(csv_out.contains("node_modules"));
+}
