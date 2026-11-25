@@ -227,3 +227,95 @@ fn test_cli_scan_format_html_and_report_subcommand() {
     assert!(csv_out.starts_with("path,kind,size_bytes,"));
     assert!(csv_out.contains("node_modules"));
 }
+
+#[test]
+fn test_cli_workspace_analysis_and_cache_pruning() {
+    use std::fs::File;
+    use std::time::{Duration, SystemTime};
+
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    std::fs::write(
+        root.join("pnpm-workspace.yaml"),
+        "packages:\n  - 'apps/*'\n  - 'packages/*'\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("turbo.json"), r#"{"tasks":{"build":{}}}"#).unwrap();
+
+    let web_app = root.join("apps/web");
+    let web_nm = web_app.join("node_modules");
+    std::fs::create_dir_all(&web_nm).unwrap();
+    std::fs::write(web_app.join("package.json"), "{}").unwrap();
+    std::fs::write(web_nm.join("dep.js"), "export const x = 1;").unwrap();
+
+    let turbo_cache = root.join(".turbo/cache");
+    std::fs::create_dir_all(&turbo_cache).unwrap();
+    let stale_item = turbo_cache.join("abc123-stale.tar.zst");
+    let fresh_item = turbo_cache.join("def456-fresh.tar.zst");
+    std::fs::write(&stale_item, "old-cached-build-artifact").unwrap();
+    std::fs::write(&fresh_item, "fresh-cached-build-artifact").unwrap();
+
+    let old_time = SystemTime::now() - Duration::from_secs(30 * 86400);
+    File::options()
+        .write(true)
+        .open(&stale_item)
+        .unwrap()
+        .set_modified(old_time)
+        .unwrap();
+
+    // 1. Workspace analysis JSON
+    let ws_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args(["workspace", root.to_str().unwrap(), "--json", "--no-git"])
+        .output()
+        .expect("nodewipe workspace --json");
+    assert!(ws_out.status.success());
+    let ws_json: serde_json::Value =
+        serde_json::from_slice(&ws_out.stdout).expect("valid workspace analysis json");
+    assert_eq!(ws_json["workspace_type"], "pnpm + Turborepo workspace");
+    assert!(ws_json["resolved_member_count"].as_u64().unwrap() >= 1);
+    assert!(
+        !ws_json["cache_summary"].as_array().unwrap().is_empty(),
+        "cache_summary must detect .turbo/cache"
+    );
+
+    // 2. Cache prune dry-run
+    let dry_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "workspace",
+            root.to_str().unwrap(),
+            "--prune-caches",
+            "--max-age",
+            "14",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("nodewipe workspace --prune-caches --dry-run");
+    assert!(dry_out.status.success());
+    let dry_json: serde_json::Value =
+        serde_json::from_slice(&dry_out.stdout).expect("valid prune dry-run json");
+    assert_eq!(dry_json["pruned_count"], 1);
+    assert_eq!(dry_json["skipped_fresh_count"], 1);
+    assert!(stale_item.exists());
+
+    // 3. Cache prune execute (--yes)
+    let real_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "workspace",
+            root.to_str().unwrap(),
+            "--prune-caches",
+            "--max-age",
+            "14",
+            "--yes",
+            "--json",
+        ])
+        .output()
+        .expect("nodewipe workspace --prune-caches --yes");
+    assert!(real_out.status.success());
+    let real_json: serde_json::Value =
+        serde_json::from_slice(&real_out.stdout).expect("valid prune json");
+    assert_eq!(real_json["pruned_count"], 1);
+    assert!(!stale_item.exists(), "stale cache item must be deleted");
+    assert!(fresh_item.exists(), "fresh cache item must be kept");
+}

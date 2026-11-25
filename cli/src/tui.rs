@@ -2496,6 +2496,7 @@ fn draw_treemap(f: &mut ratatui::Frame, app: &App, area: Rect) {
             Some(ArtifactKind::NodeModules)
             | Some(ArtifactKind::NextCache)
             | Some(ArtifactKind::TurboCache)
+            | Some(ArtifactKind::NxCache)
             | Some(ArtifactKind::GenericDist)
             | Some(ArtifactKind::AstroCache)
             | Some(ArtifactKind::SvelteKitCache)
@@ -2526,7 +2527,8 @@ fn draw_treemap(f: &mut ratatui::Frame, app: &App, area: Rect) {
             | Some(ArtifactKind::CocoaPods) => Color::LightBlue,
             Some(ArtifactKind::CmakeBuild)
             | Some(ArtifactKind::ZigCache)
-            | Some(ArtifactKind::MesonBuild) => Color::LightCyan,
+            | Some(ArtifactKind::MesonBuild)
+            | Some(ArtifactKind::BazelCache) => Color::LightCyan,
             _ => Color::White,
         };
 

@@ -199,6 +199,7 @@ pub fn resolve_rebuild_plan(entry: &Entry) -> Option<RebuildPlan> {
         }
         ArtifactKind::NextCache
         | ArtifactKind::TurboCache
+        | ArtifactKind::NxCache
         | ArtifactKind::AstroCache
         | ArtifactKind::SvelteKitCache
         | ArtifactKind::NuxtCache

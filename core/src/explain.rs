@@ -138,6 +138,16 @@ pub fn analyze_artifact_rule(kind: ArtifactKind, path: &Path) -> (String, RiskLe
             RiskLevel::Low,
             "Zero data loss risk. Turborepo will recompute task outputs when rerun.".into(),
         ),
+        ArtifactKind::NxCache => (
+            "Detected as Nx monorepo computation cache (.nx).".into(),
+            RiskLevel::Low,
+            "Zero data loss risk. Nx will recompute cached targets or use `nx reset`.".into(),
+        ),
+        ArtifactKind::BazelCache => (
+            "Detected as Bazel build cache / output base.".into(),
+            RiskLevel::Low,
+            "Zero data loss risk if Bazel server is idle. Rebuilds from source targets.".into(),
+        ),
         ArtifactKind::GenericDist => (
             "Detected as bundler distribution output (dist) beside a project package manifest.".into(),
             RiskLevel::Low,

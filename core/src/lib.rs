@@ -77,6 +77,8 @@ pub use stale::{StaleProject, find_stale_projects};
 pub use timeline::{ProjectTimeline, TimelineVerdict, format_timeline_text, inspect_timeline};
 pub use tree::{ArtifactTree, TreeNode, inspect_artifact_tree};
 pub use workspace::{
-    WorkspaceAnalysis, WorkspacePackage, analyze_workspace, annotate_workspace_roots,
-    group_by_workspace,
+    CacheKind, CachePruneItem, CachePruneOptions, CachePruneReport, CachePruneStatus,
+    WorkspaceAnalysis, WorkspaceCacheSummary, WorkspaceManifest, WorkspacePackage,
+    analyze_workspace, annotate_workspace_roots, group_by_workspace, parse_workspace_manifest,
+    prune_monorepo_caches,
 };

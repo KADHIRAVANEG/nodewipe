@@ -337,7 +337,14 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             cmd_timeline(&time_path, cli.json, cli.no_git)
         }
-        Some(Command::Workspace { path: sub_path }) => {
+        Some(Command::Workspace {
+            path: sub_path,
+            prune_caches,
+            max_age,
+            dry_run,
+            yes,
+            global_daemons,
+        }) => {
             let ws_path = if sub_path == Path::new(".") {
                 root
             } else {
@@ -349,6 +356,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 cli.serial,
                 cli.no_git,
                 cli.no_ignore_file,
+                prune_caches,
+                max_age,
+                dry_run,
+                yes,
+                global_daemons,
             )
         }
         Some(Command::Backups {
@@ -1077,13 +1089,89 @@ fn cmd_timeline(path: &Path, json: bool, no_git: bool) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_workspace(
     path: &Path,
     json: bool,
     serial: bool,
     no_git: bool,
     no_ignore_file: bool,
+    prune_caches: bool,
+    max_age: u64,
+    dry_run: bool,
+    yes: bool,
+    global_daemons: bool,
 ) -> Result<ExitCode> {
+    if prune_caches {
+        if !dry_run && !yes {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "error": "Refusing to prune workspace caches without --yes (or pass --dry-run to preview)" })
+                );
+            } else {
+                eprintln!(
+                    "refusing to prune workspace caches without --yes (pass --dry-run to preview)"
+                );
+            }
+            return Ok(ExitCode::FAILURE);
+        }
+
+        let prune_report =
+            nodewipe_core::prune_monorepo_caches(&nodewipe_core::CachePruneOptions {
+                root: path.to_path_buf(),
+                max_age_days: max_age,
+                dry_run,
+                include_global_caches: global_daemons,
+                extra_cache_roots: Vec::new(),
+            })?;
+
+        if json {
+            println!("{}", serde_json::to_string_pretty(&prune_report)?);
+        } else {
+            let mode_tag = if dry_run { " [DRY-RUN]" } else { "" };
+            println!(
+                "\n {} Workspace Cache Pruning{} — {} (threshold: {}d+)\n",
+                nodewipe_core::icons::PACKAGE,
+                mode_tag,
+                path.display(),
+                prune_report.max_age_days
+            );
+            for item in &prune_report.items {
+                let status_label = match item.status {
+                    nodewipe_core::CachePruneStatus::Pruned => "PRUNED",
+                    nodewipe_core::CachePruneStatus::WouldPrune => "WOULD PRUNE",
+                    nodewipe_core::CachePruneStatus::SkippedFresh => "KEEP (FRESH)",
+                    nodewipe_core::CachePruneStatus::SkippedActiveLock => "SKIP (LOCKED)",
+                    nodewipe_core::CachePruneStatus::SkippedPinned => "SKIP (PINNED)",
+                    nodewipe_core::CachePruneStatus::Error => "ERROR",
+                };
+                let reason = item
+                    .reason
+                    .as_deref()
+                    .map(|r| format!(" - {r}"))
+                    .unwrap_or_default();
+                println!(
+                    "  [{:<12}] {:<16} {:>9} ({:>3}d)  {}{}",
+                    status_label,
+                    item.kind.label(),
+                    item.formatted_size,
+                    item.age_days,
+                    item.path.display(),
+                    reason
+                );
+            }
+            println!(
+                "\n Summary: {} targeted ({} reclaimable), {} fresh preserved, {} active-lock skipped\n",
+                prune_report.pruned_count,
+                prune_report.formatted_reclaimable,
+                prune_report.skipped_fresh_count,
+                prune_report.skipped_locked_count
+            );
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let ignore_patterns = if no_ignore_file {
         nodewipe_core::Gitignore::empty()
     } else {
@@ -1109,7 +1197,7 @@ fn cmd_workspace(
                 );
             } else {
                 println!(
-                    "\n No monorepo workspace marker (pnpm-workspace.yaml, turbo.json, Cargo.toml [workspace], etc.) found at {}.",
+                    "\n No monorepo workspace marker (pnpm-workspace.yaml, turbo.json, nx.json, Cargo.toml [workspace], etc.) found at {}.",
                     path.display()
                 );
             }
@@ -1126,16 +1214,37 @@ fn cmd_workspace(
             analysis.root.display(),
             analysis.workspace_type
         );
+        if !analysis.declared_patterns.is_empty() {
+            println!(
+                " Declared Manifest Globs:  {}",
+                analysis.declared_patterns.join(", ")
+            );
+        }
         println!(
-            " Total Artifact Footprint: {} across {} member packages",
+            " Total Artifact Footprint: {} across {} member packages ({} manifest targets resolved)",
             analysis.formatted_total,
-            analysis.member_packages.len()
+            analysis.member_packages.len(),
+            analysis.resolved_member_count
         );
         if analysis.shared_root_artifact_bytes > 0 {
             println!(
                 " Shared Root Artifacts:    {}",
                 nodewipe_core::format_bytes(analysis.shared_root_artifact_bytes)
             );
+        }
+        if !analysis.cache_summary.is_empty() {
+            println!("\n Computation & Daemon Caches:");
+            for c in &analysis.cache_summary {
+                let lock_tag = if c.locked { " [LOCKED]" } else { "" };
+                println!(
+                    "  • {:<18} {:>9}  ({} files){}  {}",
+                    c.kind.label(),
+                    c.formatted_size,
+                    c.entry_count,
+                    lock_tag,
+                    c.path.display()
+                );
+            }
         }
         println!("\n Member Packages (sorted by size):");
         println!(" ────────────────────────────────────────────────────────────────────────");
@@ -2442,6 +2551,7 @@ fn execute_scan_pipeline(
                 ArtifactKind::PnpmIgnored,
                 ArtifactKind::NextCache,
                 ArtifactKind::TurboCache,
+                ArtifactKind::NxCache,
                 ArtifactKind::GenericDist,
                 ArtifactKind::PlaywrightBrowsers,
                 ArtifactKind::CypressCache,
@@ -2482,6 +2592,7 @@ fn execute_scan_pipeline(
                 ArtifactKind::ZigCache,
                 ArtifactKind::ElixirBuild,
                 ArtifactKind::MesonBuild,
+                ArtifactKind::BazelCache,
             ],
         };
 
@@ -3465,7 +3576,8 @@ mod tests {
         assert_eq!(code_tree, ExitCode::SUCCESS);
 
         // Test cmd_workspace
-        let code_ws = cmd_workspace(root, true, true, true, true).unwrap();
+        let code_ws =
+            cmd_workspace(root, true, true, true, true, false, 14, false, false, false).unwrap();
         assert_eq!(code_ws, ExitCode::SUCCESS);
     }
 

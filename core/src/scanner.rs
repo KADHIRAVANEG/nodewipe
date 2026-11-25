@@ -105,6 +105,26 @@ const RULES: &[Rule] = &[
         marker: Marker::None,
     },
     Rule {
+        name: ".nx",
+        kind: ArtifactKind::NxCache,
+        marker: Marker::SelfHasAny(&["cache", "workspace-data"]),
+    },
+    Rule {
+        name: ".nx",
+        kind: ArtifactKind::NxCache,
+        marker: Marker::ParentHasAny(&["nx.json", "package.json"]),
+    },
+    Rule {
+        name: "bazel-cache",
+        kind: ArtifactKind::BazelCache,
+        marker: Marker::None,
+    },
+    Rule {
+        name: "output_base",
+        kind: ArtifactKind::BazelCache,
+        marker: Marker::SelfHasAny(&["execroot", "external", "action_cache"]),
+    },
+    Rule {
         name: "dist",
         kind: ArtifactKind::GenericDist,
         marker: Marker::ParentHasAny(&["package.json", "pyproject.toml", "setup.py"]),

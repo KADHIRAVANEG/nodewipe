@@ -112,6 +112,7 @@ fn ecosystem_color(kind: ArtifactKind) -> &'static str {
         ArtifactKind::NodeModules
         | ArtifactKind::NextCache
         | ArtifactKind::TurboCache
+        | ArtifactKind::NxCache
         | ArtifactKind::GenericDist
         | ArtifactKind::AstroCache
         | ArtifactKind::SvelteKitCache
@@ -140,7 +141,10 @@ fn ecosystem_color(kind: ArtifactKind) -> &'static str {
         ArtifactKind::XcodeDerivedData | ArtifactKind::SwiftPmBuild | ArtifactKind::CocoaPods => {
             "#3b82f6"
         }
-        ArtifactKind::CmakeBuild | ArtifactKind::ZigCache | ArtifactKind::MesonBuild => "#14b8a6",
+        ArtifactKind::CmakeBuild
+        | ArtifactKind::ZigCache
+        | ArtifactKind::MesonBuild
+        | ArtifactKind::BazelCache => "#14b8a6",
         ArtifactKind::PlaywrightBrowsers
         | ArtifactKind::CypressCache
         | ArtifactKind::ElixirBuild

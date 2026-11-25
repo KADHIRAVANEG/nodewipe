@@ -86,6 +86,10 @@ pub enum ArtifactKind {
     PnpmIgnored,
     /// Yarn global offline package cache (`~/.cache/yarn/v6` or `~/Library/Caches/Yarn/v6`).
     YarnCache,
+    /// Nx monorepo local computation cache (`.nx/`).
+    NxCache,
+    /// Bazel build cache and output base (`bazel-cache/` or `output_base`).
+    BazelCache,
     /// User-defined or team-defined custom artifact rule.
     Custom,
 }
@@ -132,6 +136,8 @@ impl ArtifactKind {
         ArtifactKind::MesonBuild,
         ArtifactKind::PnpmIgnored,
         ArtifactKind::YarnCache,
+        ArtifactKind::NxCache,
+        ArtifactKind::BazelCache,
         ArtifactKind::Custom,
     ];
 
@@ -177,6 +183,8 @@ impl ArtifactKind {
             ArtifactKind::MesonBuild => "meson_build",
             ArtifactKind::PnpmIgnored => "pnpm_ignored",
             ArtifactKind::YarnCache => "yarn_cache",
+            ArtifactKind::NxCache => "nx_cache",
+            ArtifactKind::BazelCache => "bazel_cache",
             ArtifactKind::Custom => "custom",
         }
     }
@@ -222,6 +230,8 @@ impl ArtifactKind {
             "meson_build" | "meson" => ArtifactKind::MesonBuild,
             "pnpm_ignored" | "node_modules_ignored" | "ignored" => ArtifactKind::PnpmIgnored,
             "yarn_cache" | "yarn" => ArtifactKind::YarnCache,
+            "nx_cache" | "nx" => ArtifactKind::NxCache,
+            "bazel_cache" | "bazel" => ArtifactKind::BazelCache,
             "custom" => ArtifactKind::Custom,
             _ => return None,
         })
@@ -268,6 +278,8 @@ impl ArtifactKind {
             ArtifactKind::MesonBuild => "Meson build",
             ArtifactKind::PnpmIgnored => "pnpm .ignored",
             ArtifactKind::YarnCache => "Yarn cache",
+            ArtifactKind::NxCache => "Nx cache",
+            ArtifactKind::BazelCache => "Bazel cache",
             ArtifactKind::Custom => "Custom artifact",
         }
     }
@@ -310,7 +322,8 @@ impl ArtifactKind {
             | ArtifactKind::TritonCache => "\u{f085}", // 
             ArtifactKind::AndroidBuildCache => "\u{e70e}", // 
             ArtifactKind::PlaywrightBrowsers | ArtifactKind::CypressCache => "\u{f268}", // 
-            ArtifactKind::TurboCache => "\u{f1b2}", // 
+            ArtifactKind::TurboCache | ArtifactKind::NxCache => "\u{f1b2}", // 
+            ArtifactKind::BazelCache => "\u{e61e}", // 
             ArtifactKind::Custom => "\u{f013}",     // 
         }
     }
@@ -431,6 +444,12 @@ impl ArtifactKind {
             }
             ArtifactKind::YarnCache => {
                 "Yarn global package tarball cache (v6). Safe to delete; packages will be re-downloaded if needed."
+            }
+            ArtifactKind::NxCache => {
+                "Nx monorepo computation cache (.nx/). Stores cached task outputs. Safe to prune or delete."
+            }
+            ArtifactKind::BazelCache => {
+                "Bazel build output and action cache. Rebuilt from sources; check active server locks before pruning."
             }
             ArtifactKind::Custom => "User-defined custom artifact directory rule.",
         }

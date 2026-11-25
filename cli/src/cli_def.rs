@@ -424,11 +424,31 @@ pub enum Command {
         path: PathBuf,
     },
 
-    /// Analyze monorepo workspaces and report member packages, artifact footprints, and shared dependencies.
+    /// Analyze monorepo workspaces and optionally prune stale computation/daemon caches.
     Workspace {
         /// Path to the monorepo root or child directory.
         #[arg(value_name = "PATH", default_value = ".")]
         path: PathBuf,
+
+        /// Prune stale Turborepo, Nx, Gradle, and Bazel computation caches.
+        #[arg(long)]
+        prune_caches: bool,
+
+        /// Maximum cache age in days to retain when --prune-caches is set.
+        #[arg(long, default_value_t = 14, value_name = "DAYS")]
+        max_age: u64,
+
+        /// Preview cache pruning without deleting any cache entries.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation requirement when pruning caches without --dry-run.
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Include global user daemon caches (~/.gradle/caches, ~/.cache/bazel) when pruning.
+        #[arg(long)]
+        global_daemons: bool,
     },
 
     /// Manage, list, and prune .tar.gz and .snapshot backup archives.

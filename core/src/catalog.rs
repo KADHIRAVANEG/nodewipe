@@ -541,6 +541,30 @@ pub static CATALOG: &[CatalogEntry] = &[
         default_dir_names: &["builddir"],
         default_markers: &["meson.build"],
     },
+    CatalogEntry {
+        kind: ArtifactKind::NxCache,
+        slug: "nx_cache",
+        name: "Nx cache",
+        category: EcosystemCategory::ModernWeb,
+        default_risk: RiskLevel::Low,
+        description: "Nx monorepo local computation cache (.nx/).",
+        default_recipe: Some("npx nx run-many --target=build"),
+        icon: "\u{f1b2}",
+        default_dir_names: &[".nx"],
+        default_markers: &["nx.json"],
+    },
+    CatalogEntry {
+        kind: ArtifactKind::BazelCache,
+        slug: "bazel_cache",
+        name: "Bazel cache",
+        category: EcosystemCategory::SystemsNative,
+        default_risk: RiskLevel::Low,
+        description: "Bazel output base and action cache.",
+        default_recipe: Some("bazel build //..."),
+        icon: "\u{e61e}",
+        default_dir_names: &["bazel-cache", "output_base"],
+        default_markers: &["WORKSPACE", "MODULE.bazel"],
+    },
 ];
 
 /// Returns a slice of all built-in catalog entries.
@@ -576,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_catalog_completeness_and_lookup() {
-        assert_eq!(CATALOG.len(), 39);
+        assert_eq!(CATALOG.len(), 41);
         for entry in CATALOG {
             assert!(!entry.slug.is_empty());
             assert!(!entry.name.is_empty());
