@@ -71,7 +71,11 @@ pub use plan::{
 pub use profile::ProfileKind;
 pub use rebuild::{RebuildPlan, resolve_rebuild_plan};
 pub use reclaim::{ReclaimCandidate, ReclaimPlan, format_bytes, parse_size_to_bytes, plan_reclaim};
-pub use reflink::{ReflinkDirStats, reflink_dir, supports_reflink};
+pub use reflink::{
+    CloneRangeChunk, CowBackend, CowCapabilities, ReflinkDirStats, align_down_to_cluster,
+    align_up_to_cluster, plan_aligned_clone_chunks, probe_cow_capabilities, reflink_batch,
+    reflink_dir, reflink_file_strict, supports_reflink,
+};
 pub use scanner::{classify_path, classify_path_with_custom, scan};
 pub use stale::{StaleProject, find_stale_projects};
 pub use timeline::{ProjectTimeline, TimelineVerdict, format_timeline_text, inspect_timeline};

@@ -1295,6 +1295,27 @@ fn test_reflink_snapshot_and_restore_cycle() {
     );
     println!("Direct reflink stats: {:?}", stats);
 
+    // Verify CowCapabilities and parallel batch cloning on this mount
+    let caps = nodewipe_core::probe_cow_capabilities(&base);
+    println!("Workspace CoW Capabilities: {:?}", caps);
+    assert_eq!(caps.supported, can_reflink);
+    assert!(caps.cluster_size_bytes >= 4096);
+
+    let batch_pairs = vec![
+        (target.join("my_binary"), base.join("batch_my_binary")),
+        (target.join("cached.o"), base.join("batch_cached.o")),
+    ];
+    let batch_res = nodewipe_core::reflink_batch(&batch_pairs, true);
+    assert_eq!(batch_res.len(), 2);
+    for (i, r) in batch_res.into_iter().enumerate() {
+        let used_cow = r.unwrap();
+        assert_eq!(used_cow, can_reflink);
+        assert_eq!(
+            fs::read(&batch_pairs[i].1).unwrap(),
+            fs::read(&batch_pairs[i].0).unwrap()
+        );
+    }
+
     let _ = fs::remove_dir_all(&base);
 }
 

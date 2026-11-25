@@ -2403,9 +2403,16 @@ fn cmd_dedupe(
     }
 
     if !json {
+        let caps = nodewipe_core::probe_cow_capabilities(&paths[0]);
         println!(
-            "\n nodewipe dedupe — analyzing identical files across {} target(s) …\n",
+            "\n nodewipe dedupe — analyzing identical files across {} target(s) …",
             paths.len()
+        );
+        println!(
+            " CoW Backend:              {} ({}, {} B clusters)\n",
+            caps.backend.label(),
+            caps.filesystem_type,
+            caps.cluster_size_bytes
         );
         if dry_run {
             println!(
