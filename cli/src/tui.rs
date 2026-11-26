@@ -3253,7 +3253,25 @@ fn human_size(bytes: u64) -> String {
     format!("{size:.2} {}", UNITS[unit])
 }
 
+/// Validate that a browser URL uses http/https and contains no shell metacharacters.
+pub fn is_safe_browser_url(url: &str) -> bool {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return false;
+    }
+    !url.chars().any(|c| {
+        c.is_control()
+            || c.is_whitespace()
+            || matches!(
+                c,
+                '&' | '|' | '^' | '%' | '<' | '>' | '"' | '\'' | '`' | ';' | '$'
+            )
+    })
+}
+
 pub fn open_browser(url: &str) {
+    if !is_safe_browser_url(url) {
+        return;
+    }
     #[cfg(target_os = "windows")]
     {
         let _ = std::process::Command::new("cmd")
@@ -3304,6 +3322,20 @@ mod tests {
         assert!(fuzzy_match("pyc", "__pycache__"));
         assert!(!fuzzy_match("xyz123", "node_modules"));
         assert!(!fuzzy_match("tarx", "target"));
+    }
+
+    #[test]
+    fn test_is_safe_browser_url_blocks_shell_injection_and_bad_schemes() {
+        assert!(is_safe_browser_url(
+            "https://github.com/KADHIRAVANEG/nodewipe"
+        ));
+        assert!(is_safe_browser_url("http://localhost:8080/report"));
+        assert!(!is_safe_browser_url("javascript:alert(1)"));
+        assert!(!is_safe_browser_url("file:///etc/passwd"));
+        assert!(!is_safe_browser_url("https://example.com & calc.exe"));
+        assert!(!is_safe_browser_url("https://example.com|whoami"));
+        assert!(!is_safe_browser_url("https://example.com/%COMSPEC%"));
+        assert!(!is_safe_browser_url("https://example.com\ncalc"));
     }
 
     #[test]

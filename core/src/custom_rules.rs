@@ -132,9 +132,14 @@ pub fn validate_custom_rule(rule: &CustomRule) -> Result<()> {
         bail!("rule '{}': dir_name cannot be empty", rule.name);
     }
 
-    if dir.contains('/') || dir.contains('\\') || dir == "." || dir == ".." {
+    if dir.contains('/')
+        || dir.contains('\\')
+        || dir.chars().any(|c| c.is_control())
+        || dir == "."
+        || dir == ".."
+    {
         bail!(
-            "rule '{}': dir_name '{}' must be a single directory name without slashes or path traversal",
+            "rule '{}': dir_name '{}' must be a single directory name without slashes, control chars, or path traversal",
             rule.name,
             dir
         );

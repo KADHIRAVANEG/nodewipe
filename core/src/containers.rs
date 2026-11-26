@@ -383,7 +383,16 @@ pub fn prune_container_caches(
 
 // ── Minimal HTTP/1.1 over Unix Domain Socket Client ───────────────────────────────
 
+const MAX_HTTP_RESPONSE_BYTES: u64 = 32 * 1024 * 1024;
+
 fn unix_http_request(endpoint: &str, method: &str, path: &str) -> Result<(u16, String)> {
+    if method.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        bail!("invalid HTTP method: contains control or whitespace characters");
+    }
+    if path.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        bail!("invalid HTTP request path: contains control or whitespace characters");
+    }
+
     #[cfg(unix)]
     {
         use std::os::unix::net::UnixStream;
@@ -400,7 +409,12 @@ fn unix_http_request(endpoint: &str, method: &str, path: &str) -> Result<(u16, S
         stream.write_all(req.as_bytes())?;
 
         let mut raw = Vec::new();
-        stream.read_to_end(&mut raw)?;
+        stream
+            .take(MAX_HTTP_RESPONSE_BYTES + 1)
+            .read_to_end(&mut raw)?;
+        if raw.len() as u64 > MAX_HTTP_RESPONSE_BYTES {
+            bail!("HTTP response from container socket exceeded 32 MiB limit");
+        }
 
         parse_http_response(&raw)
     }
@@ -1080,5 +1094,20 @@ mod tests {
 
         let _ = unix_http_request(&ep, "GET", "/stop");
         let _ = server.join();
+    }
+
+    #[test]
+    fn test_unix_http_request_rejects_crlf_smuggling() {
+        assert!(unix_http_request("/tmp/bogus.sock", "GET\r\nEvil: 1", "/info").is_err());
+        assert!(
+            unix_http_request("/tmp/bogus.sock", "GET", "/info HTTP/1.1\r\nHost: evil").is_err()
+        );
+        assert!(unix_http_request("/tmp/bogus.sock", "GET", "/info\0").is_err());
+    }
+
+    #[test]
+    fn test_decode_chunked_body_resists_malformed_lengths() {
+        assert!(decode_chunked_body(b"ZZZZ\r\nabcd\r\n0\r\n\r\n").is_ok());
+        assert!(decode_chunked_body(b"ffff\r\nshort").is_ok());
     }
 }

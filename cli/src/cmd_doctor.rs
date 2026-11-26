@@ -388,6 +388,14 @@ fn install_background_service(threshold: &str) -> Result<()> {
 }
 
 pub fn build_systemd_service_content(exe_path: &Path, threshold: &str) -> String {
+    let safe_exe = sanitize_notification_text(&exe_path.display().to_string())
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "$$");
+    let safe_threshold = sanitize_notification_text(threshold)
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "$$");
     format!(
         "[Unit]\n\
          Description=nodewipe periodic doctor disk space check\n\
@@ -395,8 +403,7 @@ pub fn build_systemd_service_content(exe_path: &Path, threshold: &str) -> String
          [Service]\n\
          Type=oneshot\n\
          ExecStart=\"{}\" doctor --notify --threshold {}\n",
-        exe_path.display(),
-        threshold
+        safe_exe, safe_threshold
     )
 }
 
@@ -619,5 +626,16 @@ mod tests {
         assert!(content.contains(
             "ExecStart=\"/opt/Developer Tools/bin/nodewipe\" doctor --notify --threshold 20GB"
         ));
+    }
+
+    #[test]
+    fn test_systemd_service_content_blocks_directive_injection() {
+        let exe = Path::new("/tmp/nodewipe\nExecStartPost=/bin/sh");
+        let content = build_systemd_service_content(exe, "20GB\r\nUser=root");
+        assert!(
+            !content
+                .lines()
+                .any(|l| l.starts_with("ExecStartPost=") || l.starts_with("User="))
+        );
     }
 }

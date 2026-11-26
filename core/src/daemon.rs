@@ -736,6 +736,26 @@ impl DaemonRunner {
 
 // ── Native Service File Generators ──────────────────────────────────────────
 
+fn strip_control_chars(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect()
+}
+
+fn escape_systemd_quoted(s: &str) -> String {
+    strip_control_chars(s)
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "$$")
+}
+
+fn escape_xml_text(s: &str) -> String {
+    strip_control_chars(s)
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 /// Generate content for a Linux systemd user service running the background daemon.
 pub fn generate_systemd_daemon_service(exe_path: &Path, config: &DaemonConfig) -> String {
     let mut args = vec![
@@ -745,7 +765,8 @@ pub fn generate_systemd_daemon_service(exe_path: &Path, config: &DaemonConfig) -
     ];
 
     for wp in &config.watch_paths {
-        args.push(format!("--watch-dir=\"{}\"", wp.display()));
+        let escaped = escape_systemd_quoted(&wp.display().to_string());
+        args.push(format!("--watch-dir=\"{escaped}\""));
     }
 
     if let Some(limit) = config.size_threshold_bytes {
@@ -765,6 +786,8 @@ pub fn generate_systemd_daemon_service(exe_path: &Path, config: &DaemonConfig) -
         args.push("--auto-dedupe".to_string());
     }
 
+    let safe_exe = escape_systemd_quoted(&exe_path.display().to_string());
+
     format!(
         "[Unit]\n\
          Description=nodewipe real-time workspace watcher and disk pressure alert daemon\n\
@@ -777,7 +800,7 @@ pub fn generate_systemd_daemon_service(exe_path: &Path, config: &DaemonConfig) -
          RestartSec=10\n\n\
          [Install]\n\
          WantedBy=default.target\n",
-        exe_path.display(),
+        safe_exe,
         args.join(" ")
     )
 }
@@ -787,7 +810,7 @@ pub fn generate_macos_daemon_plist(exe_path: &Path, config: &DaemonConfig) -> St
     let mut args_xml = String::new();
     args_xml.push_str(&format!(
         "        <string>{}</string>\n",
-        exe_path.display()
+        escape_xml_text(&exe_path.display().to_string())
     ));
     args_xml.push_str("        <string>daemon</string>\n");
     args_xml.push_str("        <string>start</string>\n");
@@ -795,7 +818,10 @@ pub fn generate_macos_daemon_plist(exe_path: &Path, config: &DaemonConfig) -> St
 
     for wp in &config.watch_paths {
         args_xml.push_str("        <string>--watch-dir</string>\n");
-        args_xml.push_str(&format!("        <string>{}</string>\n", wp.display()));
+        args_xml.push_str(&format!(
+            "        <string>{}</string>\n",
+            escape_xml_text(&wp.display().to_string())
+        ));
     }
 
     if let Some(limit) = config.size_threshold_bytes {
