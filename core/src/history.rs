@@ -238,6 +238,58 @@ pub fn daily_totals(entries: &[HistoryEntry]) -> Vec<DailyTotal> {
     days
 }
 
+/// Aggregated totals for a weekly or monthly period.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeriodTotal {
+    pub period: String,
+    pub bytes_freed: u64,
+    pub count: u64,
+}
+
+/// Aggregate history entries by week (keyed by the Monday `YYYY-MM-DD` of each week).
+pub fn weekly_totals(entries: &[HistoryEntry]) -> Vec<PeriodTotal> {
+    let mut map: HashMap<String, PeriodTotal> = HashMap::new();
+    for e in entries {
+        let days_since_epoch = e.deleted_at / 86400;
+        let week_idx = (days_since_epoch + 3) / 7;
+        let monday_days = (week_idx * 7).saturating_sub(3);
+        let period = format_date(monday_days * 86400);
+        let entry = map.entry(period.clone()).or_insert(PeriodTotal {
+            period,
+            bytes_freed: 0,
+            count: 0,
+        });
+        entry.bytes_freed += e.size_bytes;
+        entry.count += 1;
+    }
+    let mut weeks: Vec<PeriodTotal> = map.into_values().collect();
+    weeks.sort_by(|a, b| a.period.cmp(&b.period));
+    weeks
+}
+
+/// Aggregate history entries by calendar month (`YYYY-MM`).
+pub fn monthly_totals(entries: &[HistoryEntry]) -> Vec<PeriodTotal> {
+    let mut map: HashMap<String, PeriodTotal> = HashMap::new();
+    for e in entries {
+        let period = if e.date.len() >= 7 {
+            e.date[..7].to_string()
+        } else {
+            let formatted = format_date(e.deleted_at);
+            formatted[..7.min(formatted.len())].to_string()
+        };
+        let entry = map.entry(period.clone()).or_insert(PeriodTotal {
+            period,
+            bytes_freed: 0,
+            count: 0,
+        });
+        entry.bytes_freed += e.size_bytes;
+        entry.count += 1;
+    }
+    let mut months: Vec<PeriodTotal> = map.into_values().collect();
+    months.sort_by(|a, b| a.period.cmp(&b.period));
+    months
+}
+
 // ── timestamp helpers ─────────────────────────────────────────────────────────
 
 /// Current Unix timestamp in seconds.
@@ -269,4 +321,53 @@ pub fn format_date(unix_secs: u64) -> String {
     let year = 100 * b + d - 4800 + m / 10;
 
     format!("{:04}-{:02}-{:02}", year, month, day)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_weekly_and_monthly_aggregation() {
+        let entries = vec![
+            HistoryEntry {
+                deleted_at: 1_770_000_000, // 2026-02-02 (Monday)
+                date: "2026-02-02".to_string(),
+                path: "/a/node_modules".to_string(),
+                kind: "node_modules".to_string(),
+                size_bytes: 1_000_000,
+                mode: "trash".to_string(),
+            },
+            HistoryEntry {
+                deleted_at: 1_770_086_400, // 2026-02-03 (Tuesday, same week)
+                date: "2026-02-03".to_string(),
+                path: "/b/target".to_string(),
+                kind: "rust_target".to_string(),
+                size_bytes: 2_000_000,
+                mode: "trash".to_string(),
+            },
+            HistoryEntry {
+                deleted_at: 1_772_500_000, // 2026-03-03 (next month & different week)
+                date: "2026-03-03".to_string(),
+                path: "/c/target".to_string(),
+                kind: "rust_target".to_string(),
+                size_bytes: 5_000_000,
+                mode: "archive".to_string(),
+            },
+        ];
+
+        let weeks = weekly_totals(&entries);
+        assert_eq!(weeks.len(), 2);
+        assert_eq!(weeks[0].bytes_freed, 3_000_000);
+        assert_eq!(weeks[0].count, 2);
+        assert_eq!(weeks[1].bytes_freed, 5_000_000);
+        assert_eq!(weeks[1].count, 1);
+
+        let months = monthly_totals(&entries);
+        assert_eq!(months.len(), 2);
+        assert_eq!(months[0].period, "2026-02");
+        assert_eq!(months[0].bytes_freed, 3_000_000);
+        assert_eq!(months[1].period, "2026-03");
+        assert_eq!(months[1].bytes_freed, 5_000_000);
+    }
 }

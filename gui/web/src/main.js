@@ -527,14 +527,140 @@ async function runDoctor() {
   }
 }
 
-// ── Stats tab ─────────────────────────────────────────────────────────────────
+// ── Analytics tab ─────────────────────────────────────────────────────────────
+
+let cachedStatsData = null;
+let activePeriod = "daily";
+
+function renderTimeseriesSvg(points, labelKey) {
+  const chartDiv = document.getElementById("stats-chart");
+  if (!points || points.length === 0) {
+    chartDiv.innerHTML = "<p class='restore-empty'>No reclaim telemetry recorded for this timeframe.</p>";
+    return;
+  }
+
+  const maxBytes = Math.max(...points.map((p) => p.bytes_freed), 1);
+  const width = Math.max(460, points.length * 36);
+  const height = 180;
+  const padLeft = 10;
+  const padRight = 10;
+  const padTop = 18;
+  const padBottom = 26;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+  const barGap = 6;
+  const barW = Math.max(8, Math.floor(plotW / points.length) - barGap);
+
+  const gridLines = [0.25, 0.5, 0.75, 1.0].map((frac) => {
+    const y = Math.round(padTop + plotH * (1 - frac));
+    return `<line class="svg-grid-line" x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" />`;
+  }).join("");
+
+  const bars = points.map((p, idx) => {
+    const ratio = p.bytes_freed / maxBytes;
+    const barH = Math.max(4, Math.round(ratio * plotH));
+    const x = Math.round(padLeft + idx * (barW + barGap));
+    const y = Math.round(padTop + plotH - barH);
+    const rawLabel = String(p[labelKey] || "");
+    const shortLabel = rawLabel.length > 7 ? rawLabel.slice(5) : rawLabel;
+    const showTick = points.length <= 12 || idx % Math.ceil(points.length / 8) === 0;
+    const tick = showTick
+      ? `<text class="svg-axis-label" x="${x + Math.floor(barW / 2)}" y="${height - 6}" text-anchor="middle">${escapeHtml(shortLabel)}</text>`
+      : "";
+    return `
+      <rect class="svg-bar-rect" x="${x}" y="${y}" width="${barW}" height="${barH}" rx="3">
+        <title>${escapeHtml(rawLabel)}: ${escapeHtml(humanSize(p.bytes_freed))} (${p.count} cleanups)</title>
+      </rect>
+      ${tick}
+    `;
+  }).join("");
+
+  chartDiv.innerHTML = `
+    <div class="svg-chart-wrap">
+      <svg class="svg-timeseries" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+        ${gridLines}
+        ${bars}
+      </svg>
+    </div>
+  `;
+}
+
+function renderDonutSvg(byEcosystem, totalBytes) {
+  const donutDiv = document.getElementById("stats-donut");
+  if (!byEcosystem || byEcosystem.length === 0 || totalBytes === 0) {
+    donutDiv.innerHTML = "<p class='restore-empty'>No ecosystem share data yet.</p>";
+    return;
+  }
+
+  const topSlices = byEcosystem.slice(0, 5);
+  const otherBytes = byEcosystem.slice(5).reduce((s, e) => s + e.total_bytes, 0);
+  const slices = otherBytes > 0
+    ? [...topSlices, { kind: "other", total_bytes: otherBytes, count: 0 }]
+    : topSlices;
+
+  const radius = 44;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  const circles = slices.map((s, idx) => {
+    const frac = s.total_bytes / totalBytes;
+    const len = frac * circumference;
+    const dashArray = `${len.toFixed(2)} ${(circumference - len).toFixed(2)}`;
+    const dashOffset = (-offset).toFixed(2);
+    offset += len;
+    return `<circle class="donut-slice-${idx}" cx="60" cy="60" r="${radius}" fill="transparent" stroke-width="16" stroke-dasharray="${dashArray}" stroke-dashoffset="${dashOffset}" transform="rotate(-90 60 60)"><title>${escapeHtml(s.kind)}: ${escapeHtml(humanSize(s.total_bytes))}</title></circle>`;
+  }).join("");
+
+  const legend = slices.map((s, idx) => {
+    const pct = ((s.total_bytes / totalBytes) * 100).toFixed(1);
+    return `
+      <div class="legend-item">
+        <span class="legend-left">
+          <span class="legend-swatch color-${idx}"></span>
+          <span>${escapeHtml(KIND_LABELS[s.kind] || s.kind)}</span>
+        </span>
+        <span class="group-meta">${pct}% (${escapeHtml(humanSize(s.total_bytes))})</span>
+      </div>
+    `;
+  }).join("");
+
+  donutDiv.innerHTML = `
+    <svg width="120" height="120" viewBox="0 0 120 120">
+      ${circles}
+    </svg>
+    <div class="donut-legend">${legend}</div>
+  `;
+}
+
+function renderStatsTimeframe() {
+  if (!cachedStatsData) return;
+  const titleEl = document.getElementById("timeseries-title");
+  if (activePeriod === "daily") {
+    const cutoff = dateMinusDays(30);
+    const recent = (cachedStatsData.daily || []).filter((d) => d.date >= cutoff);
+    titleEl.textContent = "Reclaimed Space Over Time (Last 30 Days)";
+    renderTimeseriesSvg(recent, "date");
+  } else if (activePeriod === "weekly") {
+    const weeks = (cachedStatsData.weekly || []).slice(-12);
+    titleEl.textContent = "Reclaimed Space Over Time (Last 12 Weeks)";
+    renderTimeseriesSvg(weeks, "period");
+  } else {
+    const months = (cachedStatsData.monthly || []).slice(-12);
+    titleEl.textContent = "Reclaimed Space Over Time (Last 12 Months)";
+    renderTimeseriesSvg(months, "period");
+  }
+}
 
 async function loadStats() {
   const statsContent = document.getElementById("stats-content");
   const statsEmpty = document.getElementById("stats-empty");
 
   try {
-    const data = await invoke("stats_command");
+    const [data, daemonStatus] = await Promise.all([
+      invoke("stats_command"),
+      invoke("daemon_status_command").catch(() => ({ is_alive: false })),
+    ]);
+    cachedStatsData = data;
 
     if (data.total_deletions === 0) {
       statsContent.classList.add("hidden");
@@ -542,8 +668,36 @@ async function loadStats() {
       return;
     }
 
-    document.getElementById("stats-total").innerHTML =
-      `<strong>Total freed:</strong> ${humanSize(data.total_freed_bytes)} across ${data.total_deletions} deletion${data.total_deletions === 1 ? "" : "s"}`;
+    const topEco = data.by_ecosystem && data.by_ecosystem.length > 0
+      ? (KIND_LABELS[data.by_ecosystem[0].kind] || data.by_ecosystem[0].kind)
+      : "—";
+    const topEcoBytes = data.by_ecosystem && data.by_ecosystem.length > 0
+      ? humanSize(data.by_ecosystem[0].total_bytes)
+      : "0 B";
+
+    const kpiGrid = document.getElementById("kpi-grid");
+    kpiGrid.innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-label">Total Reclaimed</div>
+        <div class="kpi-value">${escapeHtml(humanSize(data.total_freed_bytes))}</div>
+        <div class="kpi-sub">Cumulative lifetime savings</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Cleanup Actions</div>
+        <div class="kpi-value">${data.total_deletions}</div>
+        <div class="kpi-sub">Verified artifact excisions</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Top Ecosystem</div>
+        <div class="kpi-value">${escapeHtml(topEco)}</div>
+        <div class="kpi-sub">${escapeHtml(topEcoBytes)} freed</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Background Watcher</div>
+        <div class="kpi-value">${daemonStatus.is_alive ? "Active" : "Stopped"}</div>
+        <div class="kpi-sub">${daemonStatus.is_alive ? `PID ${daemonStatus.pid}` : "Click header pill to start"}</div>
+      </div>
+    `;
 
     const ecoBody = document.getElementById("stats-eco-body");
     ecoBody.innerHTML = "";
@@ -553,7 +707,7 @@ async function loadStats() {
         : "—";
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${escapeHtml(eco.kind)}</td>
+        <td>${escapeHtml(KIND_LABELS[eco.kind] || eco.kind)}</td>
         <td>${eco.count}</td>
         <td>${humanSize(eco.total_bytes)}</td>
         <td>${escapeHtml(lastDate)}</td>
@@ -561,33 +715,27 @@ async function loadStats() {
       ecoBody.appendChild(tr);
     }
 
-    // Bar chart — last 30 days
-    const chartDiv = document.getElementById("stats-chart");
-    const daily = data.daily || [];
-    const cutoff = dateMinusDays(30);
-    const recent = daily.filter((d) => d.date >= cutoff);
-
-    if (recent.length > 0) {
-      const maxBytes = Math.max(...recent.map((d) => d.bytes_freed));
-      chartDiv.innerHTML = "<h3>Last 30 days</h3>" +
-        recent.map((d) => {
-          const barPct = maxBytes > 0 ? Math.max(4, (d.bytes_freed / maxBytes) * 100) : 4;
-          return `<div class="chart-row">
-            <span class="chart-date">${escapeHtml(d.date)}</span>
-            <div class="chart-bar-wrap">
-              <div class="chart-bar" style="width:${barPct}%"></div>
-            </div>
-            <span class="chart-label">${humanSize(d.bytes_freed)} (${d.count})</span>
-          </div>`;
-        }).join("");
-    } else {
-      chartDiv.innerHTML = "<p class='restore-empty'>No deletions in the last 30 days.</p>";
+    const recentBody = document.getElementById("stats-recent-body");
+    recentBody.innerHTML = "";
+    for (const rec of (data.recent || [])) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(rec.date)}</td>
+        <td>${escapeHtml(KIND_LABELS[rec.kind] || rec.kind)}</td>
+        <td><span class="badge badge-unknown">${escapeHtml(rec.mode)}</span></td>
+        <td>${humanSize(rec.size_bytes)}</td>
+        <td class="path-cell" title="${escapeHtml(rec.path)}">${escapeHtml(truncatePath(rec.path, 52))}</td>
+      `;
+      recentBody.appendChild(tr);
     }
+
+    renderStatsTimeframe();
+    renderDonutSvg(data.by_ecosystem, data.total_freed_bytes);
 
     statsContent.classList.remove("hidden");
     statsEmpty.classList.add("hidden");
   } catch (e) {
-    showToast(`Stats failed: ${e}`, "error");
+    showToast(`Analytics failed: ${e}`, "error");
   }
 }
 
@@ -708,5 +856,124 @@ async function openRestorePanel() {
 restoreBtn.addEventListener("click", openRestorePanel);
 restoreClose.addEventListener("click", () => restorePanel.classList.add("hidden"));
 
+// ── Timeframe Toggle ──────────────────────────────────────────────────────────
+
+document.querySelectorAll("#timeframe-toggle .toggle-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#timeframe-toggle .toggle-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    activePeriod = btn.dataset.period || "daily";
+    renderStatsTimeframe();
+  });
+});
+
+// ── Theme & Accent Engine ─────────────────────────────────────────────────────
+
+const themeSelect = document.getElementById("theme-select");
+const accentSelect = document.getElementById("accent-select");
+const trayMinimizeCheckbox = document.getElementById("tray-minimize-checkbox");
+const systemColorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+let currentPrefs = { theme: "system", accent: "cobalt", minimize_to_tray: true };
+
+function applyThemeAndAccent(prefs) {
+  const resolvedTheme = prefs.theme === "system"
+    ? (systemColorSchemeQuery.matches ? "dark" : "light")
+    : prefs.theme;
+  document.documentElement.setAttribute("data-theme", resolvedTheme);
+  document.documentElement.setAttribute("data-accent", prefs.accent || "cobalt");
+  themeSelect.value = prefs.theme || "system";
+  accentSelect.value = prefs.accent || "cobalt";
+  trayMinimizeCheckbox.checked = prefs.minimize_to_tray !== false;
+}
+
+async function persistPrefs() {
+  try {
+    currentPrefs = await invoke("save_gui_prefs_command", { prefs: currentPrefs });
+    localStorage.setItem("nodewipe_gui_prefs", JSON.stringify(currentPrefs));
+  } catch (e) {
+    showToast(`Failed to save preferences: ${e}`, "error");
+  }
+}
+
+systemColorSchemeQuery.addEventListener("change", () => {
+  if (currentPrefs.theme === "system") applyThemeAndAccent(currentPrefs);
+});
+
+themeSelect.addEventListener("change", () => {
+  currentPrefs.theme = themeSelect.value;
+  applyThemeAndAccent(currentPrefs);
+  persistPrefs();
+});
+
+accentSelect.addEventListener("change", () => {
+  currentPrefs.accent = accentSelect.value;
+  applyThemeAndAccent(currentPrefs);
+  persistPrefs();
+});
+
+trayMinimizeCheckbox.addEventListener("change", () => {
+  currentPrefs.minimize_to_tray = trayMinimizeCheckbox.checked;
+  persistPrefs();
+});
+
+// ── Watcher Status & Tray Events ──────────────────────────────────────────────
+
+const watcherPill = document.getElementById("watcher-pill");
+const watcherLabel = document.getElementById("watcher-label");
+
+function updateWatcherUi(status) {
+  const alive = Boolean(status && status.is_alive);
+  watcherPill.classList.toggle("active", alive);
+  watcherLabel.textContent = alive ? `Watcher: Active (${status.pid})` : "Watcher: Stopped";
+}
+
+async function refreshWatcherStatus() {
+  try {
+    const status = await invoke("daemon_status_command");
+    updateWatcherUi(status);
+  } catch (_) {
+    updateWatcherUi({ is_alive: false });
+  }
+}
+
+watcherPill.addEventListener("click", async () => {
+  try {
+    const status = await invoke("daemon_toggle_command");
+    updateWatcherUi(status);
+    showToast(status.is_alive ? "Background watcher started" : "Background watcher stopped", "info");
+  } catch (e) {
+    showToast(`Watcher toggle failed: ${e}`, "error");
+  }
+});
+
+if (window.__TAURI__ && window.__TAURI__.event) {
+  window.__TAURI__.event.listen("tray-quick-scan", () => {
+    document.querySelector('.tab-btn[data-tab="scan"]').click();
+    doScan();
+  });
+  window.__TAURI__.event.listen("tray-watcher-toggled", (event) => {
+    updateWatcherUi(event.payload);
+  });
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+try {
+  const cached = JSON.parse(localStorage.getItem("nodewipe_gui_prefs") || "null");
+  if (cached) {
+    currentPrefs = cached;
+    applyThemeAndAccent(currentPrefs);
+  }
+} catch (_) { /* ignore */ }
+
+invoke("load_gui_prefs_command")
+  .then((prefs) => {
+    currentPrefs = prefs;
+    applyThemeAndAccent(currentPrefs);
+  })
+  .catch(() => applyThemeAndAccent(currentPrefs));
+
 invoke("home_dir_command").then((home) => { rootInput.value = home; });
+refreshWatcherStatus();
 renderChips();

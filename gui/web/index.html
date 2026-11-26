@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-accent="cobalt">
 <head>
   <meta charset="UTF-8" />
   <title>nodewipe</title>
@@ -22,19 +22,51 @@
         </g>
       </svg>
       <h1>nodewipe</h1>
+      <button id="watcher-pill" class="watcher-pill" title="Click to toggle background filesystem watcher daemon">
+        <span class="watcher-dot"></span>
+        <span id="watcher-label">Watcher: Stopped</span>
+      </button>
     </div>
-    <div class="root-picker">
-      <input id="search-input" type="text" placeholder="Filter by path..." />
-      <input id="root-input" type="text" placeholder="/home/you" />
-      <button id="scan-btn">Scan</button>
+    <div class="header-controls">
+      <div class="root-picker">
+        <input id="search-input" type="text" placeholder="Filter by path..." />
+        <input id="root-input" type="text" placeholder="/home/you" />
+        <button id="scan-btn">Scan</button>
+      </div>
+      <div class="prefs-bar">
+        <select id="theme-select" title="Color theme">
+          <option value="system">Theme: System</option>
+          <option value="dark">Theme: Dark</option>
+          <option value="light">Theme: Light</option>
+        </select>
+        <select id="accent-select" title="Accent palette">
+          <option value="cobalt">Cobalt</option>
+          <option value="emerald">Emerald</option>
+          <option value="amber">Amber</option>
+          <option value="violet">Violet</option>
+        </select>
+        <label class="tray-toggle" title="Keep running in system tray when window is closed">
+          <input type="checkbox" id="tray-minimize-checkbox" checked />
+          <span>Tray</span>
+        </label>
+      </div>
     </div>
   </header>
 
   <!-- Tab bar -->
   <nav class="tab-bar">
-    <button class="tab-btn active" data-tab="scan">🔍 Scan</button>
-    <button class="tab-btn" data-tab="doctor">🩺 Doctor</button>
-    <button class="tab-btn" data-tab="stats">📊 Stats</button>
+    <button class="tab-btn active" data-tab="scan">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      Scan
+    </button>
+    <button class="tab-btn" data-tab="doctor">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>
+      Doctor
+    </button>
+    <button class="tab-btn" data-tab="stats">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>
+      Analytics
+    </button>
   </nav>
 
   <!-- ── SCAN TAB ── -->
@@ -100,7 +132,7 @@
     <div id="restore-panel" class="restore-panel hidden">
       <div class="restore-header">
         <span>Restore a backup archive</span>
-        <button id="restore-close" class="btn-neutral">✕ Close</button>
+        <button id="restore-close" class="btn-neutral">Close</button>
       </div>
       <div id="restore-list" class="restore-list">
         <p class="restore-empty">Searching for archives...</p>
@@ -139,26 +171,60 @@
     </div>
   </div>
 
-  <!-- ── STATS TAB ── -->
+  <!-- ── ANALYTICS TAB ── -->
   <div id="tab-stats" class="tab-panel hidden">
     <div class="toolbar">
-      <div class="summary">Lifetime deletion history.</div>
-      <button id="stats-btn" class="btn-safe">Refresh</button>
+      <div class="summary">Historical reclaim telemetry and ecosystem breakdown.</div>
+      <div class="analytics-actions">
+        <div class="view-toggle" id="timeframe-toggle">
+          <button class="toggle-btn active" data-period="daily">Daily (30d)</button>
+          <button class="toggle-btn" data-period="weekly">Weekly (12w)</button>
+          <button class="toggle-btn" data-period="monthly">Monthly (12m)</button>
+        </div>
+        <button id="stats-btn" class="btn-safe">Refresh</button>
+      </div>
     </div>
     <div id="stats-content" class="stats-content hidden">
-      <div id="stats-total" class="stats-total"></div>
-      <table class="doctor-table">
-        <thead>
-          <tr>
-            <th>Ecosystem</th>
-            <th>Deletions</th>
-            <th>Total freed</th>
-            <th>Last deleted</th>
-          </tr>
-        </thead>
-        <tbody id="stats-eco-body"></tbody>
-      </table>
-      <div id="stats-chart" class="stats-chart"></div>
+      <div class="kpi-grid" id="kpi-grid"></div>
+      <div class="analytics-grid">
+        <div class="analytics-card">
+          <h3 id="timeseries-title">Reclaimed Space Over Time</h3>
+          <div id="stats-chart" class="stats-chart"></div>
+        </div>
+        <div class="analytics-card">
+          <h3>Ecosystem Share</h3>
+          <div id="stats-donut" class="stats-donut"></div>
+        </div>
+      </div>
+      <div class="analytics-card">
+        <h3>Ecosystem Totals</h3>
+        <table class="doctor-table">
+          <thead>
+            <tr>
+              <th>Ecosystem</th>
+              <th>Deletions</th>
+              <th>Total freed</th>
+              <th>Last deleted</th>
+            </tr>
+          </thead>
+          <tbody id="stats-eco-body"></tbody>
+        </table>
+      </div>
+      <div class="analytics-card">
+        <h3>Recent Cleanup Activity</h3>
+        <table class="doctor-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Ecosystem</th>
+              <th>Mode</th>
+              <th>Freed</th>
+              <th>Path</th>
+            </tr>
+          </thead>
+          <tbody id="stats-recent-body"></tbody>
+        </table>
+      </div>
     </div>
     <div id="stats-empty" class="empty-state hidden">
       <p>No deletions recorded yet. Delete something from the Scan tab first.</p>

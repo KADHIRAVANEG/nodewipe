@@ -2751,11 +2751,13 @@ dependencies = [
 name = "nodewipe-gui"
 version = "1.0.0"
 dependencies = [
+ "dirs 6.0.0",
  "nodewipe-core",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tempfile",
  "walkdir",
 ]
 
