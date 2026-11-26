@@ -96,12 +96,16 @@ pub fn run(
         notification_sent = send_desktop_notification(title, &body);
     }
 
+    let daemon_cfg = nodewipe_core::DaemonConfig::default();
+    let daemon_status = nodewipe_core::check_daemon_status(&daemon_cfg);
+
     if json {
         let out = serde_json::json!({
             "report": report,
             "threshold_bytes": threshold_bytes,
             "threshold_exceeded": threshold_exceeded,
             "notification_sent": notification_sent,
+            "daemon": daemon_status,
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
         return Ok(ExitCode::SUCCESS);
@@ -203,18 +207,38 @@ pub fn run(
     }
 
     println!();
+    if daemon_status.is_alive {
+        println!(
+            " Background Watcher: Active (PID {}) — watching {} workspace(s)",
+            daemon_status.pid,
+            daemon_status.watch_paths.len()
+        );
+    } else if daemon_status.is_stale_pid {
+        println!(
+            " Background Watcher: Stale PID (PID {} died). Run 'nodewipe daemon start' to restart.",
+            daemon_status.pid
+        );
+    } else {
+        println!(
+            " Background Watcher: Inactive (run 'nodewipe daemon start' for continuous disk pressure alerts)"
+        );
+    }
+
     if cfg!(target_os = "macos") || report.ecosystems.iter().any(|e| e.kind == "derived_data") {
-        println!(" Mobile / Apple tip:");
+        println!("\n Mobile / Apple tip:");
         println!(
             "    Run `xcrun simctl delete unavailable` to purge orphaned iOS simulator runtimes.\n"
         );
     }
 
-    println!(" Next steps:");
-    println!("    nodewipe scan --older-than 90d    # list stale artifacts");
-    println!("    nodewipe scan --older-than 90d --json | jq  # script-friendly");
-    println!("    nodewipe delete <path> --mode trash          # safe delete");
-    println!("    nodewipe doctor --install-service            # setup weekly background check");
+    println!("\n Next steps:");
+    println!("    nodewipe scan --older-than 90d               # list stale artifacts");
+    println!("    nodewipe scan --older-than 90d --json | jq     # script-friendly");
+    println!("    nodewipe delete <path> --mode trash             # safe delete");
+    println!(
+        "    nodewipe daemon start --threshold 25GB          # start real-time watcher daemon"
+    );
+    println!("    nodewipe doctor --install-service               # setup weekly background check");
     println!();
 
     Ok(ExitCode::SUCCESS)

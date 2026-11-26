@@ -3,6 +3,7 @@ pub mod catalog;
 pub mod config;
 pub mod containers;
 pub mod custom_rules;
+pub mod daemon;
 pub mod dedupe;
 pub mod deleter;
 pub mod diff;
@@ -42,6 +43,12 @@ pub use custom_rules::{
     CustomRule, generate_default_rules_template, global_rules_file, load_active_rules,
     load_global_rules, load_project_rules, load_rules_from_file, load_rules_from_str,
     save_rules_to_file, validate_custom_rule,
+};
+pub use daemon::{
+    DaemonConfig, DaemonRunner, DaemonStatusInfo, DiskPressureAlert, DiskSpaceInfo,
+    WorkspaceWatcher, check_daemon_status, evaluate_disk_pressure, get_disk_space,
+    install_daemon_service, is_pid_alive, read_pid, remove_pid, terminate_process,
+    uninstall_daemon_service, write_pid,
 };
 pub use dedupe::{DedupeOptions, DedupeStats, dedupe_paths};
 pub use deleter::{DeleteMode, DeleteResult, DiscoveredArchive, delete, find_archives, restore};

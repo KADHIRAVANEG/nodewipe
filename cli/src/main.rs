@@ -1,4 +1,5 @@
 mod cli_def;
+mod cmd_daemon;
 mod cmd_doctor;
 mod cmd_stats;
 mod report;
@@ -401,6 +402,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Some(Command::Containers { action, provider }) => {
             cmd_containers(action, provider, cli.json)
         }
+        Some(Command::Daemon { action }) => cmd_daemon::run(action),
     }
 }
 

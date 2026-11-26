@@ -497,6 +497,106 @@ pub enum Command {
         #[arg(long, global = false, value_enum)]
         provider: Option<ContainerProviderArg>,
     },
+
+    /// Background real-time filesystem watcher and disk pressure alert service.
+    Daemon {
+        #[command(subcommand)]
+        action: DaemonAction,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq)]
+pub enum DaemonAction {
+    /// Start the background watcher daemon.
+    Start {
+        /// Directories to watch for disposable build artifacts (defaults to current dir or home).
+        #[arg(long = "watch-dir", value_name = "DIR")]
+        watch_dirs: Vec<PathBuf>,
+
+        /// Reclaimable artifact alert threshold (e.g. `25GB`, `500MB`).
+        #[arg(long, value_name = "SIZE", default_value = "25GB")]
+        threshold: String,
+
+        /// Minimum free disk space percentage before alerting (e.g. `15.0`).
+        #[arg(long, value_name = "PERCENT", default_value = "15.0")]
+        min_free_percent: f64,
+
+        /// Watcher evaluation interval in seconds.
+        #[arg(long, value_name = "SECS", default_value = "30")]
+        interval: u64,
+
+        /// Automatically deduplicate identical build artifacts using CoW reflinks.
+        #[arg(long)]
+        auto_dedupe: bool,
+
+        /// Run in foreground instead of detaching into the background.
+        #[arg(long)]
+        foreground: bool,
+    },
+
+    /// Stop any running nodewipe background daemon.
+    Stop,
+
+    /// Show current daemon status, watched paths, and health diagnostics.
+    Status {
+        /// Output status as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Perform an immediate disk pressure diagnostic check on workspaces.
+    Check {
+        /// Directories to check.
+        #[arg(long = "watch-dir", value_name = "DIR")]
+        watch_dirs: Vec<PathBuf>,
+
+        /// Reclaimable artifact alert threshold.
+        #[arg(long, value_name = "SIZE", default_value = "25GB")]
+        threshold: String,
+
+        /// Minimum free disk space percentage.
+        #[arg(long, value_name = "PERCENT", default_value = "15.0")]
+        min_free_percent: f64,
+
+        /// Send desktop notification if threshold exceeded.
+        #[arg(long)]
+        notify: bool,
+    },
+
+    /// Install or uninstall the background daemon as an OS-level service.
+    Service {
+        #[command(subcommand)]
+        action: DaemonServiceAction,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq)]
+pub enum DaemonServiceAction {
+    /// Install background daemon systemd user service (Linux) or launchd LaunchAgent (macOS).
+    Install {
+        /// Directories to watch.
+        #[arg(long = "watch-dir", value_name = "DIR")]
+        watch_dirs: Vec<PathBuf>,
+
+        /// Reclaimable artifact alert threshold.
+        #[arg(long, value_name = "SIZE", default_value = "25GB")]
+        threshold: String,
+
+        /// Minimum free disk space percentage.
+        #[arg(long, value_name = "PERCENT", default_value = "15.0")]
+        min_free_percent: f64,
+
+        /// Watcher evaluation interval in seconds.
+        #[arg(long, value_name = "SECS", default_value = "30")]
+        interval: u64,
+
+        /// Automatically deduplicate identical build artifacts using CoW reflinks.
+        #[arg(long)]
+        auto_dedupe: bool,
+    },
+
+    /// Uninstall background daemon service.
+    Uninstall,
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

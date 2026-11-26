@@ -369,3 +369,74 @@ fn test_cli_containers_scan_and_prune_offline_graceful() {
         .expect("nodewipe containers prune --dry-run");
     assert!(dry.status.success());
 }
+
+#[test]
+fn test_cli_daemon_lifecycle_and_doctor_inspection() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    // 1. Initial status: daemon should not be running
+    let status_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args(["daemon", "status", "--json"])
+        .output()
+        .expect("nodewipe daemon status --json");
+    assert!(status_out.status.success());
+    let status_json: serde_json::Value =
+        serde_json::from_slice(&status_out.stdout).expect("valid daemon status json");
+    assert_eq!(status_json["is_alive"], false);
+
+    // 2. Immediate check on clean workspace
+    let check_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "daemon",
+            "check",
+            "--watch-dir",
+            root.to_str().unwrap(),
+            "--threshold",
+            "5GB",
+        ])
+        .output()
+        .expect("nodewipe daemon check");
+    assert!(check_out.status.success());
+    let check_str = String::from_utf8_lossy(&check_out.stdout);
+    assert!(check_str.contains("[HEALTHY]"));
+
+    // 3. Populate mock workspace with dev bloat and check threshold trigger
+    let nm = root.join("node_modules");
+    std::fs::create_dir_all(&nm).unwrap();
+    std::fs::write(nm.join("package.json"), "{}").unwrap();
+    std::fs::write(nm.join("chunk.bin"), vec![0u8; 8192]).unwrap();
+
+    let check_bloat_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args([
+            "daemon",
+            "check",
+            "--watch-dir",
+            root.to_str().unwrap(),
+            "--threshold",
+            "1KB",
+        ])
+        .output()
+        .expect("nodewipe daemon check bloat");
+    assert!(check_bloat_out.status.success());
+    let check_bloat_str = String::from_utf8_lossy(&check_bloat_out.stdout);
+    assert!(check_bloat_str.contains("[PRESSURE DETECTED]"));
+
+    // 4. Doctor inspection should include daemon status in JSON
+    let doctor_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args(["doctor", root.to_str().unwrap(), "--json", "--no-git"])
+        .output()
+        .expect("nodewipe doctor --json");
+    assert!(doctor_out.status.success());
+    let doctor_json: serde_json::Value =
+        serde_json::from_slice(&doctor_out.stdout).expect("valid doctor json");
+    assert!(doctor_json.get("daemon").is_some());
+    assert_eq!(doctor_json["daemon"]["is_alive"], false);
+
+    // 5. Stopping when not running returns success cleanly
+    let stop_out = Command::new(env!("CARGO_BIN_EXE_nodewipe"))
+        .args(["daemon", "stop"])
+        .output()
+        .expect("nodewipe daemon stop");
+    assert!(stop_out.status.success());
+}
